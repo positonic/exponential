@@ -22,6 +22,11 @@ export interface SentryBugNotification {
   ticketUrl: string;
   /** Link back into Sentry, if the payload carried one. */
   sentryUrl: string | null;
+  /**
+   * Lead-in for the message. Defaults to the Sentry wording; handled app
+   * errors and repeat alerts say what they actually are.
+   */
+  heading?: string;
 }
 
 export async function notifyZulipOfSentryBug(
@@ -58,7 +63,7 @@ export async function notifyZulipOfSentryBug(
     }
 
     const result = await service.sendNotification({
-      title: "New Sentry bug filed",
+      title: notification.heading ?? "New Sentry bug filed",
       message: `**${notification.title}**\n\n${links.join(" · ")}`,
     });
     if (!result.success) {

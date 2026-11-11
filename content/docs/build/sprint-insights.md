@@ -4,20 +4,20 @@ description: Ask Zoe how the current sprint is going and get throughput, velocit
 icon: IconChartBar
 order: 3
 sidebarTitle: Sprint insights
-updated: 2026-09-29
+updated: 2026-10-23
 ---
 
 Sprint insights are the numbers Exponential computes from the sprint your actions are assigned to: how much was planned, how much is done, what was added after the start, the velocity, a burndown, and a set of risk signals. There is no sprint page to read them on; you ask Zoe, or an [external agent](/docs/developers/external-agents) pulls them through the API. The per-cycle totals also appear on the **Metrics** page for product teams.
 
 ## Where to find it
 
-Open Zoe from **Amplify** → **Agents** in the sidebar (see [Zoe](/docs/zoe/assistant)) or through a chat gateway such as [Chat gateways](/docs/zoe/chat-gateways), and ask about the sprint. Product teams with the Product Management plugin also get **Deliver** → **Metrics**, which shows **Velocity**, **Tickets tracked**, **Completion** and **PRs merged** per cycle.
+Open Zoe from **Tools** → **Agents** in the sidebar (see [Zoe](/docs/zoe/assistant)) or through a chat gateway such as [Chat gateways](/docs/zoe/chat-gateways), and ask about the sprint. Product teams with the Product Management plugin also get **Work** → **Metrics**, which shows **Velocity**, **Tickets tracked**, **Completion** and **PRs merged** per cycle.
 
 ## How to set a sprint up
 
 Insights only exist for a workspace with an active sprint and actions in it.
 
-1. Create a cycle: open a product from **Deliver** → **Products**, go to **Cycles**, click **New cycle**, fill in the dates and click **Create cycle**. The active cycle is the sprint.
+1. Create a cycle: open a product from **Work** → **Products**, go to **Cycles**, click **New cycle**, fill in the dates and click **Create cycle**. The active cycle is the sprint.
 2. Assign actions to it with the **Sprint** button on the action form. This needs **Advanced Action Features**, turned on under [workspace settings → **Features**](/go/settings).
 3. Give actions an **Effort** estimate so velocity means something, and due dates so overdue work can be flagged.
 4. Move cards across the board as work progresses — the columns are the source of every count.

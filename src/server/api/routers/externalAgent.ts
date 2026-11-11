@@ -6,6 +6,8 @@ import { createTRPCRouter, humanOnlyProcedure } from "~/server/api/trpc";
 import { generateExternalAgentKey } from "~/server/utils/external-agent-keys";
 import { deleteFromBlob, uploadToBlob } from "~/lib/blob";
 import { deleteExternalAgentPrincipal } from "~/server/services/assistant/principal";
+import { canDelegateFromRole } from "~/lib/agentDelegation";
+import { revokeAgentProjectMembershipsInWorkspace } from "~/server/services/externalAgentAccess";
 
 /**
  * External-agent management (ADR-0049).
@@ -64,7 +66,7 @@ async function requireDelegableWorkspaces(
     where: { userId: ownerId, workspaceId: { in: workspaceIds } },
   });
   const delegable = new Set(
-    ownerMemberships.filter((m) => m.role !== "viewer").map((m) => m.workspaceId),
+    ownerMemberships.filter((m) => canDelegateFromRole(m.role)).map((m) => m.workspaceId),
   );
   if (delegable.size !== workspaceIds.length) {
     // Name the offenders — the picker is fed by `workspace.list`, which also
@@ -193,8 +195,18 @@ export const externalAgentRouter = createTRPCRouter({
             shadowUserId: shadowUser.id,
           },
         });
-        for (const workspaceId of workspaceIds) {
-          await memberGrant(tx, shadowUser.id, workspaceId);
+        // One statement, not a loop of upserts: a "Select all" across many
+        // workspaces must not run the interactive transaction into its timeout.
+        // The shadow user is brand new, so there is nothing to upsert over.
+        if (workspaceIds.length > 0) {
+          await tx.workspaceUser.createMany({
+            data: workspaceIds.map((workspaceId) => ({
+              userId: shadowUser.id,
+              workspaceId,
+              // Agents only ever hold `member` (ADR-0049).
+              role: "member",
+            })),
+          });
         }
         if (keyName && generated) {
           await tx.externalAgentKey.create({
@@ -387,6 +399,13 @@ export const externalAgentRouter = createTRPCRouter({
       await ctx.db.workspaceUser.deleteMany({
         where: { userId: agent.shadowUserId, workspaceId: input.workspaceId },
       });
+      // Direct project grants in that workspace go with it — they were made
+      // under the workspace delegation that is being withdrawn.
+      await revokeAgentProjectMembershipsInWorkspace(
+        ctx.db,
+        [agent.shadowUserId],
+        input.workspaceId,
+      );
       return { success: true };
     }),
 });

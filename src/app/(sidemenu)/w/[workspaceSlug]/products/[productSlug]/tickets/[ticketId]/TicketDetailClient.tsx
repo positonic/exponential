@@ -15,7 +15,6 @@ import {
   Combobox,
   Group,
   Menu,
-  Select,
   Skeleton,
   Stack,
   Text,
@@ -50,30 +49,32 @@ import { useWorkspaceEffortUnit } from "~/hooks/useWorkspaceEffortUnit";
 import { effortFieldLabel, effortOptions } from "~/types/effort";
 import {
   PropertiesSidebar,
-  PropertyRow,
   PropertyDivider,
+  PropertyRow,
+  SearchableSelect,
 } from "~/app/_components/PropertiesSidebar";
 import { generateLinearId, parseTicketUrlId } from "~/lib/fun-ids";
 import { PriorityIcon } from "~/app/_components/product/PriorityIcon";
 import { NotionSyncBadge } from "~/app/_components/product/NotionSyncBadge";
 import { TicketNavArrows } from "~/app/_components/product/TicketNavArrows";
 import { TicketDependenciesSection } from "~/app/_components/product/TicketDependenciesSection";
+import { dependencyProgress } from "~/app/_components/product/dependencyOrdering";
 import { LinkedActionsSection } from "~/app/_components/product/LinkedActionsSection";
 import { LabelsCombobox } from "~/app/_components/product/LabelsCombobox";
 import { useTicketPropertyMutations } from "~/app/_components/product/useTicketPropertyMutations";
-import {
-  STATUS_OPTIONS,
-  STATUS_COLORS,
-} from "~/lib/ticket-statuses";
+import { STATUS_OPTIONS } from "~/lib/ticket-statuses";
+import { TicketStatusBadge } from "~/app/_components/product/TicketStatusBadge";
 import { TagBadge } from "~/app/_components/TagBadge";
 import { TicketBodyEditor } from "~/app/_components/product/TicketBodyEditor";
 import { CollapsibleSection } from "~/app/_components/product/CollapsibleSection";
 import { ActivityTimeline } from "~/app/_components/shared/ActivityTimeline";
+import { PersonPicker } from "~/app/_components/shared/PersonPicker";
 import {
   ActivityFilterMenu,
   useActivityFilter,
 } from "~/app/_components/shared/ActivityFilterMenu";
 import { useTicketActivity } from "~/hooks/useTicketActivity";
+import { useProductDetailTitle } from "../../ProductDetailTitle";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -294,6 +295,7 @@ export function TicketDetailClient() {
       },
     );
   const isLoading = ticketId ? isTicketLoading : isResolving;
+  useProductDetailTitle(ticket?.title);
 
   // Data for selectors
   const members = workspace?.members ?? [];
@@ -432,14 +434,7 @@ export function TicketDetailClient() {
               >
                 {ticket.type.toLowerCase()}
               </Badge>
-              <Badge
-                size="xs"
-                variant="filled"
-                color={STATUS_COLORS[ticket.status] ?? "gray"}
-                styles={{ label: { color: "var(--mantine-color-dark-9)" } }}
-              >
-                {STATUS_OPTIONS.find((s) => s.value === ticket.status)?.label ?? ticket.status}
-              </Badge>
+              <TicketStatusBadge status={ticket.status} />
               {displayId && (
                 <Text size="xs" className="text-text-muted font-mono">
                   {displayId}
@@ -545,6 +540,28 @@ export function TicketDetailClient() {
             onChanged={async () => { await utils.product.ticket.getById.invalidate({ id: ticketId }); }}
           />
 
+          {/* Depends on - the same container-list block as Actions. An
+              umbrella ticket's breakdown is a long outbound list, and the
+              sidebar's dot-plus-title rows don't carry status, PR, or
+              assignee at a glance. "Required for" stays in the sidebar: it
+              is short and reads fine there. */}
+          <CollapsibleSection
+            title="Depends on"
+            meta={dependencyProgress(ticket.dependsOn ?? []) ?? undefined}
+          >
+            <TicketDependenciesSection
+              ticketId={ticketId}
+              productId={ticket.product.id}
+              basePath={`/w/${workspace?.slug}/products/${ticket.product.slug}/tickets`}
+              dependsOn={ticket.dependsOn ?? []}
+              requiredFor={ticket.requiredFor ?? []}
+              variant="wide"
+              groups={["dependsOn"]}
+              productName={ticket.product.name}
+              funTicketIds={ticket.product.funTicketIds}
+            />
+          </CollapsibleSection>
+
         </Stack>
       </div>
 
@@ -555,7 +572,7 @@ export function TicketDetailClient() {
       <PropertiesSidebar className="lg:row-span-2">
         {/* Status */}
         <PropertyRow icon={<IconCircleDot size={14} />} label="Status">
-          <Select
+          <SearchableSelect
             value={ticket.status}
             onChange={onStatusChange}
             data={STATUS_OPTIONS}
@@ -569,7 +586,7 @@ export function TicketDetailClient() {
 
         {/* Priority */}
         <PropertyRow icon={<IconFlag size={14} />} label="Priority">
-          <Select
+          <SearchableSelect
             value={ticket.priority != null ? String(ticket.priority) : undefined}
             onChange={(val) => setField("priority", val != null ? Number(val) : null)}
             data={PRIORITY_OPTIONS}
@@ -587,7 +604,7 @@ export function TicketDetailClient() {
 
         {/* Type */}
         <PropertyRow icon={<IconCategory size={14} />} label="Type">
-          <Select
+          <SearchableSelect
             value={ticket.type}
             onChange={(val) => val && setField("type", val)}
             data={TYPE_OPTIONS}
@@ -601,23 +618,26 @@ export function TicketDetailClient() {
 
         {/* Assignee */}
         <PropertyRow icon={<IconUser size={14} />} label="Assignee">
-          <Select
+          <PersonPicker
+            trigger="field"
+            showFieldLabel={false}
+            label="Assignee"
+            workspaceId={workspaceId}
             value={ticket.assigneeId ?? null}
-            onChange={(val) => setField("assigneeId", val)}
-            data={members.map((m) => ({ value: m.user.id, label: m.user.name ?? m.user.email ?? "Unknown" }))}
-            size="xs"
-            variant="unstyled"
-            clearable
-            placeholder="None"
-            comboboxProps={{ withinPortal: true }}
-            classNames={{ input: "text-text-primary text-xs font-medium cursor-pointer" }}
-            styles={{ input: { height: 24, minHeight: 24 } }}
+            selectedUser={ticket.assignee}
+            onChange={(id) => setField("assigneeId", id)}
+            fieldProps={{
+              size: "xs",
+              variant: "unstyled",
+              classNames: { input: "text-text-primary text-xs font-medium cursor-pointer" },
+              styles: { input: { height: 24, minHeight: 24 } },
+            }}
           />
         </PropertyRow>
 
         {/* Points */}
         <PropertyRow icon={<IconFlame size={14} />} label={effortFieldLabel(effortUnit)}>
-          <Select
+          <SearchableSelect
             value={ticket.points != null ? String(ticket.points) : null}
             onChange={(val) => setField("points", val ? Number(val) : null)}
             data={effortOptions(effortUnit).map((o) => ({ value: String(o.value), label: o.label }))}
@@ -633,20 +653,22 @@ export function TicketDetailClient() {
 
         <PropertyDivider />
 
-        {/* Dependencies */}
+        {/* Required for - the inbound edge only; "Depends on" lives in the
+            body next to Actions. */}
         <TicketDependenciesSection
           ticketId={ticketId}
           productId={ticket.product.id}
           basePath={`/w/${workspace?.slug}/products/${ticket.product.slug}/tickets`}
           dependsOn={ticket.dependsOn ?? []}
           requiredFor={ticket.requiredFor ?? []}
+          groups={["requiredFor"]}
         />
 
         <PropertyDivider />
 
         {/* Feature */}
         <PropertyRow icon={<IconFolder size={14} />} label="Feature">
-          <Select
+          <SearchableSelect
             value={ticket.featureId ?? null}
             onChange={(val) => setField("featureId", val)}
             data={(features ?? []).map((f) => ({ value: f.id, label: f.name }))}
@@ -681,7 +703,7 @@ export function TicketDetailClient() {
 
         {/* Cycle */}
         <PropertyRow icon={<IconClock size={14} />} label="Cycle">
-          <Select
+          <SearchableSelect
             value={ticket.cycleId ?? null}
             onChange={(val) => setField("cycleId", val)}
             data={(cycles ?? []).map((c) => ({ value: c.id, label: c.name }))}

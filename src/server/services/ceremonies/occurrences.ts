@@ -40,7 +40,8 @@ export function snapshotCeremony(ceremony: Ceremony): Prisma.InputJsonObject {
  * occurrence. Expanding from `startsOn` rather than from `now` is what gives
  * backfill its targets: a recording from last week can only attach to an
  * occurrence that exists. Idempotent — duplicates are skipped by the
- * `(ceremonyId, scheduledStart)` unique. Returns the number of rows inserted.
+ * `(ceremonyId, cadenceStart)` and `(ceremonyId, scheduledStart)` uniques.
+ * Returns the number of rows inserted.
  */
 export async function ensureOccurrences(
   db: Db,
@@ -70,8 +71,13 @@ export async function ensureOccurrences(
       workspaceId: ceremony.workspaceId,
       scheduledStart: slot.scheduledStart,
       scheduledEnd: slot.scheduledEnd,
+      // The tick this row stands for; survives a later move (`schedule.ts`).
+      cadenceStart: slot.scheduledStart,
       definitionSnapshot: snapshot,
     })),
+    // Skips a tick that already has its row — including one moved off the
+    // tick, which still holds it through `cadenceStart` — and a time an ad
+    // hoc occurrence already occupies.
     skipDuplicates: true,
   });
   return result.count;

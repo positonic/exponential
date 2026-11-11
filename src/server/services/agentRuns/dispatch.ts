@@ -116,13 +116,21 @@ export function buildPersonaMessage(assistant: {
   return parts.join("\n\n");
 }
 
-/** The user turn: the action brief the run works from. */
+/**
+ * The user turn: the action brief the run works from. Hosted and local runs
+ * share it — only the closing protocol line differs — so both name the same
+ * person as the one a question goes to (`resolveRunQuestionRecipient`).
+ */
 export function buildActionBrief(input: {
   action: { id: string; name: string; description: string | null; dueDate: Date | null; project: { name: string } | null };
   ownerName: string | null;
   requesterName: string | null;
+  /** Who a question from this run goes to: the requester, else the owner. */
+  askName: string | null;
   predecessorSummary: string | null;
   wakeComment: string | null;
+  /** Who wrote the reply that resumed this run. */
+  wakeCommentAuthorName?: string | null;
   /** The last line; defaults to the hosted run tools' protocol. */
   closing?: string;
 }): string {
@@ -133,12 +141,13 @@ export function buildActionBrief(input: {
     input.action.dueDate ? `Due: ${input.action.dueDate.toISOString().slice(0, 10)}.` : "",
     input.requesterName ? `Assigned by ${input.requesterName}.` : "",
     input.ownerName ? `Your owner is ${input.ownerName}.` : "",
+    input.askName ? `If you need to ask a question, it goes to ${input.askName}.` : "",
   ];
   if (input.predecessorSummary) {
     lines.push(`You are resuming. Your previous run ended with:\n${input.predecessorSummary}`);
   }
   if (input.wakeComment) {
-    lines.push(`Your owner replied:\n${input.wakeComment}`);
+    lines.push(`${input.wakeCommentAuthorName ?? "The person you asked"} replied:\n${input.wakeComment}`);
   }
   lines.push(
     input.closing ??
@@ -207,7 +216,7 @@ export function buildRunMessages(input: {
 /** The closing line a local runner's brief ends with: the runner reports through `agentRun.finish`. */
 export const LOCAL_RUNNER_CLOSING =
   "Do the work, then finish with a short public summary and whether the action is ready to close " +
-  "(or a question for your owner if you are stuck).";
+  "(or a question, if you are stuck).";
 
 /**
  * Everything an executor needs to start a run: the run row with its action,
@@ -236,7 +245,10 @@ export async function loadRunBrief(db: PrismaClient, runId: string, options: { c
   });
 
   const wakeComment = run.wakeCommentId
-    ? await db.actionComment.findUnique({ where: { id: run.wakeCommentId }, select: { content: true } })
+    ? await db.actionComment.findUnique({
+        where: { id: run.wakeCommentId },
+        select: { content: true, author: { select: { name: true } } },
+      })
     : null;
 
   const persona = run.agent.assistant ?? {
@@ -262,8 +274,11 @@ export async function loadRunBrief(db: PrismaClient, runId: string, options: { c
       action: run.action,
       ownerName: run.agent.owner.name,
       requesterName: run.requestedBy?.name ?? null,
+      // `resolveRunQuestionRecipient`, by name: the requester, else the owner.
+      askName: run.requestedById ? (run.requestedBy?.name ?? null) : run.agent.owner.name,
       predecessorSummary: run.predecessor?.summary ?? null,
       wakeComment: wakeComment?.content ?? null,
+      wakeCommentAuthorName: wakeComment?.author.name ?? null,
       closing: options.closing,
     }),
   };

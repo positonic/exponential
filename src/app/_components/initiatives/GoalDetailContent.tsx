@@ -27,7 +27,6 @@ import {
   IconDots,
   IconSettings,
   IconCircleCheckFilled,
-  IconUsers,
   IconCalendar,
   IconMessage,
   IconMoodSmile,
@@ -39,6 +38,7 @@ import {
   IconChartBar,
 } from "@tabler/icons-react";
 import { api } from "~/trpc/react";
+import { notifications } from "@mantine/notifications";
 import Link from "next/link";
 import { useRouter, usePathname } from "next/navigation";
 import { useMemo } from "react";
@@ -53,6 +53,7 @@ import { GoalFeaturesTab } from "./GoalFeaturesTab";
 import { type HealthStatus, healthConfig } from "./healthConfig";
 import { GoalIcon } from "../GoalIcon";
 import { IconPicker } from "../IconPicker";
+import { PersonPicker } from "../shared/PersonPicker";
 import { CreateProjectModal } from "../CreateProjectModal";
 import { ProjectViewTabs, type ProjectView } from "../ProjectViewTabs";
 import { ProjectsTasksView } from "../ProjectsTasksView/ProjectsTasksView";
@@ -129,6 +130,12 @@ export function GoalDetailContent({ goalId, workspaceSlug }: GoalDetailContentPr
   const pathname = usePathname();
   const { workspace, workspaceId, userRole } = useWorkspace();
   const utils = api.useUtils();
+  // A project created from this goal shows up in all three project views;
+  // the modal itself only refreshes the generic project lists.
+  const handleProjectCreated = () => {
+    void utils.goal.getById.invalidate();
+    void utils.project.getProjectsWithActions.invalidate();
+  };
   const { data: goal, isLoading } = api.goal.getById.useQuery({ id: goalId });
 
   // Features belong to Products, so the Features tab exists only where the
@@ -195,6 +202,42 @@ export function GoalDetailContent({ goalId, workspaceSlug }: GoalDetailContentPr
       void utils.goal.getById.invalidate({ id: goalId });
     },
   });
+
+  const updateDriMutation = api.goal.updateGoal.useMutation({
+    onSettled: () => {
+      void utils.goal.getById.invalidate({ id: goalId });
+    },
+  });
+
+  // Optimistic: the picker hands back the chosen person, so the pill shows
+  // them before the save lands.
+  const setDri = async (
+    driUserId: string | null,
+    user: { id: string; name: string | null; image: string | null } | null,
+  ) => {
+    await utils.goal.getById.cancel({ id: goalId });
+    const previous = utils.goal.getById.getData({ id: goalId });
+    if (previous) {
+      utils.goal.getById.setData({ id: goalId }, {
+        ...previous,
+        driUserId,
+        driUser: user ? { id: user.id, name: user.name, image: user.image } : null,
+      });
+    }
+    updateDriMutation.mutate(
+      { id: goalId, driUserId },
+      {
+        onError: (err) => {
+          if (previous) utils.goal.getById.setData({ id: goalId }, previous);
+          notifications.show({
+            title: "Couldn't change the DRI",
+            message: err.message,
+            color: "red",
+          });
+        },
+      },
+    );
+  };
 
   const updateStatusMutation = api.goal.updateGoalStatus.useMutation({
     onMutate: async (newData) => {
@@ -400,12 +443,14 @@ export function GoalDetailContent({ goalId, workspaceSlug }: GoalDetailContentPr
                     ))}
                   </Menu.Dropdown>
                 </Menu>
-                <Group gap={6}>
-                  <IconUsers size={14} className="text-text-muted" />
-                  <Text size="sm" className="text-text-secondary">
-                    {goal.driUser?.name ?? "Owner"}
-                  </Text>
-                </Group>
+                <PersonPicker
+                  label="DRI"
+                  clearable={false}
+                  workspaceId={goal.workspaceId}
+                  value={goal.driUserId}
+                  selectedUser={goal.driUser ? { ...goal.driUser, email: null } : null}
+                  onChange={(driUserId, user) => void setDri(driUserId, user)}
+                />
                 <Group gap={6}>
                   <IconCalendar size={14} className="text-text-muted" />
                   <Text size="sm" className="text-text-secondary">
@@ -539,7 +584,7 @@ export function GoalDetailContent({ goalId, workspaceSlug }: GoalDetailContentPr
                       </ActionIcon>
                       <CreateProjectModal
                         prefillGoalId={goal.id.toString()}
-                        onSuccess={() => void utils.goal.getById.invalidate()}
+                        onSuccess={handleProjectCreated}
                       >
                         <ActionIcon variant="subtle" size="sm" color="gray">
                           <IconPlus size={16} />
@@ -573,7 +618,21 @@ export function GoalDetailContent({ goalId, workspaceSlug }: GoalDetailContentPr
 
           {/* Projects Tab */}
           <Tabs.Panel value="projects" pt="lg">
-            <ProjectViewTabs activeView={projectView} onViewChange={setProjectView} />
+            <ProjectViewTabs
+              activeView={projectView}
+              onViewChange={setProjectView}
+              rightSection={
+                <CreateProjectModal
+                  prefillGoalId={goal.id.toString()}
+                  prefillWorkspaceId={goal.workspaceId ?? undefined}
+                  onSuccess={handleProjectCreated}
+                >
+                  <Button size="xs" variant="light" leftSection={<IconPlus size={14} />}>
+                    New project
+                  </Button>
+                </CreateProjectModal>
+              }
+            />
             {projectView === "table" && (
               goal.projects.length > 0 ? (
                 <ProjectsTable
@@ -629,6 +688,7 @@ export function GoalDetailContent({ goalId, workspaceSlug }: GoalDetailContentPr
           parentGoalId: goal.parentGoalId,
           workspaceId: goal.workspaceId,
           driUserId: goal.driUserId,
+          driUser: goal.driUser,
         }}
         trigger={<span ref={editTriggerRef} />}
         onSuccess={() => void utils.goal.getById.invalidate({ id: goalId })}

@@ -24,6 +24,8 @@ function link(overrides: Record<string, unknown> = {}) {
     projectId: PROJECT,
     isActive: true,
     direction: "outbound",
+    // The column default since D-0055; every pre-existing binding is a meeting-summary one.
+    kind: "meeting_summary",
     serverIntegrationId: "int-1",
     createdById: null,
     createdAt: new Date(),

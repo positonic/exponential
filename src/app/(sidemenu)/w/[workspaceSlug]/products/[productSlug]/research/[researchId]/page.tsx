@@ -20,6 +20,7 @@ import { IconPlus, IconTrash, IconLink, IconLinkOff } from "@tabler/icons-react"
 import { api } from "~/trpc/react";
 import { useWorkspace } from "~/providers/WorkspaceProvider";
 import { MarkdownRenderer } from "~/app/_components/shared/MarkdownRenderer";
+import { useProductDetailTitle } from "../../ProductDetailTitle";
 
 const INSIGHT_TYPES = [
   { value: "PAIN_POINT", label: "Pain point" },
@@ -58,6 +59,7 @@ export default function ResearchDetailPage() {
 
   // Ensure the loaded research belongs to the product in the URL
   const researchBelongsToProduct = research?.product.slug === productSlug;
+  useProductDetailTitle(researchBelongsToProduct ? research.title : null);
 
   const { data: features } = api.product.feature.list.useQuery(
     { productId: research?.product.id ?? "" },

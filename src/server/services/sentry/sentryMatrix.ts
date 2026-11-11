@@ -1,15 +1,13 @@
 import type { SentryBugNotification } from "./sentryZulip";
 
 /**
- * Post a Matrix message announcing a newly-filed Sentry bug, with deep links
- * to the created Ticket and back into Sentry. Sends via the raw Matrix
- * client-server API using a bot account's access token — no SDK, no session
- * state.
+ * Post a message to the ops room — the Matrix room admins watch for bugs —
+ * via the raw Matrix client-server API using a bot account's access token.
+ * No SDK, no session state.
  *
- * Best-effort, mirroring sentryZulip: a silent no-op unless all three env
- * vars are set, and any send failure is swallowed so it can never break the
- * webhook. Called only when a *new* ticket was created (recurring errors that
- * dedup onto an existing ticket do not re-notify).
+ * Best-effort: returns false (and posts nothing) unless all three env vars are
+ * set, and any send failure is logged and swallowed so a caller can never be
+ * broken by it.
  *
  * The target room must be UNENCRYPTED — this posts plain events and cannot
  * participate in E2E encryption.
@@ -20,29 +18,18 @@ import type { SentryBugNotification } from "./sentryZulip";
  *                         variable name the mastra gateway uses)
  * - MATRIX_SENTRY_ROOM_ID internal room id (!abc123:syntro.fi), not an alias
  */
-export async function notifyMatrixOfSentryBug(
-  notification: SentryBugNotification,
-): Promise<void> {
+export async function postMatrixOpsMessage(message: {
+  /** Plain-text fallback. */
+  body: string;
+  /** HTML rendering; callers escape any untrusted text with {@link escapeHtml}. */
+  formattedBody: string;
+}): Promise<boolean> {
   const homeserver = process.env.MATRIX_HOMESERVER_URL;
   const token = process.env.MATRIX_ACCESS_TOKEN;
   const roomId = process.env.MATRIX_SENTRY_ROOM_ID;
-  if (!homeserver || !token || !roomId) return;
+  if (!homeserver || !token || !roomId) return false;
 
   try {
-    const htmlLinks = [
-      `<a href="${notification.ticketUrl}">Open ticket</a>`,
-    ];
-    const textLinks = [notification.ticketUrl];
-    if (notification.sentryUrl) {
-      htmlLinks.push(`<a href="${notification.sentryUrl}">View in Sentry</a>`);
-      textLinks.push(notification.sentryUrl);
-    }
-
-    const body = `🐛 New Sentry bug: ${notification.title}\n${textLinks.join("\n")}`;
-    const formattedBody = `🐛 <strong>New Sentry bug:</strong> ${escapeHtml(
-      notification.title,
-    )}<br/>${htmlLinks.join(" · ")}`;
-
     // PUT with a txn id makes retries idempotent on the homeserver side.
     const txnId = crypto.randomUUID();
     const url = `${homeserver.replace(/\/+$/, "")}/_matrix/client/v3/rooms/${encodeURIComponent(
@@ -57,23 +44,48 @@ export async function notifyMatrixOfSentryBug(
       },
       body: JSON.stringify({
         msgtype: "m.text",
-        body,
+        body: message.body,
         format: "org.matrix.custom.html",
-        formatted_body: formattedBody,
+        formatted_body: message.formattedBody,
       }),
     });
     if (!res.ok) {
       const detail = await res.text().catch(() => "");
-      console.error(
-        `[sentry webhook] Matrix notify failed: ${res.status} ${detail}`,
-      );
+      console.error(`[matrix ops] notify failed: ${res.status} ${detail}`);
+      return false;
     }
+    return true;
   } catch (error) {
-    console.error("[sentry webhook] Matrix notify error:", error);
+    console.error("[matrix ops] notify error:", error);
+    return false;
   }
 }
 
-function escapeHtml(text: string): string {
+/**
+ * Announce a filed bug in the ops room, with deep links to the Ticket and
+ * back into Sentry. Called when a ticket is created, and again for a repeat
+ * alert (see `renotifyAfterMs` in SentryBugService).
+ */
+export async function notifyMatrixOfSentryBug(
+  notification: SentryBugNotification,
+): Promise<void> {
+  const heading = notification.heading ?? "New Sentry bug";
+  const htmlLinks = [`<a href="${notification.ticketUrl}">Open ticket</a>`];
+  const textLinks = [notification.ticketUrl];
+  if (notification.sentryUrl) {
+    htmlLinks.push(`<a href="${notification.sentryUrl}">View in Sentry</a>`);
+    textLinks.push(notification.sentryUrl);
+  }
+
+  await postMatrixOpsMessage({
+    body: `🐛 ${heading}: ${notification.title}\n${textLinks.join("\n")}`,
+    formattedBody: `🐛 <strong>${escapeHtml(heading)}:</strong> ${escapeHtml(
+      notification.title,
+    )}<br/>${htmlLinks.join(" · ")}`,
+  });
+}
+
+export function escapeHtml(text: string): string {
   return text
     .replaceAll("&", "&amp;")
     .replaceAll("<", "&lt;")

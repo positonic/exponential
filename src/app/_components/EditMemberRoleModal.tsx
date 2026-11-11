@@ -38,11 +38,16 @@ interface EditMemberRoleModalProps {
   onSuccess?: () => void;
 }
 
+const MEMBER_OPTION = { value: "member", label: "Member - Can view and edit content" };
+
 const ROLE_OPTIONS = [
   { value: "admin", label: "Admin - Can manage members and settings" },
-  { value: "member", label: "Member - Can view and edit content" },
+  MEMBER_OPTION,
   { value: "viewer", label: "Viewer - Read-only access" },
 ];
+
+/** Agents always hold `member` (ADR-0049 §3); the server rejects anything else. */
+const AGENT_ROLE_OPTIONS = [MEMBER_OPTION];
 
 function initials(label: string): string {
   return label.trim().charAt(0).toUpperCase() || "?";
@@ -50,6 +55,15 @@ function initials(label: string): string {
 
 function toEditableRole(role: string): EditableRole {
   return role === "admin" || role === "viewer" ? role : "member";
+}
+
+/**
+ * The role the select starts on. An agent always starts on Member, even one
+ * still holding admin or viewer from before ADR-0049 §3 was enforced, so
+ * saving corrects it rather than resubmitting a role the server rejects.
+ */
+function initialRole(member: EditMemberRoleModalMember): EditableRole {
+  return member.isAgent ? "member" : toEditableRole(member.role);
 }
 
 export function EditMemberRoleModal({
@@ -64,7 +78,7 @@ export function EditMemberRoleModal({
   // Sync the select with the member being edited whenever the modal opens.
   useEffect(() => {
     if (member) {
-      setRole(toEditableRole(member.role));
+      setRole(initialRole(member));
     }
   }, [member]);
 
@@ -93,7 +107,10 @@ export function EditMemberRoleModal({
     updateRoleMutation.mutate({ workspaceId, userId: member.userId, role });
   };
 
-  const unchanged = member ? role === toEditableRole(member.role) : true;
+  // Compared with the stored role, so a legacy admin agent can be saved to Member.
+  const unchanged = member
+    ? role === (member.isAgent ? member.role : toEditableRole(member.role))
+    : true;
 
   return (
     <Modal
@@ -152,11 +169,17 @@ export function EditMemberRoleModal({
             label="Role"
             value={role}
             onChange={(val) => setRole((val as EditableRole) ?? "member")}
-            data={ROLE_OPTIONS}
+            data={member?.isAgent ? AGENT_ROLE_OPTIONS : ROLE_OPTIONS}
+            description={
+              member?.isAgent
+                ? "Agents always hold the Member role."
+                : undefined
+            }
             classNames={{
               input:
                 "bg-surface-primary border-border-primary text-text-primary",
               label: "text-text-secondary",
+              description: "text-text-muted",
               dropdown: "bg-surface-secondary border-border-primary",
             }}
           />

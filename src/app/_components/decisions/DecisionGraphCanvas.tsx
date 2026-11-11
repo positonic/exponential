@@ -88,7 +88,7 @@ export function DecisionGraphCanvas({ graph, onNodeClick }: Props) {
           height: HEADER_HEIGHT - 10,
           background: "var(--color-surface-secondary)",
           border: "1px solid var(--color-border-primary)",
-          borderRadius: 8,
+          borderRadius: 'var(--radius-lg)',
           color: "var(--color-text-secondary)",
           fontSize: 12,
           fontWeight: 600,
@@ -113,11 +113,11 @@ export function DecisionGraphCanvas({ graph, onNodeClick }: Props) {
           style: {
             width: COLUMN_WIDTH - 60,
             minHeight: NODE_HEIGHT - 12,
-            background: "var(--color-background-primary)",
+            background: "var(--color-bg-primary)",
             border: `1.5px ${node.kind === "decision" ? "dashed" : "solid"} ${
               STATUS_BORDER[node.status] ?? STATUS_BORDER.UNKNOWN
             }`,
-            borderRadius: 8,
+            borderRadius: 'var(--radius-lg)',
             color: "var(--color-text-primary)",
             fontSize: 11,
             whiteSpace: "pre-wrap",
@@ -141,7 +141,7 @@ export function DecisionGraphCanvas({ graph, onNodeClick }: Props) {
           target: edge.toId,
           label,
           labelStyle: { fontSize: 9, fill: "var(--color-text-muted)" },
-          labelBgStyle: { fill: "var(--color-background-primary)" },
+          labelBgStyle: { fill: "var(--color-bg-primary)" },
           style:
             edge.type === "SUPERSEDES"
               ? { stroke: color, strokeWidth: 2 }

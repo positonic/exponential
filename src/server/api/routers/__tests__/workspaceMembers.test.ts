@@ -231,3 +231,95 @@ describe("workspace.listMembers", () => {
     expect(members.map((m) => m.name)).toEqual(["Andi Stanner", "Zoe"]);
   });
 });
+
+describe("workspace.updateMemberRole", () => {
+  let db: DeepMockProxy<PrismaClient>;
+  const TARGET_ID = "user-2";
+
+  beforeEach(() => {
+    db = getDbMock();
+    mockReset(db);
+    // The caller owns the workspace.
+    db.workspaceUser.findUnique.mockResolvedValue({
+      userId: USER_ID,
+      workspaceId: WORKSPACE_ID,
+      role: "owner",
+    } as never);
+    db.workspaceUser.update.mockResolvedValue({
+      userId: TARGET_ID,
+      workspaceId: WORKSPACE_ID,
+    } as never);
+    db.externalAgent.findMany.mockResolvedValue([]);
+  });
+
+  /** The caller is always a person (humanOnlyProcedure reads it too). */
+  function setTarget(isAgent: boolean) {
+    db.user.findUnique.mockImplementation(((args: { where: { id: string } }) =>
+      Promise.resolve({ isAgent: args.where.id === TARGET_ID && isAgent })) as never);
+  }
+
+  it.each(["admin", "viewer"] as const)(
+    "rejects %s for an agent principal and writes nothing (ADR-0049 §3)",
+    async (role) => {
+      setTarget(true);
+
+      await expect(
+        caller(db).workspace.updateMemberRole({
+          workspaceId: WORKSPACE_ID,
+          userId: TARGET_ID,
+          role,
+        }),
+      ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+      expect(db.workspaceUser.update).not.toHaveBeenCalled();
+    },
+  );
+
+  it("lets an agent principal be set to member", async () => {
+    setTarget(true);
+
+    await caller(db).workspace.updateMemberRole({
+      workspaceId: WORKSPACE_ID,
+      userId: TARGET_ID,
+      role: "member",
+    });
+
+    expect(db.workspaceUser.update).toHaveBeenCalledWith(
+      expect.objectContaining({ data: { role: "member" } }),
+    );
+  });
+
+  it.each(["admin", "member", "viewer"] as const)(
+    "still sets %s for a human member",
+    async (role) => {
+      setTarget(false);
+
+      await caller(db).workspace.updateMemberRole({
+        workspaceId: WORKSPACE_ID,
+        userId: TARGET_ID,
+        role,
+      });
+
+      expect(db.workspaceUser.update).toHaveBeenCalledWith(
+        expect.objectContaining({ data: { role } }),
+      );
+    },
+  );
+
+  it("refuses a caller who is not the owner before looking at the target", async () => {
+    db.workspaceUser.findUnique.mockResolvedValue({
+      userId: USER_ID,
+      workspaceId: WORKSPACE_ID,
+      role: "admin",
+    } as never);
+    setTarget(true);
+
+    await expect(
+      caller(db).workspace.updateMemberRole({
+        workspaceId: WORKSPACE_ID,
+        userId: TARGET_ID,
+        role: "admin",
+      }),
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
+    expect(db.workspaceUser.update).not.toHaveBeenCalled();
+  });
+});

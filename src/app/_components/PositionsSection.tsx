@@ -212,7 +212,8 @@ export function PositionsSection({ workspaceId, canManage, members }: PositionsS
                   className="group border-b border-border-primary px-3.5 py-3 last:border-b-0"
                   data-testid="position-row"
                 >
-                  <Group justify="space-between" align="flex-start" wrap="nowrap">
+                  {/* Phones: holders and edit controls drop under the remit instead of squeezing it */}
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
                     <div className="min-w-0 flex-1">
                       <div className="text-[13px] font-medium text-text-primary">{position.title}</div>
                       <MarkdownRenderer content={position.remit} variant="compact" className="mt-1 text-text-secondary" />
@@ -223,7 +224,7 @@ export function PositionsSection({ workspaceId, canManage, members }: PositionsS
                         </div>
                       )}
                     </div>
-                    <Group gap={4} wrap="nowrap">
+                    <Group gap={4} wrap="nowrap" className="shrink-0">
                       {position.holders.length === 0 ? (
                         <Text size="xs" className="text-text-muted">Vacant</Text>
                       ) : (
@@ -263,7 +264,7 @@ export function PositionsSection({ workspaceId, canManage, members }: PositionsS
                         </Tooltip>
                       )}
                     </Group>
-                  </Group>
+                  </div>
                 </div>
               );
             })

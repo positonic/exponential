@@ -98,7 +98,7 @@ export function DaysTable() {
               return (
                 <Table.Tr key={day.id} className="hover:bg-surface-hover cursor-pointer">
                   <Table.Td>
-                    <Link href={`/days/${formattedUrlDate}`} className="flex items-center no-underline text-text-primary hover:text-brand-primary">
+                    <Link href={`/days/${formattedUrlDate}`} className="flex items-center no-underline text-text-primary hover:text-link">
                       <span className="mr-2">🌻</span>
                       {dayName}
                     </Link>

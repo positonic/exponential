@@ -88,8 +88,39 @@ vi.mock("~/server/services/KnowledgeService", () => ({
   }),
 }));
 
+// Slow work runs in `after()`, once the response is sent. Outside a request
+// scope `after` throws, so queue the callbacks and let a test run them with
+// `flushAfter()` — which also proves the save returned first. Enrichment is
+// stubbed so no vendor is called.
+const { afterMock, afterQueue, triggerArticleMock } = vi.hoisted(() => {
+  const afterQueue: Array<() => unknown> = [];
+  return {
+    afterQueue,
+    afterMock: vi.fn((cb: () => unknown) => {
+      afterQueue.push(cb);
+    }),
+    triggerArticleMock: vi.fn(),
+  };
+});
+vi.mock("next/server", async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
+  after: (cb: () => unknown) => afterMock(cb),
+}));
+vi.mock("~/server/services/youtubeSummary/triggerVideoArticle", () => ({
+  triggerVideoArticle: triggerArticleMock,
+}));
+async function flushAfter(): Promise<void> {
+  for (const cb of afterQueue.splice(0)) await cb();
+}
+
 import { createMockCaller } from "~/test/trpc-helpers";
-import { readTransition } from "../resource";
+import {
+  readTransition,
+  deriveContent,
+  countWords,
+  resaveReadStatus,
+  MAX_RAW_CONTENT_CHARS,
+} from "../resource";
 
 function fakeResource(overrides: Partial<Record<string, unknown>> = {}) {
   return {
@@ -139,6 +170,42 @@ describe("readTransition", () => {
   });
 });
 
+describe("resaveReadStatus", () => {
+  it("brings a finished or queued item back to to_read on a plain re-save", () => {
+    expect(resaveReadStatus("to_read", "read")).toBe("to_read");
+    expect(resaveReadStatus("to_read", "to_read")).toBe("to_read");
+  });
+
+  it("does not interrupt an item mid-read", () => {
+    expect(resaveReadStatus("to_read", "reading")).toBe("reading");
+  });
+
+  it("honours an explicit read or reading request", () => {
+    expect(resaveReadStatus("read", "reading")).toBe("read");
+    expect(resaveReadStatus("reading", "read")).toBe("reading");
+  });
+});
+
+describe("deriveContent / countWords", () => {
+  it("keeps caller-supplied content untouched, even when empty", () => {
+    expect(deriveContent({ content: "hi", rawContent: "<p>no</p>" })).toBe("hi");
+    expect(deriveContent({ content: "" })).toBe("");
+  });
+
+  it("derives Markdown from article HTML when content is omitted", () => {
+    const md = deriveContent({ rawContent: "<h1>Title</h1><p>Body <b>bold</b></p>" });
+    expect(md).toContain("# Title");
+    expect(md).toContain("**bold**");
+  });
+
+  it("yields nothing for a bare link", () => {
+    expect(deriveContent({})).toBeUndefined();
+    expect(countWords(undefined)).toBeNull();
+    expect(countWords("   ")).toBeNull();
+    expect(countWords("one two  three")).toBe(3);
+  });
+});
+
 describe("resource router — reading list (mocked)", () => {
   let dbMock: DeepMockProxy<PrismaClient>;
   const callerId = "caller-1";
@@ -147,10 +214,100 @@ describe("resource router — reading list (mocked)", () => {
     dbMock = getDbMock();
     mockReset(dbMock);
     embedResourceMock.mockReset();
+    afterQueue.length = 0;
     embedResourceMock.mockResolvedValue(3);
+    afterMock.mockClear();
+    triggerArticleMock.mockReset();
+    // No row for the URL unless a test says otherwise (dedupe, D-0027).
+    dbMock.resource.findFirst.mockResolvedValue(null);
   });
 
   describe("create", () => {
+    it("starts a saved YouTube link's article job after the response", async () => {
+      const url = "https://youtu.be/dQw4w9WgXcQ";
+      dbMock.resource.create.mockResolvedValue(fakeResource({ id: "yt1", url }));
+      const caller = createMockCaller({ userId: callerId, db: dbMock });
+
+      await caller.resource.create({ title: "youtu.be", url, contentType: "bookmark", generateEmbeddings: false });
+
+      expect(afterMock).toHaveBeenCalledTimes(1);
+      expect(triggerArticleMock).not.toHaveBeenCalled();
+      await flushAfter();
+      expect(triggerArticleMock).toHaveBeenCalledWith("yt1");
+    });
+
+    it("does not start a job for other links, or for a video that already has an article", async () => {
+      const caller = createMockCaller({ userId: callerId, db: dbMock });
+
+      dbMock.resource.create.mockResolvedValue(fakeResource());
+      await caller.resource.create({ title: "A link", url: "https://example.com/post", contentType: "bookmark" });
+
+      const url = "https://www.youtube.com/watch?v=dQw4w9WgXcQ";
+      const existing = fakeResource({ id: "yt2", url, contentType: "video", mimeType: "text/markdown" });
+      dbMock.resource.findFirst.mockResolvedValue(existing);
+      dbMock.resource.update.mockResolvedValue(existing);
+      await caller.resource.create({ title: "youtube.com", url, contentType: "bookmark" });
+
+      expect(afterMock).not.toHaveBeenCalled();
+      expect(triggerArticleMock).not.toHaveBeenCalled();
+    });
+
+    it("re-saving a video summarised the old way starts a job, to give it an article", async () => {
+      const url = "https://www.youtube.com/watch?v=dQw4w9WgXcQ";
+      const existing = fakeResource({ id: "old", url, contentType: "video", summary: "### Overview\nOld." });
+      dbMock.resource.findFirst.mockResolvedValue(existing);
+      dbMock.resource.update.mockResolvedValue(existing);
+      const caller = createMockCaller({ userId: callerId, db: dbMock });
+
+      await caller.resource.create({ title: "youtube.com", url, contentType: "bookmark" });
+      await flushAfter();
+
+      expect(triggerArticleMock).toHaveBeenCalledWith("old");
+    });
+
+    it("re-saving a video's page keeps its article rather than storing a scrape of the page", async () => {
+      const url = "https://www.youtube.com/watch?v=dQw4w9WgXcQ";
+      const existing = fakeResource({ id: "yt3", url, contentType: "video", mimeType: "text/markdown" });
+      dbMock.resource.findFirst.mockResolvedValue(existing);
+      dbMock.resource.update.mockResolvedValue(existing);
+      const caller = createMockCaller({ userId: callerId, db: dbMock });
+
+      await caller.resource.create({
+        title: "Some talk - YouTube",
+        url,
+        rawContent: "<p>Scraped watch page</p>",
+        contentType: "web_page",
+      });
+
+      const data = dbMock.resource.update.mock.calls[0]![0].data;
+      expect(data).not.toHaveProperty("content");
+      expect(data).not.toHaveProperty("rawContent");
+      expect(data).not.toHaveProperty("title");
+      expect(afterMock).not.toHaveBeenCalled();
+    });
+
+    it("embeds a YouTube save's body and starts its job in one callback, body first, so they can't race", async () => {
+      const url = "https://www.youtube.com/watch?v=dQw4w9WgXcQ";
+      dbMock.resource.create.mockResolvedValue(fakeResource({ id: "yt2", url }));
+      const order: string[] = [];
+      embedResourceMock.mockImplementation(async () => {
+        order.push("embed");
+        return 3;
+      });
+      triggerArticleMock.mockImplementation(async () => {
+        order.push("enrich");
+      });
+      const caller = createMockCaller({ userId: callerId, db: dbMock });
+
+      await caller.resource.create({ title: "A video", url, content: "pasted body", contentType: "bookmark" });
+
+      // Next runs separate after() callbacks concurrently; the job re-embeds this row.
+      expect(afterMock).toHaveBeenCalledTimes(1);
+      await flushAfter();
+      expect(order).toEqual(["embed", "enrich"]);
+      expect(triggerArticleMock).toHaveBeenCalledWith("yt2");
+    });
+
     it("saves a bare URL as to_read and never embeds it (indexing follows content)", async () => {
       dbMock.resource.create.mockResolvedValue(fakeResource());
       const caller = createMockCaller({ userId: callerId, db: dbMock });
@@ -182,7 +339,183 @@ describe("resource router — reading list (mocked)", () => {
       const data = dbMock.resource.create.mock.calls[0]![0].data;
       expect(data.readStatus).toBe("read");
       expect(data.readAt).toBeInstanceOf(Date);
+      // The save returned before embedding started; it runs after the response.
+      expect(embedResourceMock).not.toHaveBeenCalled();
+      await flushAfter();
       expect(embedResourceMock).toHaveBeenCalledWith("r1");
+    });
+
+    it("returns the saved row even when embedding fails afterwards", async () => {
+      dbMock.resource.create.mockResolvedValue(fakeResource());
+      embedResourceMock.mockRejectedValue(new Error("embedding API down"));
+      const errorSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+      const caller = createMockCaller({ userId: callerId, db: dbMock });
+
+      const out = await caller.resource.create({
+        title: "Notes",
+        content: "some pasted text",
+        contentType: "note",
+      });
+
+      expect(out.created).toBe(true);
+      await expect(flushAfter()).resolves.toBeUndefined();
+      expect(errorSpy).toHaveBeenCalledWith(
+        expect.stringContaining("Failed to embed resource r1 (create)"),
+        expect.any(Error),
+      );
+      errorSpy.mockRestore();
+    });
+
+    it("derives content and wordCount from article HTML and reports created: true", async () => {
+      dbMock.resource.create.mockResolvedValue(fakeResource({ id: "r2" }));
+      const caller = createMockCaller({ userId: callerId, db: dbMock });
+
+      const out = await caller.resource.create({
+        title: "An article",
+        url: "https://example.com/article",
+        rawContent: "<h1>An article</h1><p>Four words right here.</p>",
+        generateEmbeddings: false,
+      });
+
+      const data = dbMock.resource.create.mock.calls[0]![0].data;
+      expect(data.rawContent).toContain("<h1>");
+      expect(data.content).toContain("# An article");
+      // Counted on the derived Markdown, so the heading marker is a token too.
+      expect(data.wordCount).toBe(7);
+      expect(data.readStatus).toBe("to_read");
+      expect(out.created).toBe(true);
+      // Opted out of the Knowledge index (D-0026).
+      expect(embedResourceMock).not.toHaveBeenCalled();
+    });
+
+    it("embeds a derived body when the caller opts in", async () => {
+      dbMock.resource.create.mockResolvedValue(fakeResource({ id: "r3" }));
+      const caller = createMockCaller({ userId: callerId, db: dbMock });
+
+      await caller.resource.create({
+        title: "An article",
+        url: "https://example.com/article",
+        rawContent: "<p>text</p>",
+        generateEmbeddings: true,
+      });
+
+      await flushAfter();
+      expect(embedResourceMock).toHaveBeenCalledWith("r3");
+    });
+
+    it("rejects an article body over the cap instead of truncating it", async () => {
+      const caller = createMockCaller({ userId: callerId, db: dbMock });
+
+      await expect(
+        caller.resource.create({
+          title: "Huge",
+          url: "https://example.com/huge",
+          rawContent: "x".repeat(MAX_RAW_CONTENT_CHARS + 1),
+        }),
+      ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+      expect(dbMock.resource.create).not.toHaveBeenCalled();
+      expect(dbMock.resource.update).not.toHaveBeenCalled();
+    });
+
+    describe("re-saving a URL already in the list (dedupe, D-0027)", () => {
+      it("un-archives, returns to to_read, refreshes the body, and reports created: false", async () => {
+        dbMock.resource.findFirst.mockResolvedValue(
+          fakeResource({
+            id: "old",
+            title: "example.com",
+            readStatus: "read",
+            readAt: new Date("2026-09-01T00:00:00Z"),
+            archivedAt: new Date("2026-09-02T00:00:00Z"),
+          }),
+        );
+        dbMock.resource.update.mockResolvedValue(fakeResource({ id: "old" }));
+        const caller = createMockCaller({ userId: callerId, db: dbMock });
+
+        const out = await caller.resource.create({
+          title: "The real title",
+          url: "https://example.com/post",
+          rawContent: "<p>fresh body</p>",
+          generateEmbeddings: false,
+        });
+
+        expect(dbMock.resource.create).not.toHaveBeenCalled();
+        expect(dbMock.resource.findFirst).toHaveBeenCalledWith({
+          where: { userId: callerId, url: "https://example.com/post" },
+        });
+        const call = dbMock.resource.update.mock.calls[0]![0];
+        expect(call.where).toEqual({ id: "old" });
+        expect(call.data).toMatchObject({
+          archivedAt: null,
+          readStatus: "to_read",
+          readAt: null,
+          title: "The real title",
+          rawContent: "<p>fresh body</p>",
+          content: "fresh body",
+          wordCount: 2,
+        });
+        expect(out.created).toBe(false);
+        expect(embedResourceMock).not.toHaveBeenCalled();
+      });
+
+      it("does not interrupt an item that is mid-read", async () => {
+        const firstRead = new Date("2026-09-01T00:00:00Z");
+        dbMock.resource.findFirst.mockResolvedValue(
+          fakeResource({ id: "old", readStatus: "reading", readAt: firstRead }),
+        );
+        dbMock.resource.update.mockResolvedValue(fakeResource({ id: "old" }));
+        const caller = createMockCaller({ userId: callerId, db: dbMock });
+
+        await caller.resource.create({ title: "x", url: "https://example.com/post" });
+
+        const data = dbMock.resource.update.mock.calls[0]![0].data;
+        expect(data.readStatus).toBe("reading");
+        expect(data.readAt).toEqual(firstRead);
+      });
+
+      it("a bare-link re-save keeps the existing title and body", async () => {
+        dbMock.resource.findFirst.mockResolvedValue(
+          fakeResource({ id: "old", title: "Kept", rawContent: "<p>kept</p>", content: "kept" }),
+        );
+        dbMock.resource.update.mockResolvedValue(fakeResource({ id: "old" }));
+        const caller = createMockCaller({ userId: callerId, db: dbMock });
+
+        await caller.resource.create({ title: "example.com", url: "https://example.com/post" });
+
+        const data = dbMock.resource.update.mock.calls[0]![0].data;
+        expect(data).not.toHaveProperty("title");
+        expect(data).not.toHaveProperty("content");
+        expect(data).not.toHaveProperty("rawContent");
+      });
+
+      it("honours an explicit read request and re-embeds when asked", async () => {
+        dbMock.resource.findFirst.mockResolvedValue(fakeResource({ id: "old" }));
+        dbMock.resource.update.mockResolvedValue(fakeResource({ id: "old" }));
+        const caller = createMockCaller({ userId: callerId, db: dbMock });
+
+        await caller.resource.create({
+          title: "Reference",
+          url: "https://example.com/post",
+          content: "pasted reference text",
+          readStatus: "read",
+          generateEmbeddings: true,
+        });
+
+        const data = dbMock.resource.update.mock.calls[0]![0].data;
+        expect(data.readStatus).toBe("read");
+        expect(data.readAt).toBeInstanceOf(Date);
+        await flushAfter();
+        expect(embedResourceMock).toHaveBeenCalledWith("old");
+      });
+
+      it("only matches the caller's own rows", async () => {
+        dbMock.resource.create.mockResolvedValue(fakeResource({ id: "mine" }));
+        const caller = createMockCaller({ userId: callerId, db: dbMock });
+
+        await caller.resource.create({ title: "x", url: "https://example.com/post" });
+
+        expect(dbMock.resource.findFirst.mock.calls[0]![0]!.where).toMatchObject({ userId: callerId });
+        expect(dbMock.resource.create).toHaveBeenCalledTimes(1);
+      });
     });
   });
 
@@ -295,5 +628,124 @@ describe("resource router — reading list (mocked)", () => {
       // No content change → no re-embed.
       expect(embedResourceMock).not.toHaveBeenCalled();
     });
+  });
+});
+
+/**
+ * ADR-0079: under an agent (an `exp_agent_…` key or an Assistant) the router
+ * works on the OWNER's Resources, inside the workspaces delegated to the agent,
+ * and records the agent as the author.
+ */
+describe("resource router — agent works on its owner's list (mocked)", () => {
+  let dbMock: DeepMockProxy<PrismaClient>;
+  const SHADOW_ID = "shadow-1";
+  const OWNER_ID = "owner-1";
+  const AGENT_ID = "agent-1";
+
+  const agentCaller = () =>
+    createMockCaller({ userId: SHADOW_ID, db: dbMock, tokenType: "agent-key" });
+
+  beforeEach(() => {
+    dbMock = getDbMock();
+    mockReset(dbMock);
+    embedResourceMock.mockReset();
+    afterQueue.length = 0;
+    dbMock.resource.findFirst.mockResolvedValue(null);
+    dbMock.user.findUnique.mockResolvedValue({ isAgent: true } as never);
+    dbMock.externalAgent.findUnique.mockResolvedValue({ id: AGENT_ID, ownerId: OWNER_ID } as never);
+    // The owner delegated w1 to the agent; both are members of it.
+    dbMock.workspaceUser.findMany.mockResolvedValue([{ workspaceId: "w1" }] as never);
+    dbMock.workspaceUser.count.mockResolvedValue(2);
+  });
+
+  it("saves into the owner's list and records the agent as author", async () => {
+    dbMock.resource.create.mockResolvedValue(fakeResource({ userId: OWNER_ID }));
+
+    await agentCaller().resource.create({
+      title: "A link",
+      url: "https://example.com/post",
+      contentType: "bookmark",
+      workspaceId: "w1",
+      generateEmbeddings: false,
+    });
+
+    const data = dbMock.resource.create.mock.calls[0]![0].data;
+    expect(data).toMatchObject({ userId: OWNER_ID, createdByAgentId: AGENT_ID, workspaceId: "w1" });
+    expect(dbMock.workspaceUser.count).toHaveBeenCalledWith({
+      where: { workspaceId: "w1", userId: { in: [SHADOW_ID, OWNER_ID] } },
+    });
+    // Dedupe looks only at the owner's rows the agent can reach.
+    expect(dbMock.resource.findFirst.mock.calls[0]![0]!.where).toEqual({
+      userId: OWNER_ID,
+      workspaceId: { in: ["w1"] },
+      url: "https://example.com/post",
+    });
+  });
+
+  it("refuses a save with no workspace", async () => {
+    await expect(
+      agentCaller().resource.create({ title: "A link", url: "https://example.com/post" }),
+    ).rejects.toMatchObject({ code: "BAD_REQUEST" } satisfies Partial<TRPCError>);
+    expect(dbMock.resource.create).not.toHaveBeenCalled();
+  });
+
+  it("refuses a workspace the agent and its owner do not both belong to", async () => {
+    dbMock.workspaceUser.count.mockResolvedValue(1);
+
+    await expect(
+      agentCaller().resource.create({ title: "A link", url: "https://example.com/post", workspaceId: "w2" }),
+    ).rejects.toMatchObject({ code: "NOT_FOUND" } satisfies Partial<TRPCError>);
+    expect(dbMock.resource.create).not.toHaveBeenCalled();
+  });
+
+  it("lists the owner's rows in delegated workspaces, never no-workspace rows", async () => {
+    dbMock.resource.findMany.mockResolvedValue([]);
+
+    await agentCaller().resource.list({ readStatus: "unread", workspaceId: "w1" });
+
+    const where = dbMock.resource.findMany.mock.calls[0]![0]!.where!;
+    expect(where).toMatchObject({
+      userId: OWNER_ID,
+      workspaceId: { in: ["w1"] },
+      AND: [{ OR: [{ workspaceId: "w1" }, { workspaceId: null }] }],
+      readStatus: { in: ["to_read", "reading"] },
+    });
+  });
+
+  it("marks read only on the owner's rows it can reach", async () => {
+    dbMock.resource.findFirst.mockResolvedValue(fakeResource({ userId: OWNER_ID }));
+    dbMock.resource.update.mockResolvedValue(fakeResource({ readStatus: "read" }));
+
+    await agentCaller().resource.setReadStatus({ id: "r1", readStatus: "read" });
+
+    expect(dbMock.resource.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: "r1", userId: OWNER_ID, workspaceId: { in: ["w1"] } },
+      }),
+    );
+  });
+
+  it("cannot move a Resource out of its delegated workspaces", async () => {
+    dbMock.resource.findFirst.mockResolvedValue(fakeResource({ userId: OWNER_ID }));
+
+    await expect(
+      agentCaller().resource.update({ id: "r1", workspaceId: "w2" }),
+    ).rejects.toMatchObject({ code: "NOT_FOUND" } satisfies Partial<TRPCError>);
+    await expect(
+      agentCaller().resource.update({ id: "r1", workspaceId: null }),
+    ).rejects.toMatchObject({ code: "BAD_REQUEST" } satisfies Partial<TRPCError>);
+    expect(dbMock.resource.update).not.toHaveBeenCalled();
+  });
+
+  it("a person still saves to their own list with no agent author", async () => {
+    dbMock.user.findUnique.mockResolvedValue({ isAgent: false } as never);
+    dbMock.resource.create.mockResolvedValue(fakeResource());
+    const caller = createMockCaller({ userId: "caller-1", db: dbMock, tokenType: "api-token" });
+
+    await caller.resource.create({ title: "A link", url: "https://example.com/post" });
+
+    const data = dbMock.resource.create.mock.calls[0]![0].data;
+    expect(data).toMatchObject({ userId: "caller-1", createdByAgentId: null });
+    expect(dbMock.workspaceUser.findMany).not.toHaveBeenCalled();
   });
 });

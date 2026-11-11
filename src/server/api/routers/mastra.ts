@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { createTRPCRouter, protectedProcedure, humanOnlyProcedure } from "~/server/api/trpc";
 import { requireLiveRunForCaller } from "~/server/services/agentRuns/callbacks";
+import { postRunQuestion } from "~/server/services/agentRuns/question";
 import { appendRunEvent } from "~/server/services/agentRuns/events";
 import { enqueueAgentRunsForAssignees } from "~/server/services/agentRuns/enqueue";
 import { triggerDispatch } from "~/server/services/agentRuns/dispatch";
@@ -1146,12 +1147,14 @@ export const mastraRouter = createTRPCRouter({
     }),
 
   /**
-   * ask-owner: a comment mentioning the owner (so it lands as a Mention under
-   * Waiting on me) and the run moves to WAITING_ON_OWNER — terminal for this
-   * row; the owner's reply on the action starts a resume run (D6). The tool
-   * returns a stop instruction the prompt tells the agent to honour; the
-   * dispatcher sees the status when the Mastra call returns and records the
-   * wall-clock without finishing.
+   * ask-owner: park the run WAITING_ON_OWNER and comment mentioning whoever
+   * assigned the Action — or the owner, when no person did — so it lands as a
+   * Mention under their Waiting on me (`postRunQuestion`, shared with a local
+   * runner's finish). Terminal for this row; that person's or the owner's
+   * reply on the action starts a resume run. The tool returns a stop
+   * instruction the prompt tells the agent to honour; the dispatcher sees the
+   * status when the Mastra call returns and records the wall-clock without
+   * finishing. A run cancelled meanwhile posts nothing (`commentId: null`).
    */
   askOwner: protectedProcedure
     .input(z.object({ question: z.string().min(1).max(10000) }))
@@ -1161,33 +1164,15 @@ export const mastraRouter = createTRPCRouter({
         tokenType: ctx.tokenType,
         userId: ctx.session.user.id,
       });
-      const owner = await ctx.db.user.findUniqueOrThrow({
-        where: { id: run.agent.ownerId },
-        select: { id: true, name: true },
-      });
-      // The mention parser reads `@[Name](id)`; brackets or parens in a display
-      // name would break it, so they are stripped from the label only.
-      const label = (owner.name ?? "Owner").replace(/[[\]()]/g, "").trim() || "Owner";
-      const markdown = `@[${label}](${owner.id}) ${input.question}`;
-      const comment = await createActionComment(ctx.db, {
-        actionId: run.actionId,
+      const asked = await postRunQuestion(ctx.db, {
+        run,
         authorId: ctx.session.user.id,
-        content: markdown,
-      });
-      await appendRunEvent(ctx.db, {
-        runId: run.id,
-        kind: "tool_call",
-        payload: { tool: "ask-owner", commentId: comment.id, snippet: input.question.slice(0, 200) },
-      });
-      // Guard on RUNNING so a cancel that landed meanwhile wins.
-      await ctx.db.agentRun.updateMany({
-        where: { id: run.id, status: "RUNNING" },
-        data: { status: "WAITING_ON_OWNER", lastEventAt: new Date() },
+        question: input.question,
       });
       return {
         stop: true as const,
         status: "WAITING_ON_OWNER" as const,
-        commentId: comment.id,
+        commentId: asked?.commentId ?? null,
       };
     }),
 
@@ -4058,6 +4043,11 @@ export const mastraRouter = createTRPCRouter({
         title: z.string().min(1),
         body: z.string().min(1),
         includeInSearch: z.boolean().optional(),
+        // Why the page exists — recorded on its first revision (ADR-0074).
+        note: z.string().optional(),
+        // Provenance: where the facts come from, and the date they were true.
+        source: z.string().nullish(),
+        asOf: z.coerce.date().nullish(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
@@ -4068,6 +4058,9 @@ export const mastraRouter = createTRPCRouter({
         title: input.title,
         body: input.body,
         includeInSearch: input.includeInSearch,
+        note: input.note,
+        source: input.source,
+        asOf: input.asOf,
       });
       return {
         page: {
@@ -4091,6 +4084,10 @@ export const mastraRouter = createTRPCRouter({
         // a compare-and-set: a newer save makes page.update throw CONFLICT
         // (`data.conflict`) instead of being overwritten (ADR-0071).
         baseVersion: z.number().int().min(0).optional(),
+        // Why this change — shown in the page's history (ADR-0074).
+        note: z.string().optional(),
+        source: z.string().nullish(),
+        asOf: z.coerce.date().nullish(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
@@ -4101,6 +4098,9 @@ export const mastraRouter = createTRPCRouter({
         body: input.body,
         includeInSearch: input.includeInSearch,
         baseVersion: input.baseVersion,
+        note: input.note,
+        source: input.source,
+        asOf: input.asOf,
       });
       // The agent sends Markdown `body` (never `bodyDoc`), so page.update takes
       // the metadata path and returns the full record (not the {id, docVersion}

@@ -87,6 +87,7 @@ export {
   buildProjectAccessWhere,
   buildProjectEditWhere,
 } from "./resolvers/projectResolver";
+export { projectAccessDeniedError, type ProjectDeniedAction } from "./projectDenial";
 export {
   getActionAccess,
   canViewAction,
@@ -101,6 +102,7 @@ export {
   canViewTranscription,
   canEditTranscription,
   buildTranscriptionAccessWhere,
+  buildTranscriptionEditWhere,
 } from "./resolvers/transcriptionResolver";
 export type { TranscriptionAccessInfo } from "./resolvers/transcriptionResolver";
 export {

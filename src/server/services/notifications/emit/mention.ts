@@ -5,6 +5,15 @@ import type { EmitNotificationInput, NotificationContent } from "./types";
 /** Parse mentions in `@[Name](userId)` (or legacy `@[Name]`) form. */
 const MENTION_WITH_ID_REGEX = /@\[([^\]]+)\](?:\(([^)]+)\))?/g;
 
+/** The user ids named by `@[Name](id)` mentions, deduped; legacy `@[Name]` is ignored. */
+export function parseMentionIds(content: string): string[] {
+  const ids = new Set<string>();
+  for (const match of content.matchAll(new RegExp(MENTION_WITH_ID_REGEX.source, "g"))) {
+    if (match[2]) ids.add(match[2]);
+  }
+  return [...ids];
+}
+
 /**
  * Extract mentioned user ids from comment content. `@[Name](id)` yields the id
  * directly; legacy `@[Name]` (no id) is resolved by name against workspace
@@ -46,12 +55,24 @@ async function extractMentionedUserIds(
 }
 
 /**
+ * Never notify an Assistant's shadow user: nobody reads it. An Assistant is a
+ * workspace member like any other (ADR-0067), so membership alone would let a
+ * mention write a Notification (and deliveries) addressed to it. Mentioning an
+ * Assistant starts nothing either — assignment is the only trigger (decided
+ * 2026-10-11). A plain External agent is still notified: it may read its
+ * notifications through the API.
+ */
+export const NOT_AN_ASSISTANT_PRINCIPAL = {
+  NOT: { externalAgentShadow: { is: { assistant: { isNot: null } } } },
+} as const;
+
+/**
  * Mention recipients: parsed mentioned ids, minus anyone already mentioned in
  * the pre-edit body, restricted to users who actually belong to the workspace
- * (directly or via a linked team). Crafted `@[Name](id)` markup naming a
- * non-member or an agent never matches and is silently dropped — comment
- * content never leaks outside the workspace. (Actor exclusion is applied by
- * `emitNotification`.)
+ * (directly or via a linked team) and are not an Assistant's principal.
+ * Crafted `@[Name](id)` markup naming a non-member is silently dropped —
+ * comment content never leaks outside the workspace. (Actor exclusion is
+ * applied by `emitNotification`.)
  */
 export async function resolveMentionRecipients(
   input: EmitNotificationInput & { category: typeof NOTIFICATION_CATEGORIES.MENTION },
@@ -81,6 +102,7 @@ export async function resolveMentionRecipients(
         { workspaceMemberships: { some: { workspaceId: subject.workspaceId } } },
         { teams: { some: { team: { workspaceId: subject.workspaceId } } } },
       ],
+      ...NOT_AN_ASSISTANT_PRINCIPAL,
     },
     select: { id: true },
   });

@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  Anchor,
   Modal,
   Select,
   Button,
@@ -27,6 +28,7 @@ import {
   IconSearch,
   IconUserPlus,
 } from "@tabler/icons-react";
+import Link from "next/link";
 import { useMemo, useState } from "react";
 import { api } from "~/trpc/react";
 
@@ -273,7 +275,9 @@ export function InviteMemberModal({
                   return;
                 }
                 const user = options.find((u) => u.id === value);
-                if (user) {
+                if (user && !user.email) {
+                  setError("This user has no email address and can't be invited.");
+                } else if (user) {
                   setSelectedUser(user);
                   setSearchValue(user.email ?? "");
                   setError(null);
@@ -437,7 +441,12 @@ export function InviteMemberModal({
             <Alert color="gray" variant="light">
               <Text size="sm" className="text-text-secondary">
                 Pick an existing user from the dropdown, or type a new email
-                address to send them an invitation link.
+                address to send them an invitation link. Assistants and
+                agents get workspace access from the{" "}
+                <Anchor component={Link} href="/settings/agents" size="sm">
+                  Agents page
+                </Anchor>
+                .
               </Text>
             </Alert>
 

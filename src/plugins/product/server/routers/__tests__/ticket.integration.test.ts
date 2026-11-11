@@ -310,4 +310,35 @@ describe("ticket router", () => {
       ).rejects.toThrow(TRPCError);
     });
   });
+
+  describe("initBodyDoc", () => {
+    it("migrates the body without bumping updatedAt", async () => {
+      const user = await createUser(db);
+      const ws = await createWorkspace(db, { ownerId: user.id });
+      const product = await createProduct(db, {
+        workspaceId: ws.id,
+        createdById: user.id,
+      });
+      const ticket = await createTicket(db, {
+        productId: product.id,
+        createdById: user.id,
+      });
+      // Age the row so a bump to "now" cannot pass unnoticed.
+      const lastEdited = new Date("2026-01-01T00:00:00Z");
+      await db.ticket.update({
+        where: { id: ticket.id },
+        data: { updatedAt: lastEdited },
+      });
+
+      const caller = createTestCaller(user.id);
+      const doc = { type: "doc", content: [{ type: "paragraph" }] };
+      await expect(
+        caller.product.ticket.initBodyDoc({ id: ticket.id, doc }),
+      ).resolves.toEqual({ migrated: true });
+
+      const row = await db.ticket.findUniqueOrThrow({ where: { id: ticket.id } });
+      expect(row.bodyDoc).toEqual(doc);
+      expect(row.updatedAt).toEqual(lastEdited);
+    });
+  });
 });

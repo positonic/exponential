@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { httpUrlSchema } from "~/lib/safeUrl";
 import type { JSONContent } from "@tiptap/core";
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 import { TRPCError } from "@trpc/server";
@@ -110,6 +111,7 @@ async function loadTicketWithAccess(
       cycleId: true,
       scopeId: true,
       assigneeId: true,
+      updatedAt: true,
       product: { select: { workspaceId: true } },
     },
   });
@@ -133,6 +135,7 @@ const DEP_TICKET_SELECT = {
   title: true,
   status: true,
   priority: true,
+  prUrl: true,
   assignee: { select: { id: true, name: true, image: true } },
 } as const;
 
@@ -172,11 +175,15 @@ const TICKET_LIST_ORDER_BY: Prisma.TicketOrderByWithRelationInput[] = [
   { createdAt: "desc" },
 ];
 
-/** Swap each ticket's `depsOut` edges for its open-blocker count. */
+/**
+ * Swap each ticket's `depsOut` edges for its open-blocker count and the ids
+ * of the tickets it depends on (what the Backlog's "Nest dependencies" view
+ * nests beneath it).
+ */
 function withBlockerCounts<
   T extends {
     status: TicketStatusValue;
-    depsOut: Array<{ dependsOn: { status: TicketStatusValue } }>;
+    depsOut: Array<{ dependsOnId: string; dependsOn: { status: TicketStatusValue } }>;
   },
 >(tickets: T[]) {
   return tickets.map((t) => {
@@ -185,8 +192,9 @@ function withBlockerCounts<
     ).length;
     const isBlocked =
       openBlockerCount > 0 && IN_FLIGHT_TICKET_STATUSES.includes(t.status);
+    const dependsOnIds = t.depsOut.map((d) => d.dependsOnId);
     const { depsOut: _depsOut, ...rest } = t;
-    return { ...rest, openBlockerCount, isBlocked };
+    return { ...rest, openBlockerCount, isBlocked, dependsOnIds };
   });
 }
 
@@ -215,7 +223,7 @@ const TICKET_SUMMARY_SELECT = {
       tag: { select: { id: true, name: true, color: true, category: true } },
     },
   },
-  depsOut: { select: { dependsOn: { select: { status: true } } } },
+  depsOut: { select: { dependsOnId: true, dependsOn: { select: { status: true } } } },
   syncs: {
     select: {
       provider: true,
@@ -366,7 +374,7 @@ export const ticketRouter = createTRPCRouter({
           epic: { select: { id: true, name: true } },
           cycle: { select: { id: true, name: true, status: true, startDate: true, endDate: true } },
           tags: { include: { tag: true } },
-          depsOut: { select: { dependsOn: { select: { status: true } } } },
+          depsOut: { select: { dependsOnId: true, dependsOn: { select: { status: true } } } },
           _count: { select: { actions: true, comments: true } },
           syncs: {
             select: {
@@ -596,9 +604,9 @@ export const ticketRouter = createTRPCRouter({
         priority: z.number().int().min(0).max(4).optional(),
         points: z.number().optional(),
         branchName: boundedText("Branch name", TEXT_LIMITS.LABEL).optional(),
-        prUrl: z.string().url().max(500).optional(),
-        designUrl: z.string().url().max(500).optional(),
-        specUrl: z.string().url().max(500).optional(),
+        prUrl: httpUrlSchema.optional(),
+        designUrl: httpUrlSchema.optional(),
+        specUrl: httpUrlSchema.optional(),
         links: z.record(z.string(), z.string()).optional(),
         epicId: z.string().optional(),
         featureId: z.string().optional(),
@@ -706,9 +714,9 @@ export const ticketRouter = createTRPCRouter({
         priority: z.number().int().min(0).max(4).nullable().optional(),
         points: z.number().nullable().optional(),
         branchName: boundedText("Branch name", TEXT_LIMITS.LABEL).nullable().optional(),
-        prUrl: z.string().url().max(500).nullable().optional(),
-        designUrl: z.string().url().max(500).nullable().optional(),
-        specUrl: z.string().url().max(500).nullable().optional(),
+        prUrl: httpUrlSchema.nullable().optional(),
+        designUrl: httpUrlSchema.nullable().optional(),
+        specUrl: httpUrlSchema.nullable().optional(),
         links: z.record(z.string(), z.string()).nullable().optional(),
         epicId: z.string().nullable().optional(),
         featureId: z.string().nullable().optional(),
@@ -992,18 +1000,36 @@ export const ticketRouter = createTRPCRouter({
    * canonical `bodyDoc` (ADR-0024, as feature.initDescriptionDoc). The client
    * converts Markdown → ProseMirror JSON (the codec needs the editor schema)
    * and posts the result here on first open. Idempotent and write-once: if
-   * `bodyDoc` is already set, the existing document wins. `body` and
-   * `docVersion` stay untouched.
+   * `bodyDoc` is already set, the existing document wins. `body`,
+   * `docVersion` and `updatedAt` stay untouched.
    */
   initBodyDoc: protectedProcedure
     .input(z.object({ id: z.string(), doc: prosemirrorDoc }))
     .mutation(async ({ ctx, input }) => {
-      await loadTicketWithAccess(ctx.db, ctx.session.user.id, input.id, "edit");
+      const existing = await loadTicketWithAccess(
+        ctx.db,
+        ctx.session.user.id,
+        input.id,
+        "edit",
+      );
       // Conditional write, not read-then-write: an editor save or a Markdown
       // API write landing in between must win over this migration.
+      //
+      // This runs on first *open*, so it must not count as an edit: `@updatedAt`
+      // would otherwise bump the row and send it to the back of updatedAt-ordered
+      // queues (inbox "Waiting on me"). Write the loaded value back, and guard on
+      // it so a real edit racing in between is never rolled back — the migration
+      // just skips and retries on the next open.
       const res = await ctx.db.ticket.updateMany({
-        where: { id: input.id, bodyDoc: { equals: Prisma.DbNull } },
-        data: { bodyDoc: input.doc as Prisma.InputJsonValue },
+        where: {
+          id: input.id,
+          bodyDoc: { equals: Prisma.DbNull },
+          updatedAt: existing.updatedAt,
+        },
+        data: {
+          bodyDoc: input.doc as Prisma.InputJsonValue,
+          updatedAt: existing.updatedAt,
+        },
       });
       return { migrated: res.count > 0 };
     }),

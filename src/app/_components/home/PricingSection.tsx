@@ -29,7 +29,7 @@ export function PricingSection({ id }: PricingSectionProps) {
         </div>
 
         {/* Pricing Card */}
-        <div className="bg-background-primary border-2 border-accent-indigo/40 rounded-3xl p-8 md:p-12 text-center relative overflow-hidden shadow-xl">
+        <div className="bg-background-primary border-2 border-accent-indigo/40 rounded-2xl p-8 md:p-12 text-center relative overflow-hidden shadow-xl">
           {/* Background decoration */}
           <div
             className="absolute inset-0 pointer-events-none"

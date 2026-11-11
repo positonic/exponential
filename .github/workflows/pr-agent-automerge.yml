@@ -7,30 +7,29 @@ name: PR-Agent auto-merge
 # Dry run (env.DRY_RUN below): set to 'true' to decide and post the verdict as a PR comment
 # without merging. It ran that way for the first week of verdicts before going live.
 #
-# What PR-Agent gives us to read (both are issue comments it edits in place — there are no
-# inline threads, so nothing for a human to "resolve"):
-#   - the review ("PR Reviewer Guide"): findings carry no score, but a hidden
-#     `pr-agent-review-state:v1` JSON block lists each one as ACTIVE or RESOLVED, plus the
-#     commit the review covered. PR-Agent resolves a finding itself when a push fixes it.
-#     When it can't update that comment it posts a "Standalone PR Review" instead: same
-#     table, no state block, no commit sha — so it's dated against the review run, and every
-#     finding in it counts as open.
-#   - the code suggestions ("PR Code Suggestions"): each scored
-#     `Suggestion importance[1-10]: N`, under a `<!-- <short sha> -->` marker.
+# What PR-Agent gives us to read: the review ("PR Reviewer Guide"), an issue comment it
+# edits in place — there are no inline threads, so nothing for a human to "resolve".
+# Findings carry no score, but a hidden `pr-agent-review-state:v1` JSON block lists each one
+# as ACTIVE or RESOLVED, plus the commit the review covered. PR-Agent resolves a finding
+# itself when a push fixes it. When it can't update that comment it posts a "Standalone PR
+# Review" instead: same table, no state block, no commit sha — so it's dated against the
+# review run, and every finding in it counts as open.
+#
+# PR-Agent runs review-only (pr_agent.yml), so there are no code suggestions to read. They
+# used to block at importance 8+, but never scored above 7 here, and generating them was
+# half of every push's model calls.
 #
 # What blocks:
 #   - an unresolved review finding, unless its header is tagged `[minor]`. .pr_agent.toml
 #     asks the reviewer to tag every finding `[blocker]` or `[minor]`; an untagged finding
 #     blocks, so a model that ignores the instruction fails safe.
 #   - a security concern in the review table.
-#   - a code suggestion scored SCORE_THRESHOLD or higher. (Past PRs never scored above 7 —
-#     this is a backstop, the findings are the main gate.)
 #   - a change to prisma/migrations or schema.prisma: migrations go through `develop` and
 #     are merged by a human, never auto-merged into main.
 #   - anything else that leaves the PR for a human: no review on the latest commit, a draft,
 #     a fork, a bot author, a PR into a branch other than main, the `no-automerge` label.
 #
-# Override: the `pr-agent-ack` label merges despite blocking findings or suggestions. It
+# Override: the `pr-agent-ack` label merges despite blocking findings. It
 # means "a person saw the blocker and is merging anyway", so it only counts when one of
 # ACK_BY applied it (the last `labeled` event for it); from anyone else it is ignored and
 # the verdict says so. Agent sessions run `gh` as that same person, so this check can't
@@ -137,7 +136,6 @@ jobs:
             // PR-Agent runs as a workflow in this repo, so it posts as github-actions.
             const PR_AGENT = 'github-actions[bot]';
             const CHECK_NAME = 'PR Agent review';
-            const SCORE_THRESHOLD = 8;
             const SCHEMA = /^prisma\/(migrations\/|schema\.prisma$)/;
             const RETRY_MS = 15000;
             const MERGE_ATTEMPTS = 3;
@@ -216,22 +214,13 @@ jobs:
               const reviewCurrent = review?.sha ? review.sha === sha && review.complete : review && fresh(reviewComment);
               if (!reviewCurrent) return skip(`PR-Agent's review comment doesn't show a complete review of \`${short}\``);
 
-              const improveComment = latest('## PR Code Suggestions');
-              const improve = improveComment ? readImprove(improveComment.body) : null;
-              const improveCurrent = improve?.sha ? sha.startsWith(improve.sha) : improve && fresh(improveComment);
-              if (!improveCurrent) return skip(`PR-Agent's code suggestions don't cover \`${short}\``);
-
               const blocking = [
                 ...review.findings.filter(f => f.tag !== 'minor')
                   .map(f => `finding${f.tag ? '' : ' (untagged)'}: [${f.title}](${f.url})${f.where ? ` — \`${f.where}\`` : ''}`),
                 ...(review.security ? [`[security concern](${reviewComment.html_url}): ${review.security}`] : []),
-                ...improve.suggestions.filter(s => s.score >= SCORE_THRESHOLD)
-                  .map(s => `suggestion scored ${s.score}: [${s.title}](${improveComment.html_url})`),
               ];
-              const scores = improve.suggestions.map(s => s.score);
               const minor = review.findings.length - review.findings.filter(f => f.tag !== 'minor').length;
-              const tally = `${review.findings.length} unresolved finding(s) (${minor} tagged minor), ` +
-                `${scores.length} suggestion(s)${scores.length ? `, top score ${Math.max(...scores)}` : ''}`;
+              const tally = `${review.findings.length} unresolved finding(s) (${minor} tagged minor)`;
               const ackActor = pr.labels.some(l => l.name === ACK) ? await ackedBy(number) : null;
               const acked = ackActor !== null && ACK_BY.includes(ackActor);
               if (blocking.length && !acked) {
@@ -330,21 +319,6 @@ jobs:
               if (!findings.length && !/No major issues detected/i.test(body)) return null;
               const sha = body.match(/Review updated until commit \S*\/commit\/([0-9a-f]{40})/)?.[1] ?? null;
               return { sha, complete: true, findings, security };
-            }
-
-            // Returns { sha, suggestions } — sha is null on a "no suggestions" comment, which
-            // carries no commit marker — or null when the comment can't be read.
-            function readImprove(body) {
-              if (/No code suggestions found/i.test(body)) return { sha: null, suggestions: [] };
-              const sha = body.match(/<!--\s*([0-9a-f]{7,40})\s*-->/)?.[1];
-              if (!sha) return null;
-              // Earlier commits' suggestions are kept below this heading; only the latest count.
-              const current = body.split('#### Previous suggestions')[0];
-              const scores = [...current.matchAll(/Suggestion importance\[1-10\]:\s*(\d+)/g)].map(m => Number(m[1]));
-              // A suggestion's title summary is followed by `___`; its importance summary by `__`.
-              const titles = [...current.matchAll(/<details><summary>([\s\S]*?)<\/summary>\s*___\s/g)]
-                .map(m => m[1].replace(/<[^>]+>/g, '').trim());
-              return { sha, suggestions: scores.map((score, i) => ({ score, title: titles.length === scores.length ? titles[i] : `suggestion ${i + 1}` })) };
             }
 
             async function report(number, text) {

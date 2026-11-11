@@ -193,7 +193,7 @@ export function CycleCards() {
     { enabled: !!workspaceId },
   );
 
-  if (isLoading) return <Skeleton height={120} radius={12} />;
+  if (isLoading) return <Skeleton height={120} radius="lg" />;
   if (!cycles || cycles.length === 0) return null;
 
   return (

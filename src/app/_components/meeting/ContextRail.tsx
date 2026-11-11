@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { Select } from "@mantine/core";
 import { DateTimeField } from "~/app/_components/DateTimeField";
 import {
   IconPlayerPlay,
@@ -21,6 +22,7 @@ import {
 import {
   MeetingOccurrencePicker,
   formatOccurrenceWhen,
+  type MeetingCeremonyOption,
   type MeetingOccurrenceOption,
 } from "./MeetingOccurrencePicker";
 import {
@@ -55,8 +57,19 @@ interface ContextRailProps {
   onProjectPickerOpen?: () => void;
   isLoadingProjects?: boolean;
   onProjectChange: (projectId: string | null) => void;
-  /** Read-only workspace label, derived from the placed project. */
+  /** Workspace label. Follows the project when the meeting has one. */
   workspaceName: string | null;
+  /** Current workspace id, or null for Personal. */
+  workspaceId?: string | null;
+  /** Workspaces the viewer can move the meeting into. */
+  workspaceOptions?: { id: string; name: string }[];
+  /** Move the meeting to another workspace (null = Personal). Omit to show the
+   * workspace read-only: for viewers, and for project-linked meetings, whose
+   * workspace is the project's. */
+  onWorkspaceChange?: (workspaceId: string | null) => void;
+  isSavingWorkspace?: boolean;
+  /** Offer "Personal" as a target: only the meeting's owner may move it there. */
+  allowPersonalWorkspace?: boolean;
   /** The ceremony occurrence this meeting captured (ADR-0059), if any. */
   occurrence: MeetingOccurrenceRef | null;
   occurrenceHref: string | null;
@@ -67,6 +80,12 @@ interface ContextRailProps {
   /** The occurrence picker opened — fetch candidates. */
   onOccurrencePickerOpen?: () => void;
   isLoadingOccurrences?: boolean;
+  /** The workspace's ceremonies, for "Add occurrence" on a meeting held off the cadence. */
+  ceremonyOptions?: MeetingCeremonyOption[];
+  /** Create an occurrence at the meeting's date and link to it. Absent → no add option. */
+  onAddOccurrence?: (ceremonyId: string) => void;
+  /** The meeting's date: when an added occurrence would be. */
+  addOccurrenceAt?: Date;
   /** Features this meeting discussed, in link order. */
   linkedFeatures: { id: string; name: string; productName: string; href: string | null }[];
   /** Candidate features in the meeting's workspace. */
@@ -79,12 +98,15 @@ interface ContextRailProps {
   onShare: () => void;
   onExportTranscript: () => void;
   canExport: boolean;
-  onArchive: () => void;
+  /** Archive the meeting; absent for viewers, who can't (the server re-checks). */
+  onArchive?: () => void;
   onAddParticipant?: () => void;
   onRemoveParticipant?: (id: string) => void;
   /** Id of the participant currently being removed, for a per-row spinner. */
   removingParticipantId?: string | null;
 }
+
+const PERSONAL_WORKSPACE_VALUE = "__personal__";
 
 export function ContextRail({
   onExtractOutputs,
@@ -107,12 +129,20 @@ export function ContextRail({
   isLoadingProjects,
   onProjectChange,
   workspaceName,
+  workspaceId = null,
+  workspaceOptions = [],
+  onWorkspaceChange,
+  isSavingWorkspace = false,
+  allowPersonalWorkspace = true,
   occurrence,
   occurrenceHref,
   occurrenceOptions,
   onOccurrenceChange,
   onOccurrencePickerOpen,
   isLoadingOccurrences,
+  ceremonyOptions,
+  onAddOccurrence,
+  addOccurrenceAt,
   linkedFeatures,
   featureOptions,
   onFeatureToggle,
@@ -244,6 +274,9 @@ export function ContextRail({
           disabled={!onOccurrenceChange}
           loading={isLoadingOccurrences}
           onOpen={onOccurrencePickerOpen}
+          ceremonies={ceremonyOptions}
+          onAddOccurrence={onAddOccurrence}
+          addOccurrenceAt={addOccurrenceAt}
         >
           {({ toggle }) => (
             <button
@@ -388,11 +421,42 @@ export function ContextRail({
               {sessionId.length > 8 ? `…${sessionId.slice(-6)}` : sessionId}
             </span>
           </div>
-          <div className="mp-railkv__row">
-            <span className="mp-railkv__k">Workspace</span>
-            <span className="mp-railkv__v">{workspaceName ?? "Personal"}</span>
-          </div>
+          {!onWorkspaceChange && (
+            <div className="mp-railkv__row">
+              <span className="mp-railkv__k">Workspace</span>
+              <span
+                className="mp-railkv__v"
+                title={project ? "Follows the linked project" : undefined}
+              >
+                {workspaceName ?? "Personal"}
+              </span>
+            </div>
+          )}
         </div>
+        {onWorkspaceChange && (
+          <div className="mp-rail__field">
+            <Select
+              label="Workspace"
+              size="xs"
+              value={workspaceId ?? PERSONAL_WORKSPACE_VALUE}
+              data={[
+                ...(allowPersonalWorkspace
+                  ? [{ value: PERSONAL_WORKSPACE_VALUE, label: "Personal" }]
+                  : []),
+                ...workspaceOptions.map((w) => ({ value: w.id, label: w.name })),
+              ]}
+              onChange={(value) => {
+                if (value === null) return;
+                const next = value === PERSONAL_WORKSPACE_VALUE ? null : value;
+                if (next !== workspaceId) onWorkspaceChange(next);
+              }}
+              allowDeselect={false}
+              searchable
+              disabled={isSavingWorkspace}
+              comboboxProps={{ withinPortal: true }}
+            />
+          </div>
+        )}
         <div className="mp-rail__field">
           <DateTimeField
             label="Meeting date"
@@ -414,9 +478,11 @@ export function ContextRail({
           <button className="mp-quick__btn" onClick={onExportTranscript} disabled={!canExport}>
             <IconFileExport size={13} /> Export transcript
           </button>
-          <button className="mp-quick__btn" onClick={onArchive}>
-            <IconArchive size={13} /> Archive meeting
-          </button>
+          {onArchive && (
+            <button className="mp-quick__btn" onClick={onArchive}>
+              <IconArchive size={13} /> Archive meeting
+            </button>
+          )}
         </div>
       </div>
     </aside>

@@ -34,11 +34,11 @@ import { attachMeetingToOccurrence } from "~/server/services/ceremonies/autoAtta
 import { recordOccurrenceCaptured } from "~/server/services/ceremonies/activity";
 import {
   assertFeaturesLinkable,
-  dropStrandedMeetingFeatureLinks,
 } from "~/server/services/meetings/meetingFeatures";
 import {
   assignMeetingPlacement,
   resolveMeetingWorkspace,
+  moveMeetingToWorkspace,
 } from "~/server/services/meetings/assignMeetingPlacement";
 import { apiKeyMiddleware } from "~/server/api/middleware/apiKeyAuth";
 import {
@@ -47,6 +47,7 @@ import {
 } from "~/server/services/TranscriptSummarizerService";
 import {
   buildTranscriptionAccessWhere,
+  buildTranscriptionEditWhere,
   canEditTranscription,
   canViewTranscription,
   getProjectAccess,
@@ -648,6 +649,8 @@ export const transcriptionRouter = createTRPCRouter({
         featureLinks: isWorkspaceMember ? session.featureLinks : [],
         canLinkFeatures,
         canEdit,
+        /** Only the owner may move a workspace meeting to Personal. */
+        isOwner: session.userId === ctx.session.user.id,
         hasTranscript: Boolean(transcription),
         // Same canonical parser the Transcript tab renders with (ADR-0032).
         transcriptTurnCount: parseTranscript({
@@ -692,6 +695,37 @@ export const transcriptionRouter = createTRPCRouter({
         transcription: session.transcription,
         sentencesJson: session.sentencesJson,
       };
+    }),
+
+  /**
+   * The human-written notes behind `getDetail` (which strips them with the
+   * other bodies), fetched when the Notes tab opens. Written through
+   * `updateDetails`, which takes edit access.
+   */
+  getNotes: protectedProcedure
+    .input(z.object({ id: z.string() }))
+    .query(async ({ ctx, input }) => {
+      const session = await ctx.db.transcriptionSession.findUnique({
+        where: { id: input.id },
+        select: {
+          id: true,
+          userId: true,
+          projectId: true,
+          workspaceId: true,
+          notes: true,
+        },
+      });
+
+      if (!session) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Session not found",
+        });
+      }
+
+      await ensureTranscriptionAccess(ctx.db, ctx.session.user.id, session, "view");
+
+      return { notes: session.notes };
     }),
 
   updateTranscription: protectedProcedure
@@ -739,7 +773,6 @@ export const transcriptionRouter = createTRPCRouter({
         notes: z.string().optional(),
         summary: z.string().optional(),
         transcription: z.string().optional(),
-        workspaceId: z.string().nullable().optional(),
         meetingDate: z.date().nullable().optional(),
       }),
     )
@@ -767,7 +800,6 @@ export const transcriptionRouter = createTRPCRouter({
         notes?: string;
         summary?: string;
         transcription?: string;
-        workspaceId?: string | null;
         meetingDate?: Date | null;
         updatedAt: Date;
       } = {
@@ -785,30 +817,6 @@ export const transcriptionRouter = createTRPCRouter({
       }
       if (input.transcription !== undefined) {
         updateData.transcription = input.transcription;
-      }
-      if (input.workspaceId !== undefined) {
-        if (input.workspaceId !== null) {
-          const member = await ctx.db.workspaceUser.findUnique({
-            where: {
-              userId_workspaceId: {
-                userId: ctx.session.user.id,
-                workspaceId: input.workspaceId,
-              },
-            },
-          });
-          if (!member) {
-            throw new TRPCError({
-              code: "FORBIDDEN",
-              message: "You are not a member of this workspace",
-            });
-          }
-        }
-        // A project-linked meeting's workspace is its project's: the resolver
-        // keeps it there and rejects a workspace that disagrees.
-        updateData.workspaceId = await resolveMeetingWorkspace(ctx.db, {
-          projectId: existing.projectId,
-          workspaceId: input.workspaceId,
-        });
       }
       if (input.meetingDate !== undefined) {
         updateData.meetingDate = input.meetingDate;
@@ -848,17 +856,20 @@ export const transcriptionRouter = createTRPCRouter({
         },
       });
 
-      // Moving workspace strands feature links to the old one.
-      if (
-        updateData.workspaceId !== undefined &&
-        updateData.workspaceId !== existing.workspaceId
-      ) {
-        await dropStrandedMeetingFeatureLinks(ctx.db, {
-          meetingIds: [existing.id],
-          workspaceId: updateData.workspaceId,
-        });
-      }
       return session;
+    }),
+
+  /**
+   * Move a meeting with no project to another workspace (null = Personal).
+   * Its Actions, participants and links follow; see `moveMeetingToWorkspace`.
+   */
+  moveToWorkspace: protectedProcedure
+    .input(z.object({ id: z.string(), workspaceId: z.string().nullable() }))
+    .mutation(async ({ ctx, input }) => {
+      return moveMeetingToWorkspace(ctx.db, ctx.session.user.id, {
+        meetingId: input.id,
+        workspaceId: input.workspaceId,
+      });
     }),
 
   updateTitle: protectedProcedure
@@ -1849,7 +1860,8 @@ export const transcriptionRouter = createTRPCRouter({
   deleteTranscription: protectedProcedure
     .input(z.object({ id: z.string() }))
     .mutation(async ({ ctx, input }) => {
-      // Verify the transcription belongs to the user
+      // Meeting edit access, not ownership: a meeting imported by an
+      // integration or a meeting server is owned by whoever connected it.
       const transcription = await ctx.db.transcriptionSession.findUnique({
         where: { id: input.id },
       });
@@ -1861,12 +1873,12 @@ export const transcriptionRouter = createTRPCRouter({
         });
       }
 
-      if (transcription.userId !== ctx.session.user.id) {
-        throw new TRPCError({
-          code: "FORBIDDEN",
-          message: "Not authorized to delete this transcription",
-        });
-      }
+      await ensureTranscriptionAccess(
+        ctx.db,
+        ctx.session.user.id,
+        transcription,
+        "edit",
+      );
 
       // Delete the transcription (actions will be deleted due to onDelete: SetNull)
       await ctx.db.transcriptionSession.delete({
@@ -1879,11 +1891,16 @@ export const transcriptionRouter = createTRPCRouter({
   bulkDeleteTranscriptions: protectedProcedure
     .input(z.object({ ids: z.array(z.string()) }))
     .mutation(async ({ ctx, input }) => {
-      // Delete only transcriptions that belong to the current user
+      // Delete only the meetings the caller can edit (owner, project editor,
+      // or a write role in a project-less meeting's workspace): the bulk
+      // form of `deleteTranscription`'s access check. Other ids are skipped,
+      // not refused, and the count says how many were deleted.
       const result = await ctx.db.transcriptionSession.deleteMany({
         where: {
-          id: { in: input.ids },
-          userId: ctx.session.user.id, // Ensure user only deletes their own transcriptions
+          AND: [
+            { id: { in: input.ids } },
+            buildTranscriptionEditWhere(ctx.session.user.id),
+          ],
         },
       });
 
@@ -2075,12 +2092,12 @@ export const transcriptionRouter = createTRPCRouter({
         });
       }
 
-      if (transcription.userId !== ctx.session.user.id) {
-        throw new TRPCError({
-          code: "FORBIDDEN",
-          message: "Not authorized to update this transcription",
-        });
-      }
+      await ensureTranscriptionAccess(
+        ctx.db,
+        ctx.session.user.id,
+        transcription,
+        "edit",
+      );
 
       const draftActions = await ctx.db.action.findMany({
         where: {
@@ -2136,12 +2153,12 @@ export const transcriptionRouter = createTRPCRouter({
         });
       }
 
-      if (transcription.userId !== ctx.session.user.id) {
-        throw new TRPCError({
-          code: "FORBIDDEN",
-          message: "Not authorized to update this transcription",
-        });
-      }
+      await ensureTranscriptionAccess(
+        ctx.db,
+        ctx.session.user.id,
+        transcription,
+        "edit",
+      );
 
       if (input.actionIds.length === 0) {
         return { publishedCount: 0 };
@@ -2188,7 +2205,10 @@ export const transcriptionRouter = createTRPCRouter({
   // to the transcription, the DRAFT status and the caller, like the publish
   // mutations above, so an id from another meeting (or a published Action)
   // can't be removed through this meeting's card. Omitting `actionIds`
-  // discards every remaining draft.
+  // discards every remaining draft. Like the publish mutations, gated by
+  // Meeting *edit* access (not ownership): a meeting imported by an
+  // integration or a meeting server is owned by whoever connected it, and
+  // any member who can edit the meeting must be able to finish the review.
   discardDraftActions: protectedProcedure
     .input(
       z.object({
@@ -2208,12 +2228,12 @@ export const transcriptionRouter = createTRPCRouter({
         });
       }
 
-      if (transcription.userId !== ctx.session.user.id) {
-        throw new TRPCError({
-          code: "FORBIDDEN",
-          message: "Not authorized to update this transcription",
-        });
-      }
+      await ensureTranscriptionAccess(
+        ctx.db,
+        ctx.session.user.id,
+        transcription,
+        "edit",
+      );
 
       const result = await ctx.db.action.deleteMany({
         where: {
@@ -2644,7 +2664,8 @@ export const transcriptionRouter = createTRPCRouter({
   archiveTranscription: protectedProcedure
     .input(z.object({ id: z.string() }))
     .mutation(async ({ ctx, input }) => {
-      // Verify the transcription belongs to the user
+      // Meeting edit access, not ownership: a meeting imported by an
+      // integration or a meeting server is owned by whoever connected it.
       const transcription = await ctx.db.transcriptionSession.findUnique({
         where: { id: input.id },
       });
@@ -2656,12 +2677,12 @@ export const transcriptionRouter = createTRPCRouter({
         });
       }
 
-      if (transcription.userId !== ctx.session.user.id) {
-        throw new TRPCError({
-          code: "FORBIDDEN",
-          message: "Not authorized to archive this transcription",
-        });
-      }
+      await ensureTranscriptionAccess(
+        ctx.db,
+        ctx.session.user.id,
+        transcription,
+        "edit",
+      );
 
       // Archive the transcription
       await ctx.db.transcriptionSession.update({
@@ -2678,7 +2699,8 @@ export const transcriptionRouter = createTRPCRouter({
   unarchiveTranscription: protectedProcedure
     .input(z.object({ id: z.string() }))
     .mutation(async ({ ctx, input }) => {
-      // Verify the transcription belongs to the user
+      // Meeting edit access, not ownership: a meeting imported by an
+      // integration or a meeting server is owned by whoever connected it.
       const transcription = await ctx.db.transcriptionSession.findUnique({
         where: { id: input.id },
       });
@@ -2690,12 +2712,12 @@ export const transcriptionRouter = createTRPCRouter({
         });
       }
 
-      if (transcription.userId !== ctx.session.user.id) {
-        throw new TRPCError({
-          code: "FORBIDDEN",
-          message: "Not authorized to unarchive this transcription",
-        });
-      }
+      await ensureTranscriptionAccess(
+        ctx.db,
+        ctx.session.user.id,
+        transcription,
+        "edit",
+      );
 
       // Unarchive the transcription
       await ctx.db.transcriptionSession.update({
@@ -2712,11 +2734,14 @@ export const transcriptionRouter = createTRPCRouter({
   bulkArchiveTranscriptions: protectedProcedure
     .input(z.object({ ids: z.array(z.string()) }))
     .mutation(async ({ ctx, input }) => {
-      // Archive only transcriptions that belong to the current user
+      // Archive only the meetings the caller can edit; same scoping as
+      // `bulkDeleteTranscriptions`.
       const result = await ctx.db.transcriptionSession.updateMany({
         where: {
-          id: { in: input.ids },
-          userId: ctx.session.user.id, // Ensure user only archives their own transcriptions
+          AND: [
+            { id: { in: input.ids } },
+            buildTranscriptionEditWhere(ctx.session.user.id),
+          ],
         },
         data: {
           archivedAt: new Date(),

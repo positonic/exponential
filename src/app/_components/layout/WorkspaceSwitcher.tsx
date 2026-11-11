@@ -11,6 +11,7 @@ import {
 import {
   IconChevronDown,
   IconChevronsLeft,
+  IconChevronsRight,
   IconPlus,
   IconSettings,
   IconCheck,
@@ -31,6 +32,9 @@ import { type ThemeConfig } from '~/config/themes';
 interface WorkspaceSwitcherProps {
   theme?: ThemeConfig;
   onCollapse?: () => void;
+  /** Rail mode: logo only, stacked over an "Expand" control that calls `onExpand`. */
+  compact?: boolean;
+  onExpand?: () => void;
   hideCollapse?: boolean;
   className?: string;
 }
@@ -39,6 +43,8 @@ interface WorkspaceSwitcherProps {
 export function WorkspaceSwitcher({
   theme,
   onCollapse,
+  compact = false,
+  onExpand,
   hideCollapse = false,
   className,
 }: WorkspaceSwitcherProps = {}) {
@@ -139,6 +145,7 @@ export function WorkspaceSwitcher({
     <div
       className={clsx(
         'flex items-center gap-2 px-2 py-2 min-w-0 w-full',
+        compact && 'flex-col gap-1 px-0',
         className,
       )}
     >
@@ -146,8 +153,13 @@ export function WorkspaceSwitcher({
         <Menu.Target>
           <button
             type="button"
-            className="flex flex-1 min-w-0 items-center gap-2.5 rounded-md px-1.5 py-1 text-left hover:bg-surface-hover focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-primary"
+            className={clsx(
+              'flex min-w-0 items-center gap-2.5 rounded-md px-1.5 py-1 text-left hover:bg-surface-hover focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-primary',
+              compact ? 'justify-center' : 'flex-1',
+            )}
             aria-haspopup="menu"
+            aria-label={compact ? `Workspace: ${workspaceName}` : undefined}
+            title={compact ? workspaceName : undefined}
           >
             <span className="relative grid h-7 w-7 shrink-0 place-items-center overflow-hidden rounded-md border border-border-primary bg-surface-secondary text-text-primary">
               {workspaceLogoUrl ? (
@@ -181,17 +193,21 @@ export function WorkspaceSwitcher({
               )}
             </span>
 
-            <span
-              className="flex-1 min-w-0 truncate text-[15px] font-semibold tracking-tight text-text-primary"
-              title={workspaceName}
-            >
-              {workspaceName}
-            </span>
+            {!compact && (
+              <>
+                <span
+                  className="flex-1 min-w-0 truncate text-[15px] font-semibold tracking-tight text-text-primary"
+                  title={workspaceName}
+                >
+                  {workspaceName}
+                </span>
 
-            <IconChevronDown
-              size={14}
-              className="shrink-0 text-text-muted"
-            />
+                <IconChevronDown
+                  size={14}
+                  className="shrink-0 text-text-muted"
+                />
+              </>
+            )}
           </button>
         </Menu.Target>
 
@@ -281,12 +297,12 @@ export function WorkspaceSwitcher({
       {!hideCollapse && (
         <button
           type="button"
-          onClick={onCollapse}
+          onClick={compact ? onExpand : onCollapse}
           className="grid h-7 w-7 shrink-0 place-items-center rounded-md text-text-muted transition-colors hover:bg-surface-hover hover:text-text-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-primary"
-          aria-label="Collapse menu"
-          title="Collapse menu"
+          aria-label={compact ? 'Expand menu' : 'Collapse menu'}
+          title={compact ? 'Expand menu' : 'Collapse menu'}
         >
-          <IconChevronsLeft size={16} />
+          {compact ? <IconChevronsRight size={16} /> : <IconChevronsLeft size={16} />}
         </button>
       )}
     </div>

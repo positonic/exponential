@@ -15,7 +15,7 @@
  *     design decision observable: 6 tickets exist, the accordion shows 5.
  */
 import { createHash } from "crypto";
-import type { PrismaClient } from "@prisma/client";
+import { Prisma, type PrismaClient } from "@prisma/client";
 import { encryptString } from "../../src/server/utils/encryption";
 import { createAssistantPrincipal } from "../../src/server/services/assistant/principal";
 
@@ -26,6 +26,10 @@ export const FIXTURE = {
   workspaceName: "Dev Fixture",
   otherWorkspaceSlug: "dev-fixture-other",
   otherWorkspaceName: "Dev Fixture Other",
+  /** A `personal` workspace: OKR features off, so "Goals" wording and no OKR views. */
+  personalWorkspaceSlug: "dev-fixture-personal",
+  personalWorkspaceName: "Dev Fixture Personal",
+  personalGoalTitle: "Run a marathon (personal fixture goal)",
   // Deliberately unlike anything in the main workspace, so a search for it
   // returning nothing is proof that scoping held.
   otherWorkspaceActionName: "Zarquon cross-workspace beacon",
@@ -45,6 +49,10 @@ export const FIXTURE = {
   childGoalTitle: "Ship the goal hierarchy affordance",
   offProjectParentGoalTitle: "Company-wide alignment (not on this project)",
   detachedChildGoalTitle: "Sub-goal whose parent is off-project",
+  /** A completed objective in `okrPeriod`, so the Goals page Status filter has something to remove. */
+  completedGoalTitle: "Completed fixture objective (status filter)",
+  /** Its one key result, so the Key results view's Status filter is exercised end to end. */
+  completedKeyResultTitle: "Key result of the completed fixture objective",
   // Ceremonies (ADR-0059) and Decisions (ADR-0060): one Daily Standup, one
   // occurrence, a recorded meeting attached to it, one confirmed decision.
   ceremonySlug: "daily-standup",
@@ -83,6 +91,8 @@ export const FIXTURE = {
   assistantActionName: "Find a venue for the fixture offsite",
   /** A second unassigned action, so the agent-run spec and the assign spec never share one. */
   agentRunActionName: "Draft the fixture offsite agenda",
+  /** A third, for the mention spec: mentioning an unassigned Assistant offers the assignment. */
+  mentionActionName: "Book the fixture offsite dinner",
   /**
    * A Position (ADR-0068) held by the fixture user's Assistant, so the Assign
    * modal has a title to show under Aria and the settings page has one row.
@@ -101,6 +111,8 @@ export interface SeededFixture {
   otherWorkspaceName: string;
   /** Action living only in `otherWorkspaceSlug`. */
   otherWorkspaceActionName: string;
+  /** The fixture user's personal workspace (type `personal`, OKR features off). */
+  personalWorkspaceSlug: string;
   productSlug: string;
   featureId: string;
   /** App-relative URL of the seeded feature's detail page. */
@@ -136,6 +148,9 @@ export interface SeededFixture {
   /** Its twin for the agent-run spec (ADR-0067), reset to unassigned with no runs on each seed. */
   agentRunActionUrl: string;
   agentRunActionName: string;
+  /** Its twin for the mention spec (decided 2026-10-11), unassigned with no runs on each seed. */
+  mentionActionUrl: string;
+  mentionActionName: string;
   /** The seeded Position (ADR-0068), held by `assistantName` alone on every seed. */
   positionTitle: string;
   /** App-relative URL of the workspace settings page (Positions live on its Members section). */
@@ -166,6 +181,9 @@ export interface SeededFixture {
    * schedule-meeting spec skips.
    */
   canScheduleWithContact: boolean;
+  /** A page with no database yet, for the database-block spec (ADR-0078). Reset on every seed. */
+  databasePageId: string;
+  databasePageUrl: string;
 }
 
 interface TicketSpec {
@@ -274,6 +292,44 @@ export async function seedDevFixture(db: PrismaClient): Promise<SeededFixture> {
     update: { role: "owner" },
     create: { userId: user.id, workspaceId: otherWorkspace.id, role: "owner" },
   });
+
+  // A personal workspace, for everything the terminology hook trims when OKR
+  // features are off (the Goals page offers Table and Timeline only, says
+  // "Goals", and narrates no KR attainment). One active goal, no period.
+  const personalWorkspace = await db.workspace.upsert({
+    where: { slug: FIXTURE.personalWorkspaceSlug },
+    update: { type: "personal", enableKeyResults: null },
+    create: {
+      slug: FIXTURE.personalWorkspaceSlug,
+      name: FIXTURE.personalWorkspaceName,
+      type: "personal",
+      ownerId: user.id,
+    },
+  });
+  await db.workspaceUser.upsert({
+    where: { userId_workspaceId: { userId: user.id, workspaceId: personalWorkspace.id } },
+    update: { role: "owner" },
+    create: { userId: user.id, workspaceId: personalWorkspace.id, role: "owner" },
+  });
+  const existingPersonalGoal = await db.goal.findFirst({
+    where: { userId: user.id, title: FIXTURE.personalGoalTitle },
+  });
+  if (existingPersonalGoal) {
+    await db.goal.update({
+      where: { id: existingPersonalGoal.id },
+      data: { workspaceId: personalWorkspace.id, status: "active" },
+    });
+  } else {
+    await db.goal.create({
+      data: {
+        title: FIXTURE.personalGoalTitle,
+        status: "active",
+        userId: user.id,
+        driUserId: user.id,
+        workspaceId: personalWorkspace.id,
+      },
+    });
+  }
 
   const existingOtherAction = await db.action.findFirst({
     where: { workspaceId: otherWorkspace.id, name: FIXTURE.otherWorkspaceActionName },
@@ -479,7 +535,8 @@ export async function seedDevFixture(db: PrismaClient): Promise<SeededFixture> {
 
   // The actions the specs assign. Re-seeding clears their assignees and
   // Agent runs so each spec starts from "Unassigned" and a fresh run rather
-  // than coalescing onto a leftover one.
+  // than coalescing onto a leftover one, and reopens them: the agent-run spec
+  // ends on Mark done, and a completed action starts no run on the next pass.
   async function ensureUnassignedAction(name: string) {
     let action = await db.action.findFirst({
       where: { workspaceId: workspace.id, name },
@@ -490,13 +547,20 @@ export async function seedDevFixture(db: PrismaClient): Promise<SeededFixture> {
         data: { name, workspaceId: workspace.id, createdById: user.id, status: "ACTIVE", priority: "Quick" },
         select: { id: true },
       });
+    } else {
+      await db.action.update({
+        where: { id: action.id },
+        data: { status: "ACTIVE", completedAt: null, kanbanStatus: null },
+      });
     }
     await db.actionAssignee.deleteMany({ where: { actionId: action.id } });
     await db.agentRun.deleteMany({ where: { actionId: action.id } });
+    await db.actionComment.deleteMany({ where: { actionId: action.id } });
     return action;
   }
   const assistantAction = await ensureUnassignedAction(FIXTURE.assistantActionName);
   const agentRunAction = await ensureUnassignedAction(FIXTURE.agentRunActionName);
+  const mentionAction = await ensureUnassignedAction(FIXTURE.mentionActionName);
 
   // Contact emails are stored encrypted. DATABASE_ENCRYPTION_KEY is optional
   // in development; without it the contact is seeded email-less (the app
@@ -580,12 +644,20 @@ export async function seedDevFixture(db: PrismaClient): Promise<SeededFixture> {
 
   const upsertGoal = async (
     title: string,
-    opts: { description?: string; parentGoalId?: number; onProject: boolean; displayOrder: number },
+    opts: {
+      description?: string;
+      parentGoalId?: number;
+      onProject: boolean;
+      displayOrder: number;
+      status?: string;
+      period?: string;
+    },
   ) => {
     const existing = await db.goal.findFirst({ where: { userId: user.id, title } });
     const data = {
       description: opts.description ?? null,
-      status: "active",
+      status: opts.status ?? "active",
+      period: opts.period ?? null,
       parentGoalId: opts.parentGoalId ?? null,
       displayOrder: opts.displayOrder,
       workspaceId: workspace.id,
@@ -619,6 +691,39 @@ export async function seedDevFixture(db: PrismaClient): Promise<SeededFixture> {
     onProject: true,
     displayOrder: 3,
   });
+
+  const completedGoal = await upsertGoal(FIXTURE.completedGoalTitle, {
+    description: "Already completed — the Status filter on the Goals page removes it.",
+    onProject: false,
+    displayOrder: 4,
+    status: "completed",
+    period: FIXTURE.okrPeriod,
+  });
+  const existingCompletedKr = await db.keyResult.findFirst({
+    where: { goalId: completedGoal.id, title: FIXTURE.completedKeyResultTitle },
+  });
+  if (existingCompletedKr) {
+    await db.keyResult.update({
+      where: { id: existingCompletedKr.id },
+      data: { workspaceId: workspace.id, period: FIXTURE.okrPeriod, status: "achieved" },
+    });
+  } else {
+    await db.keyResult.create({
+      data: {
+        title: FIXTURE.completedKeyResultTitle,
+        targetValue: 100,
+        currentValue: 100,
+        startValue: 0,
+        unit: "percent",
+        status: "achieved",
+        period: FIXTURE.okrPeriod,
+        goalId: completedGoal.id,
+        userId: user.id,
+        driUserId: user.id,
+        workspaceId: workspace.id,
+      },
+    });
+  }
 
   // Matched on title alone (not workspaceId) so an orphaned goal is found and
   // re-homed rather than duplicated.
@@ -1015,8 +1120,36 @@ export async function seedDevFixture(db: PrismaClient): Promise<SeededFixture> {
     }
   }
 
+  // The database-block spec drives the page editor from a known empty page:
+  // find or create it, and start it clean — no databases, prose only — so
+  // every run inserts the block afresh (ADR-0078).
+  const databasePageTitle = "Database block fixture";
+  const existingDatabasePage = await db.knowledgePage.findFirst({
+    where: { workspaceId: workspace.id, createdById: user.id, title: databasePageTitle, databaseId: null },
+    select: { id: true },
+  });
+  const databasePageBody = "# Database block fixture\n\nA page the e2e suite adds a database to.";
+  const databasePage = existingDatabasePage
+    ? await db.knowledgePage.update({
+        where: { id: existingDatabasePage.id },
+        data: { body: databasePageBody, bodyDoc: Prisma.DbNull, docVersion: { increment: 1 } },
+        select: { id: true },
+      })
+    : await db.knowledgePage.create({
+        data: {
+          workspaceId: workspace.id,
+          createdById: user.id,
+          title: databasePageTitle,
+          body: databasePageBody,
+        },
+        select: { id: true },
+      });
+  await db.pageDatabase.deleteMany({ where: { pageId: databasePage.id } });
+
   const base = `/w/${FIXTURE.workspaceSlug}/products/${FIXTURE.productSlug}`;
   return {
+    databasePageId: databasePage.id,
+    databasePageUrl: `/w/${FIXTURE.workspaceSlug}/pages/${databasePage.id}`,
     tagId: tag.id,
     tagName: FIXTURE.tagName,
     assistantName: FIXTURE.assistantName,
@@ -1026,6 +1159,8 @@ export async function seedDevFixture(db: PrismaClient): Promise<SeededFixture> {
     assistantActionName: FIXTURE.assistantActionName,
     agentRunActionUrl: `/w/${FIXTURE.workspaceSlug}/actions/${agentRunAction.id}`,
     agentRunActionName: FIXTURE.agentRunActionName,
+    mentionActionUrl: `/w/${FIXTURE.workspaceSlug}/actions/${mentionAction.id}`,
+    mentionActionName: FIXTURE.mentionActionName,
     positionTitle: FIXTURE.positionTitle,
     workspaceSettingsUrl: `/w/${FIXTURE.workspaceSlug}/settings`,
     ceremonyId: ceremony.id,
@@ -1052,12 +1187,13 @@ export async function seedDevFixture(db: PrismaClient): Promise<SeededFixture> {
     otherWorkspaceSlug: FIXTURE.otherWorkspaceSlug,
     otherWorkspaceName: FIXTURE.otherWorkspaceName,
     otherWorkspaceActionName: FIXTURE.otherWorkspaceActionName,
+    personalWorkspaceSlug: FIXTURE.personalWorkspaceSlug,
     productSlug: FIXTURE.productSlug,
     featureId: feature.id,
     featureUrl: `${base}/features/${feature.id}`,
     peekUrl: `${base}/features?peek=${feature.id}`,
     featureTicketCount: TICKETS.filter((t) => !t.scopeOnly).length,
     totalTicketCount: TICKETS.length,
-    okrUrl: `/w/${FIXTURE.workspaceSlug}/goals?tab=okrs&year=${FIXTURE.okrPeriod.split("-")[1]}&period=Annual`,
+    okrUrl: `/w/${FIXTURE.workspaceSlug}/goals?view=okrs&year=${FIXTURE.okrPeriod.split("-")[1]}&period=Annual`,
   };
 }

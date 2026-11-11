@@ -4,6 +4,7 @@ import { type ReactNode } from 'react';
 import Link from 'next/link';
 import { IconChevronRight, type Icon as TablerIcon } from '@tabler/icons-react';
 import { DocsHelpLink } from '~/app/_components/docs/DocsHelpLink';
+import { Panel, Pill } from "~/app/_components/ui";
 
 /* ------------------------------------------------------------------
  * Settings shell primitives — Left-nav variant.
@@ -138,15 +139,9 @@ export function SettingsSidebar<T extends string = string>({
                 />
                 <span className="truncate">{item.label}</span>
                 {item.badge !== undefined && (
-                  <span
-                    className={`ml-auto rounded-[10px] px-1.5 py-[1px] text-[10.5px] tabular-nums ${
-                      active
-                        ? 'bg-brand-primary/15 text-brand-primary'
-                        : 'bg-surface-tertiary text-text-muted'
-                    }`}
-                  >
+                  <Pill size="xs" tone={active ? "brand" : "neutral"} className="ml-auto">
                     {item.badge}
-                  </span>
+                  </Pill>
                 )}
               </>
             );
@@ -192,12 +187,13 @@ export function SettingsSection({
   flush?: boolean;
 }) {
   return (
-    <div className="mb-[18px] w-full rounded-[10px] border border-border-primary bg-background-secondary">
-      <div className="flex items-start justify-between gap-3.5 border-b border-border-primary px-[22px] pt-[18px] pb-3">
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2.5 text-[15px] font-semibold tracking-[-0.005em] text-text-primary">
+    <Panel variant="muted" padding="none" className="mb-[18px] w-full">
+      {/* Phones: the action drops under the title so the description gets the full width */}
+      <div className="flex flex-col items-start gap-3 border-b border-border-primary px-4 pt-4 pb-3 sm:flex-row sm:justify-between sm:gap-3.5 sm:px-[22px] sm:pt-[18px]">
+        <div className="w-full min-w-0 sm:w-auto sm:flex-1">
+          <div className="flex flex-wrap items-center gap-x-2.5 gap-y-0.5 text-[15px] font-semibold tracking-[-0.005em] text-text-primary">
             {Icon && (
-              <span className="grid h-[26px] w-[26px] place-items-center rounded-[7px] bg-surface-tertiary text-text-secondary">
+              <span className="grid h-[26px] w-[26px] place-items-center rounded-md bg-surface-tertiary text-text-secondary">
                 <Icon size={14} />
               </span>
             )}
@@ -216,8 +212,8 @@ export function SettingsSection({
         </div>
         {action}
       </div>
-      <div className={flush ? '' : 'px-[22px] pt-4 pb-[18px]'}>{children}</div>
-    </div>
+      <div className={flush ? '' : 'px-4 pt-4 pb-[18px] sm:px-[22px]'}>{children}</div>
+    </Panel>
   );
 }
 
@@ -235,8 +231,9 @@ export function SettingsField({
   mono?: boolean;
 }) {
   return (
-    <div className="grid grid-cols-[200px_1fr_auto] items-center gap-4 border-t border-border-primary py-3 first:border-t-0 first:pt-0.5">
-      <div className="text-[12.5px] font-medium text-text-secondary">
+    // Phones: the label takes its own row so the value + action get the full width
+    <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 gap-y-2 border-t border-border-primary py-3 first:border-t-0 first:pt-0.5 sm:grid-cols-[200px_minmax(0,1fr)_auto]">
+      <div className="col-span-2 text-[12.5px] font-medium text-text-secondary sm:col-span-1">
         {label}
         {sublabel && (
           <span className="block mt-0.5 text-[11px] font-normal text-text-muted">
@@ -246,12 +243,12 @@ export function SettingsField({
       </div>
       <div
         className={`min-w-0 text-[13px] text-text-primary ${
-          mono ? 'font-mono text-[12.5px] text-text-secondary' : ''
-        }`}
+          action ? '' : 'col-span-2 sm:col-span-1'
+        } ${mono ? 'font-mono text-[12.5px] text-text-secondary break-all' : ''}`}
       >
         {children}
       </div>
-      <div className="flex justify-end">{action}</div>
+      <div className={`${action ? 'flex' : 'hidden sm:flex'} justify-end`}>{action}</div>
     </div>
   );
 }
@@ -273,7 +270,7 @@ export function SettingsPill({
   };
   return (
     <span
-      className={`inline-flex items-center gap-1 rounded-[10px] px-2 py-[2px] text-[10.5px] font-semibold uppercase tracking-[0.03em] tabular-nums ${styles[variant]}`}
+      className={`inline-flex items-center gap-1 rounded-lg px-2 py-[2px] text-[10.5px] font-semibold uppercase tracking-[0.03em] tabular-nums ${styles[variant]}`}
     >
       {children}
     </span>
@@ -328,7 +325,7 @@ export function SettingsDangerZone({
   children: ReactNode;
 }) {
   return (
-    <div className="mb-16 rounded-[10px] border border-[var(--accent-due)]/30 bg-background-secondary p-[22px]">
+    <div className="mb-16 rounded-lg border border-[var(--accent-due)]/30 bg-background-secondary p-[22px]">
       <div className="mb-1.5 flex items-center gap-2.5 text-[13px] font-semibold tracking-[0.02em] text-[var(--accent-due)]">
         <span className="grid h-[22px] w-[22px] place-items-center rounded-md bg-[var(--accent-due)]/15">
           <Icon size={12} />

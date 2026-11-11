@@ -86,6 +86,17 @@ const AGENT_FOR_HUMAN_SURFACES: Record<string, PrincipalSurface> = {
   "matrix-gateway": "matrix",
 };
 
+/**
+ * Whether a credential of this token type can ever resolve to a `human`
+ * principal: a cookie session (no token type) or a person's own token. Pure,
+ * so a gate can refuse every other credential before the resolver's DB
+ * lookups. A `true` here is not a verdict — a shadow user can present a
+ * person's token type — so the caller still runs `resolvePrincipal`.
+ */
+export function isPersonCredential(tokenType: string | undefined): boolean {
+  return tokenType === undefined || Object.hasOwn(HUMAN_SURFACES, tokenType);
+}
+
 function agentSurface(tokenType: string | undefined, runId: string | undefined): PrincipalSurface {
   if (tokenType === "agent-key") return "agent-key";
   if (tokenType === "agent-context") return runId ? "agent-run" : "agent-context";

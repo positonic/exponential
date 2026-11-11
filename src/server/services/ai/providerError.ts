@@ -51,3 +51,36 @@ export function classifyProviderError(rawMessage: string): ProviderErrorKind {
 export function isNonRetryableProviderError(kind: ProviderErrorKind): boolean {
   return kind === "billing" || kind === "auth";
 }
+
+/**
+ * How often a billing/auth outage is re-announced in the ops room while it
+ * keeps failing turns. Every turn fails until someone tops up or rotates the
+ * key, so silence after the first ping is the wrong default; hourly is loud
+ * enough to notice without flooding the room.
+ */
+export const PROVIDER_OUTAGE_RENOTIFY_MS = 60 * 60 * 1000;
+
+/** Minutes either side of the failure the suggested log query covers. */
+const LOG_WINDOW_MINUTES = 2;
+
+/**
+ * Ticket context that lets whoever triages an agent failure jump straight to
+ * the Mastra logs for that run, rather than reconstructing the window by hand.
+ * The run id is what Mastra's "Upstream LLM API error" line is keyed on, and
+ * the window keeps the fetch small enough that Railway's line cap doesn't
+ * drop it.
+ */
+export function agentErrorTraceContext(
+  runId: string | undefined,
+  occurredAt: Date,
+): Record<string, string> {
+  const at = occurredAt.getTime();
+  const since = new Date(at - LOG_WINDOW_MINUTES * 60_000).toISOString();
+  const until = new Date(at + LOG_WINDOW_MINUTES * 60_000).toISOString();
+  const query = `railway logs --service mastra --since ${since} --until ${until} -n 5000`;
+  return {
+    occurredAt: occurredAt.toISOString(),
+    ...(runId ? { mastraRunId: runId } : {}),
+    mastraLogs: runId ? `${query} | grep -B2 -A60 ${runId}` : query,
+  };
+}

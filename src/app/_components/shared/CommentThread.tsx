@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Text, Avatar, ActionIcon, Group, Textarea, Button } from "@mantine/core";
+import { Text, Avatar, ActionIcon, Group, Textarea, Button, Badge } from "@mantine/core";
 import { IconTrash, IconPencil } from "@tabler/icons-react";
 import { formatDistanceToNow } from "date-fns";
 import {
@@ -18,6 +18,8 @@ export interface CommentAuthor {
   id: string;
   name: string | null;
   image: string | null;
+  /** An agent principal (e.g. an Assistant asking its question): badged like the mention dropdown. */
+  isAgent?: boolean;
 }
 
 export interface Comment {
@@ -163,6 +165,11 @@ export function CommentThread({
                     <Text size="sm" fw={500} className="text-text-primary">
                       {author.name ?? "Anonymous"}
                     </Text>
+                    {author.isAgent && (
+                      <Badge size="xs" variant="light" color="grape">
+                        Agent
+                      </Badge>
+                    )}
                     <Text size="xs" className="text-text-muted">
                       {formatDistanceToNow(new Date(comment.createdAt), {
                         addSuffix: true,
@@ -188,9 +195,9 @@ export function CommentThread({
                         disabled={isSaving}
                         styles={{
                           input: {
-                            backgroundColor: "var(--surface-primary)",
-                            borderColor: "var(--border-focus)",
-                            color: "var(--text-primary)",
+                            backgroundColor: "var(--color-surface-primary)",
+                            borderColor: "var(--color-border-focus)",
+                            color: "var(--color-text-primary)",
                           },
                         }}
                       />

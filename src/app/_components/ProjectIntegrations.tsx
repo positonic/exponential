@@ -1138,7 +1138,7 @@ export function ProjectIntegrations({ project }: ProjectIntegrationsProps) {
                                 href={matrixRoomPermalink(matrixBinding.room.roomId) ?? undefined}
                                 target="_blank"
                                 rel="noopener noreferrer"
-                                className="text-brand-primary hover:underline"
+                                className="text-link hover:underline"
                               >
                                 Open in Matrix
                               </a>

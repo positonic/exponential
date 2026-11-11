@@ -24,8 +24,12 @@ import {
   IconDots,
   IconExternalLink,
   IconFileExport,
+  IconHistory,
+  IconLink,
   IconMarkdown,
   IconUsers,
+  IconViewportNarrow,
+  IconViewportWide,
   IconWorld,
 } from "@tabler/icons-react";
 import { api } from "~/trpc/react";
@@ -54,6 +58,12 @@ interface PageShareMenuProps {
    * null before the editor has mounted.
    */
   getMarkdown: () => string | null;
+  /** Reader-side column preference, toggled from the actions menu (Notion
+   * keeps "Full width" under ⋯ too, off the page chrome). */
+  fullWidth?: boolean;
+  onToggleFullWidth?: () => void;
+  /** Opens the page history panel (ADR-0074). */
+  onOpenHistory?: () => void;
 }
 
 /**
@@ -75,7 +85,13 @@ export function PageShareMenu({
   canEdit,
   title,
   getMarkdown,
+  fullWidth,
+  onToggleFullWidth,
+  onOpenHistory,
 }: PageShareMenuProps) {
+  // The page's own URL for "Copy link" — read on the client, after mount.
+  const [pageUrl, setPageUrl] = useState("");
+  useEffect(() => setPageUrl(window.location.href), []);
   const router = useRouter();
   const utils = api.useUtils();
   const [slugDraft, setSlugDraft] = useState(publicSlug ?? "");
@@ -190,7 +206,8 @@ export function PageShareMenu({
       <Popover width={360} position="bottom-end" shadow="md">
         <Popover.Target>
           <Button
-            variant={isPublic ? "light" : "default"}
+            variant={isPublic ? "light" : "subtle"}
+            color={isPublic ? undefined : "gray"}
             size="xs"
             leftSection={
               isPublic ? <IconWorld size={14} /> : <IconUsers size={14} />
@@ -348,6 +365,22 @@ export function PageShareMenu({
         </Popover.Dropdown>
       </Popover>
 
+      <CopyButton value={pageUrl}>
+        {({ copied, copy }) => (
+          <Tooltip label={copied ? "Copied" : "Copy link"}>
+            <ActionIcon
+              variant="subtle"
+              color="gray"
+              aria-label="Copy link"
+              onClick={copy}
+              disabled={!pageUrl}
+            >
+              {copied ? <IconCheck size={18} /> : <IconLink size={18} />}
+            </ActionIcon>
+          </Tooltip>
+        )}
+      </CopyButton>
+
       <Menu position="bottom-end" shadow="md">
         <Menu.Target>
           <ActionIcon variant="subtle" color="gray" aria-label="Page actions">
@@ -355,6 +388,37 @@ export function PageShareMenu({
           </ActionIcon>
         </Menu.Target>
         <Menu.Dropdown>
+          {onToggleFullWidth ? (
+            <>
+              <Menu.Item
+                leftSection={
+                  fullWidth ? (
+                    <IconViewportNarrow size={14} />
+                  ) : (
+                    <IconViewportWide size={14} />
+                  )
+                }
+                rightSection={
+                  <Switch
+                    size="xs"
+                    checked={!!fullWidth}
+                    readOnly
+                    tabIndex={-1}
+                    aria-hidden
+                    // Decorative: every click lands on the menu item once,
+                    // instead of the switch's label + input each firing.
+                    className="pointer-events-none"
+                  />
+                }
+                closeMenuOnClick={false}
+                onClick={onToggleFullWidth}
+                aria-pressed={!!fullWidth}
+              >
+                Full width
+              </Menu.Item>
+              <Menu.Divider />
+            </>
+          ) : null}
           <Menu.Item
             leftSection={<IconCopy size={14} />}
             disabled={duplicate.isPending}
@@ -372,6 +436,18 @@ export function PageShareMenu({
             </Menu.Item>
           ) : null}
           <Menu.Divider />
+          {onOpenHistory ? (
+            <>
+              <Menu.Item
+                leftSection={<IconHistory size={14} />}
+                onClick={onOpenHistory}
+                data-testid="page-history-open"
+              >
+                History
+              </Menu.Item>
+              <Menu.Divider />
+            </>
+          ) : null}
           {/* Plain copy (Cmd-C) puts text on the clipboard and the formatted
               slice on `text/html`; these two are the explicit Markdown route,
               for a Markdown-source target. */}

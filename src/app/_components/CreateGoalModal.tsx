@@ -7,6 +7,7 @@ import { useState, useEffect, useMemo } from "react";
 import { buildGoalUpdatePayload } from "./goalUpdatePayload";
 import { api } from "~/trpc/react";
 import { UnifiedDatePicker } from './UnifiedDatePicker';
+import { PersonPicker } from './shared/PersonPicker';
 import { CreateProjectModal } from './CreateProjectModal';
 import { useWorkspace } from '~/providers/WorkspaceProvider';
 import { notifications } from '@mantine/notifications';
@@ -47,6 +48,8 @@ interface CreateGoalModalProps {
     parentGoalId?: number | null;
     workspaceId?: string | null;
     driUserId?: string | null;
+    /** Lets the DRI field name a person who is no longer a workspace member. */
+    driUser?: { id: string; name: string | null; email?: string | null; image: string | null } | null;
   };
   trigger?: React.ReactNode;
   projectId?: string;
@@ -449,36 +452,12 @@ export function CreateGoalModal({ children, goal, trigger, projectId, defaultWor
     setSelectedProjectId(projectId);
   }, [projectId]);
 
-  const driOptions = useMemo(() => {
-    const selectedWorkspace = workspaces?.find((ws) => ws.id === selectedWorkspaceId);
-    const members = selectedWorkspace?.members ?? workspace?.members ?? [];
-    const optionMap = new Map<string, { value: string; label: string }>();
-
-    members.forEach((member) => {
-      const label = member.user.name ?? member.user.email ?? "Unknown User";
-      optionMap.set(member.user.id, { value: member.user.id, label });
-    });
-
-    if (currentUser) {
-      const label = currentUser.name ?? currentUser.email ?? "Me";
-      optionMap.set(currentUser.id, { value: currentUser.id, label });
-    }
-
-    return Array.from(optionMap.values());
-  }, [currentUser, selectedWorkspaceId, workspaces, workspace?.members]);
-
   useEffect(() => {
     if (!driUserId && currentUser?.id) {
       setDriUserId(currentUser.id);
     }
   }, [currentUser?.id, driUserId]);
 
-  useEffect(() => {
-    if (driOptions.length === 0) return;
-    if (!driUserId || !driOptions.some((option) => option.value === driUserId)) {
-      setDriUserId(driOptions[0]?.value ?? null);
-    }
-  }, [driOptions, driUserId]);
 
 
   return (
@@ -573,15 +552,15 @@ export function CreateGoalModal({ children, goal, trigger, projectId, defaultWor
             mt="md"
           />
 
-          <Select
+          <PersonPicker
+            trigger="field"
             label="DRI"
-            description="Directly responsible individual"
-            placeholder="Select a DRI"
-            data={driOptions}
+            clearable={false}
+            workspaceId={selectedWorkspaceId ?? workspace?.id}
             value={driUserId}
-            onChange={(value) => setDriUserId(value ?? null)}
-            required
-            mt="md"
+            selectedUser={goal?.driUser ? { ...goal.driUser, email: goal.driUser.email ?? null } : null}
+            onChange={(id) => setDriUserId(id)}
+            fieldProps={{ description: "Directly responsible individual", required: true, mt: "md" }}
           />
 
           <Accordion

@@ -5,14 +5,14 @@ section: build
 order: 1.5
 icon: IconCircles
 sidebarTitle: Features, PRDs & tickets
-updated: 2026-10-09
+updated: 2026-10-23
 ---
 
 Product work in Exponential is written down in three different places, because it changes at three different speeds. A **feature** says what the product is and lives forever. A **PRD** argues what to build next and ages into history once it is built. A **ticket** is one piece of work and closes in days. This page explains how the three fit together and how a team, with or without coding agents, moves from an idea to merged code. The screens themselves are covered in [Products, tickets, features & cycles](/docs/build/products).
 
 ## Where to find it
 
-Turn on the Product Management plugin under [workspace settings → **Plugins**](/go/settings/plugins), then open [**Deliver → Products**](/go/products) in the sidebar. Features live on a product's **Features** tab, tickets on its **Backlog** tab, and PRDs are [Pages](/docs/do/pages) linked to a feature.
+Turn on the Product Management plugin under [workspace settings → **Plugins**](/go/settings/plugins), then open [**Work → Products**](/go/products) in the sidebar. Features live on a product's **Features** tab, tickets on its **Backlog** tab, and PRDs are [Pages](/docs/do/pages) linked to a feature.
 
 ## The three speeds
 

@@ -4,7 +4,7 @@ description: Clear what needs you in the Inbox — notifications, things waiting
 icon: IconInbox
 order: 1
 sidebarTitle: "Inbox & Today"
-updated: 2026-09-30
+updated: 2026-10-23
 ---
 
 Inbox and Today are the two views you open every day. **Inbox** is where everything that needs you lands, across all your workspaces: your notifications, the things waiting on you, and every action that has no date and no project yet, so nothing you capture gets lost. **Today** shows what is due today and what is overdue, beside your calendar, with **Tomorrow** and **Upcoming** a tab away.
@@ -52,7 +52,7 @@ The rail on the right shows today's calendar events from a connected calendar (s
 
 - **Calendar** — the events in Today's rail come from your connected calendars and feeds: [Calendar & scheduling](/docs/meet/calendar).
 
-- **[Actions](/docs/do/actions)** — everything in these views is an action; the workspace board under **Deliver** → **Actions** shows the same actions by status.
+- **[Actions](/docs/do/actions)** — everything in these views is an action; the workspace board under **Work** → **Actions** shows the same actions by status.
 - **[Projects](/docs/do/projects)** — assigning a project is the usual way out of the Inbox; each project's **Tasks** tab shows only its own actions.
 - **[Routines](/docs/reflect/routines)** — the startup routine and wind-down are built around clearing the Inbox and reviewing Today.
 - **[Weekly plan](/docs/reflect/weekly-plan)** — pick the week's actions from Upcoming when you plan.

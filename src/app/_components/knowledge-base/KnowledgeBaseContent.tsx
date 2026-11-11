@@ -16,6 +16,9 @@ import {
   Select,
   Modal,
   UnstyledButton,
+  Box,
+  Checkbox,
+  Input,
 } from '@mantine/core';
 import {
   IconSearch,
@@ -35,6 +38,8 @@ import {
   IconPinnedFilled,
   IconInfoCircle,
   IconX,
+  IconBrandYoutube,
+  IconExternalLink,
 } from '@tabler/icons-react';
 import { useState } from 'react';
 import Link from 'next/link';
@@ -42,7 +47,19 @@ import { api } from '~/trpc/react';
 import { useWorkspace } from '~/providers/WorkspaceProvider';
 import { useDebouncedValue, useDisclosure } from '@mantine/hooks';
 import { keepPreviousData } from '@tanstack/react-query';
+import {
+  anySummaryPending,
+  isSummaryPending,
+  resourceReaderHref,
+  safeSourceUrl,
+  sourceLinkLabel,
+  SUMMARY_POLL_MS,
+  type SummaryFields,
+} from '~/lib/resources/reader';
+import { youtubeVideoId } from '~/utils/youtube';
 import styles from './KnowledgeBaseContent.module.css';
+import { classifyQuickSave } from './quickSave';
+import { MarkdownInput } from '~/app/_components/shared/MarkdownInput';
 
 const contentTypeIcons = {
   web_page: IconLink,
@@ -50,6 +67,7 @@ const contentTypeIcons = {
   pdf: IconFileText,
   bookmark: IconBookmark,
   note: IconNote,
+  video: IconBrandYoutube,
 };
 
 const contentTypeLabels = {
@@ -58,9 +76,19 @@ const contentTypeLabels = {
   pdf: 'PDF',
   bookmark: 'Bookmark',
   note: 'Note',
+  video: 'Video',
 };
 
 type ContentType = keyof typeof contentTypeLabels;
+
+/**
+ * Whether the Add modal ticks "Add to reading list" for a type. Pages and
+ * bookmarks are usually saved to read later; notes and documents are usually
+ * things you wrote or already read. The checkbox overrides it either way.
+ */
+function queuedByDefault(contentType: ContentType): boolean {
+  return contentType === 'web_page' || contentType === 'bookmark';
+}
 
 // Search filter chips. Each maps to the Knowledge index source types it
 // covers; uploaded documents sit with Resources (both are saved, not authored).
@@ -76,6 +104,11 @@ const FILTERS: { id: Filter; label: string; icon: React.ElementType; sourceTypes
 
 const LIST_LIMIT = 8;
 
+/** Poll a resource list while any row in it is waiting for its summary. */
+function pollWhileSummarizing(query: { state: { data?: { resources: SummaryFields[] } } }) {
+  return anySummaryPending(query.state.data?.resources ?? []) ? SUMMARY_POLL_MS : false;
+}
+
 /** Hostname for a row's label, or null when the URL does not parse. */
 function hostnameOf(url: string | null | undefined): string | null {
   if (!url) return null;
@@ -90,19 +123,10 @@ function shortDate(date: Date | string): string {
   return new Date(date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 }
 
-function isHttpUrl(value: string): boolean {
-  try {
-    const parsed = new URL(value.trim());
-    return parsed.protocol === 'http:' || parsed.protocol === 'https:';
-  } catch {
-    return false;
-  }
-}
-
 /**
  * The row's title: a link when there is somewhere to go (external URLs open
- * in a new tab), plain text otherwise — notes without a URL have no detail
- * page yet.
+ * in a new tab), plain text otherwise. A Resource's title always goes to the
+ * reader; `SourceLink` is the way to the original.
  */
 function RowMain({
   href,
@@ -125,6 +149,36 @@ function RowMain({
     <Link href={href} className={styles.rowMain}>
       {children}
     </Link>
+  );
+}
+
+/**
+ * The way to the original, beside a title that opens the reader. Always takes
+ * its slot, so labels line up down a column whether or not a row has a URL.
+ */
+function SourceLink({ url, onOpen }: { url: string | null | undefined; onOpen?: () => void }) {
+  const href = safeSourceUrl(url);
+  const label = sourceLinkLabel(href);
+  return (
+    <span className={styles.sourceSlot}>
+      {href && (
+        <Tooltip label={label}>
+          <ActionIcon
+            component="a"
+            href={href}
+            target="_blank"
+            rel="noopener noreferrer"
+            variant="subtle"
+            color="gray"
+            size="sm"
+            aria-label={label}
+            onClick={onOpen}
+          >
+            <IconExternalLink size={14} stroke={1.75} />
+          </ActionIcon>
+        </Tooltip>
+      )}
+    </span>
   );
 }
 
@@ -162,14 +216,20 @@ export function KnowledgeBaseContent({ workspaceId, isLoading: externalLoading }
     content: '',
     contentType: 'web_page' as ContentType,
     description: '',
+    addToReadingList: queuedByDefault('web_page'),
   });
+
+  const utils = api.useUtils();
 
   // Queries
   const {
     data: recentData,
     isLoading: recentLoading,
     refetch: refetchRecent,
-  } = api.resource.list.useQuery({ limit: LIST_LIMIT, workspaceId });
+  } = api.resource.list.useQuery(
+    { limit: LIST_LIMIT, workspaceId },
+    { refetchInterval: pollWhileSummarizing }
+  );
 
   const {
     data: readingData,
@@ -177,7 +237,7 @@ export function KnowledgeBaseContent({ workspaceId, isLoading: externalLoading }
     refetch: refetchReading,
   } = api.resource.list.useQuery(
     { limit: LIST_LIMIT, workspaceId, readStatus: readingView },
-    { placeholderData: keepPreviousData }
+    { placeholderData: keepPreviousData, refetchInterval: pollWhileSummarizing }
   );
 
   // Debounce the typed query so we only search after the user pauses,
@@ -205,6 +265,7 @@ export function KnowledgeBaseContent({ workspaceId, isLoading: externalLoading }
     },
   );
 
+
   // Mutations
   const refetchAllResources = () => {
     void refetchRecent();
@@ -221,6 +282,7 @@ export function KnowledgeBaseContent({ workspaceId, isLoading: externalLoading }
         content: '',
         contentType: 'web_page',
         description: '',
+        addToReadingList: queuedByDefault('web_page'),
       });
     },
   });
@@ -250,20 +312,46 @@ export function KnowledgeBaseContent({ workspaceId, isLoading: externalLoading }
     onSuccess: refetchAllResources,
   });
 
-  const linkDraftValid = isHttpUrl(linkDraft);
+  // Opening the original counts as opening the item (D-0031), as the reader does.
+  const markOpened = (resource: { id: string; readStatus: string }) => {
+    if (resource.readStatus === 'to_read') {
+      setReadStatusMutation.mutate({ id: resource.id, readStatus: 'reading' });
+    }
+  };
+
+  // A search result doesn't carry its read state, so look it up first.
+  const markOpenedById = (id: string) => {
+    void utils.resource.get
+      .fetch({ id })
+      .then(({ resource }) => markOpened(resource))
+      .catch((error: unknown) => console.warn('[knowledge] could not mark opened:', error));
+  };
 
   const handleSaveLink = () => {
-    if (!linkDraftValid || saveLinkMutation.isPending) return;
-    const url = linkDraft.trim();
-    // A bare link has no body, so there is nothing to embed: the Reading
-    // list is findable by title and URL, never by semantic search, until a
-    // URL fetcher exists (follow-up to ticket pink.grape).
+    const draft = classifyQuickSave(linkDraft);
+    if (!draft || saveLinkMutation.isPending) return;
+    if (draft.kind === 'link') {
+      // A bare link has no body, so there is nothing to embed: the Reading
+      // list is findable by title and URL, never by semantic search, until a
+      // URL fetcher exists (follow-up to ticket pink.grape).
+      saveLinkMutation.mutate({
+        title: hostnameOf(draft.url) ?? draft.url,
+        url: draft.url,
+        contentType: 'bookmark',
+        readStatus: 'to_read',
+        generateEmbeddings: false,
+        workspaceId,
+      });
+      return;
+    }
+    // Pasted text or markdown: the text is the body, so index it.
     saveLinkMutation.mutate({
-      title: hostnameOf(url) ?? url,
-      url,
-      contentType: 'bookmark',
+      title: draft.title,
+      content: draft.content,
+      contentType: 'note',
+      mimeType: 'text/markdown',
       readStatus: 'to_read',
-      generateEmbeddings: false,
+      generateEmbeddings: true,
       workspaceId,
     });
   };
@@ -275,12 +363,14 @@ export function KnowledgeBaseContent({ workspaceId, isLoading: externalLoading }
       url: newResource.url || undefined,
       content: newResource.content || undefined,
       contentType: newResource.contentType,
+      mimeType: newResource.content ? 'text/markdown' : undefined,
       description: newResource.description || undefined,
       generateEmbeddings: true,
       workspaceId,
-      // The modal is for reference material you already have, not a queue.
-      readStatus: 'read',
+      readStatus: newResource.addToReadingList ? 'to_read' : 'read',
     });
+    // Show the queue the new row landed in.
+    if (newResource.addToReadingList) setReadingView('unread');
   };
 
   const handleDeleteResource = (id: string) => {
@@ -351,15 +441,19 @@ export function KnowledgeBaseContent({ workspaceId, isLoading: externalLoading }
       <div style={{ opacity: searchQueryResult.isFetching ? 0.6 : 1, transition: 'opacity 150ms ease' }}>
         {searchResults.map((result) => {
           const contentType = result.contentType as ContentType | undefined;
-          const isExternal = result.sourceType === 'resource' && !!result.url;
-          // Meetings → recording page; Pages → the page; Resources → their
-          // source URL. Notes without a URL have no detail page yet.
+          const isResource = result.sourceType === 'resource';
+          const isExternal = result.sourceType === 'document' && !!result.url;
+          // Meetings → recording page; Pages → the page; Resources → the
+          // reader, like every other Resource title here; uploaded documents
+          // have no reader, so → their file.
           const href =
             result.sourceType === 'transcription'
               ? `/recording/${result.sourceId}`
               : result.sourceType === 'page'
                 ? (workspaceSlug ? `/w/${workspaceSlug}/pages/${result.sourceId}` : null)
-                : (result.url ?? null);
+                : isResource
+                  ? resourceReaderHref(result.sourceId, workspaceSlug)
+                  : (result.url ?? null);
           const Icon =
             result.sourceType === 'transcription'
               ? IconMicrophone
@@ -380,6 +474,9 @@ export function KnowledgeBaseContent({ workspaceId, isLoading: externalLoading }
                 <span className={styles.rowSnippet}>{result.content}</span>
               </RowMain>
               <span className={styles.rowLabel}>{label}</span>
+              {isResource && (
+                <SourceLink url={result.url} onOpen={() => markOpenedById(result.sourceId)} />
+              )}
             </div>
           );
         })}
@@ -406,54 +503,59 @@ export function KnowledgeBaseContent({ workspaceId, isLoading: externalLoading }
             onClick={() => setIsSavingLink((v) => !v)}
           >
             <IconPlus size={12} stroke={2} />
-            Save link
+            Save
           </button>
         </Group>
       </div>
 
       {isSavingLink && (
-        <TextInput
-          autoFocus
-          size="sm"
-          mb={6}
-          placeholder="Paste a link and press Enter"
-          aria-label="Link to read later"
-          value={linkDraft}
-          onChange={(e) => {
-            setLinkDraft(e.currentTarget.value);
-            if (saveLinkMutation.isError) saveLinkMutation.reset();
-          }}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') handleSaveLink();
-            if (e.key === 'Escape') {
-              setIsSavingLink(false);
-              setLinkDraft('');
-            }
-          }}
-          error={
-            linkDraft.trim() && !linkDraftValid
-              ? 'Enter a full http(s) URL'
-              : saveLinkMutation.isError
-                ? "Couldn't save the link. Try again."
-                : undefined
-          }
-          disabled={saveLinkMutation.isPending}
-          leftSection={<IconLink size={14} stroke={1.75} />}
-          rightSection={
-            <ActionIcon
-              variant="subtle"
-              color="gray"
-              size="sm"
-              aria-label="Cancel"
-              onClick={() => {
+        <Box mb={6}>
+          <MarkdownInput
+            autoFocus
+            minRows={1}
+            maxRows={8}
+            placeholder="Paste a link, text or markdown and press Enter"
+            value={linkDraft}
+            onChange={(value) => {
+              setLinkDraft(value);
+              if (saveLinkMutation.isError) saveLinkMutation.reset();
+            }}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
+                e.preventDefault();
+                handleSaveLink();
+              }
+              if (e.key === 'Escape') {
                 setIsSavingLink(false);
                 setLinkDraft('');
-              }}
-            >
-              <IconX size={14} />
-            </ActionIcon>
-          }
-        />
+              }
+            }}
+            disabled={saveLinkMutation.isPending}
+            hint={
+              saveLinkMutation.isError ? (
+                <Text size="xs" c="red" role="alert">
+                  Couldn&apos;t save that. Try again.
+                </Text>
+              ) : (
+                'Shift+Enter for a new line'
+              )
+            }
+            rightSection={
+              <ActionIcon
+                variant="subtle"
+                color="gray"
+                size="sm"
+                aria-label="Cancel"
+                onClick={() => {
+                  setIsSavingLink(false);
+                  setLinkDraft('');
+                }}
+              >
+                <IconX size={14} />
+              </ActionIcon>
+            }
+          />
+        </Box>
       )}
 
       {readingLoading ? (
@@ -461,26 +563,32 @@ export function KnowledgeBaseContent({ workspaceId, isLoading: externalLoading }
       ) : readingRows.length === 0 ? (
         <div className={styles.empty}>
           {readingView === 'unread'
-            ? 'Nothing queued. Save a link to read it later.'
+            ? 'Nothing queued. Save a link or a note to read it later.'
             : 'Nothing marked as read yet.'}
         </div>
       ) : (
         readingRows.map((resource) => {
           const isRead = resource.readStatus === 'read';
           const host = hostnameOf(resource.url);
+          const RowIcon = youtubeVideoId(resource.url)
+            ? IconBrandYoutube
+            : contentTypeIcons[resource.contentType as ContentType] ?? IconBookmark;
           return (
             <div key={resource.id} className={styles.row}>
-              <RowMain href={resource.url} external>
-                <IconBookmark size={14} stroke={1.75} className={styles.rowIcon} />
+              <RowMain href={resourceReaderHref(resource.id, workspaceSlug)}>
+                <RowIcon size={14} stroke={1.75} className={styles.rowIcon} />
                 <span className={styles.rowTitle}>{resource.title}</span>
               </RowMain>
               <span className={styles.rowLabel}>
-                {isRead && resource.readAt
-                  ? `Read ${shortDate(resource.readAt)}`
-                  : host && host !== resource.title
-                    ? host
-                    : `Saved ${shortDate(resource.createdAt)}`}
+                {isSummaryPending(resource)
+                  ? 'Writing article…'
+                  : isRead && resource.readAt
+                    ? `Read ${shortDate(resource.readAt)}`
+                    : host && host !== resource.title
+                      ? host
+                      : `Saved ${shortDate(resource.createdAt)}`}
               </span>
+              <SourceLink url={resource.url} onOpen={() => markOpened(resource)} />
               <div className={styles.rowActions}>
                 <Tooltip label={isRead ? 'Mark as unread' : 'Mark as read'}>
                   <ActionIcon
@@ -534,7 +642,7 @@ export function KnowledgeBaseContent({ workspaceId, isLoading: externalLoading }
           const Icon = contentTypeIcons[contentType] ?? IconFileText;
           return (
             <div key={resource.id} className={styles.row}>
-              <RowMain href={resource.url} external>
+              <RowMain href={resourceReaderHref(resource.id, workspaceSlug)}>
                 <Icon size={14} stroke={1.75} className={styles.rowIcon} />
                 <span className={styles.rowTitle}>{resource.title}</span>
                 {resource.pinnedAsContext && (
@@ -546,6 +654,7 @@ export function KnowledgeBaseContent({ workspaceId, isLoading: externalLoading }
               <span className={styles.rowLabel}>
                 {contentTypeLabels[contentType] ?? resource.contentType} · {shortDate(resource.createdAt)}
               </span>
+              <SourceLink url={resource.url} onOpen={() => markOpened(resource)} />
               <div className={styles.rowActions}>
                 <Tooltip label={resource.pinnedAsContext ? 'Unpin from agent chats' : 'Pin to every agent chat'}>
                   <ActionIcon
@@ -641,7 +750,7 @@ export function KnowledgeBaseContent({ workspaceId, isLoading: externalLoading }
           styles={{
             input: {
               height: 58,
-              borderRadius: 14,
+              borderRadius: 'var(--radius-xl)',
               fontSize: 16,
               paddingLeft: 52,
               backgroundColor: 'var(--color-bg-secondary)',
@@ -683,6 +792,7 @@ export function KnowledgeBaseContent({ workspaceId, isLoading: externalLoading }
         )}
       </Container>
 
+      {/* Reader for url-less Resources (notes) */}
       {/* Add Resource Modal */}
       <Modal
         opened={opened}
@@ -717,7 +827,10 @@ export function KnowledgeBaseContent({ workspaceId, isLoading: externalLoading }
               { value: 'bookmark', label: 'Bookmark' },
             ]}
             value={newResource.contentType}
-            onChange={(value) => setNewResource({ ...newResource, contentType: (value ?? 'web_page') as ContentType })}
+            onChange={(value) => {
+              const contentType = (value ?? 'web_page') as ContentType;
+              setNewResource({ ...newResource, contentType, addToReadingList: queuedByDefault(contentType) });
+            }}
             classNames={{
               input: 'bg-surface-primary border-border-primary text-text-primary',
               label: 'text-text-secondary',
@@ -748,16 +861,28 @@ export function KnowledgeBaseContent({ workspaceId, isLoading: externalLoading }
             }}
           />
 
-          <Textarea
+          <Input.Wrapper
             label="Content"
-            description="Pasted content is indexed, so search can find it by meaning."
-            placeholder="Paste or type content here..."
-            minRows={6}
-            value={newResource.content}
-            onChange={(e) => setNewResource({ ...newResource, content: e.currentTarget.value })}
+            description="Markdown. Pasted content is indexed, so search can find it by meaning."
+            classNames={{ label: 'text-text-secondary' }}
+          >
+            <MarkdownInput
+              value={newResource.content}
+              onChange={(content) => setNewResource({ ...newResource, content })}
+              placeholder="Paste or type content here..."
+              minRows={6}
+              maxRows={16}
+            />
+          </Input.Wrapper>
+
+          <Checkbox
+            label="Add to reading list"
+            description="Shows it under Up next to read. Leave unticked for things you've already read."
+            checked={newResource.addToReadingList}
+            onChange={(e) => setNewResource({ ...newResource, addToReadingList: e.currentTarget.checked })}
             classNames={{
-              input: 'bg-surface-primary border-border-primary text-text-primary',
-              label: 'text-text-secondary',
+              label: 'text-text-primary',
+              description: 'text-text-muted',
             }}
           />
 

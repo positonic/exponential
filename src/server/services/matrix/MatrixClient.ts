@@ -276,6 +276,25 @@ export class MatrixClient {
   }
 
   /**
+   * Redact (delete) an event. Matrix only lets the sender or a room moderator do this,
+   * so for a bot-posted message the bot is the one account that can always take it
+   * back. `txnId` makes a retry idempotent, as it does for `send`.
+   */
+  async redact(
+    roomId: string,
+    eventId: string,
+    { txnId, reason }: { txnId: string; reason?: string },
+  ): Promise<{ eventId: string }> {
+    const body = await this.request<{ event_id?: string }>(
+      "PUT",
+      `/rooms/${encodeURIComponent(roomId)}/redact/${encodeURIComponent(eventId)}/${encodeURIComponent(txnId)}`,
+      reason ? { reason } : {},
+    );
+
+    return { eventId: body.event_id ?? "" };
+  }
+
+  /**
    * Create a private room that is deliberately NOT encrypted.
    *
    * The omission is the entire point. Element turns on encryption for new private rooms

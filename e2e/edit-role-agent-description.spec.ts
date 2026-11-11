@@ -1,5 +1,6 @@
 /**
- * The workspace "Edit Role" modal shows an agent member's description.
+ * The workspace "Edit Role" modal shows an agent member's description, and
+ * offers an agent only the Member role (ADR-0049 §3).
  *
  * The description lives on the agent's `ExternalAgent` row — global to the
  * agent, not per workspace — so the modal renders it read-only with a link to
@@ -40,6 +41,11 @@ test.describe("Edit Role modal — agent description", () => {
       "href",
       "/settings/agents",
     );
+    // Agents always hold `member` (ADR-0049 §3): the Role select offers nothing else.
+    await expect(modal.getByText("Agents always hold the Member role.")).toBeVisible();
+    await modal.getByRole("textbox", { name: "Role" }).click();
+    await expect(page.getByRole("option")).toHaveText([/^Member/]);
+    await page.keyboard.press("Escape");
     await test.info().attach("edit-role-agent", {
       body: await modal.screenshot(),
       contentType: "image/png",
@@ -54,5 +60,7 @@ test.describe("Edit Role modal — agent description", () => {
     const humanModal = page.getByRole("dialog", { name: "Edit Role" });
     await expect(humanModal).toBeVisible();
     await expect(humanModal.getByText("Agent description")).toHaveCount(0);
+    await humanModal.getByRole("textbox", { name: "Role" }).click();
+    await expect(page.getByRole("option")).toHaveText([/^Admin/, /^Member/, /^Viewer/]);
   });
 });

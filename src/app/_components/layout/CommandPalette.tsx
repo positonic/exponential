@@ -48,6 +48,7 @@ import { reportHandledError } from '~/lib/reportHandledError';
 import { useWikiBridge } from '~/lib/wiki/useWikiBridge';
 import { pageTitle, wikiHref, WIKI_ROUTE } from '~/lib/wiki/wikiLinks';
 import styles from '../home/WorkspaceHomeConceptD.module.css';
+import { onCommandPaletteOpen } from '~/lib/commandPalette';
 
 type Mode = 'all' | 'projects' | 'tasks' | 'goals' | 'ai';
 
@@ -200,6 +201,10 @@ export function CommandPalette() {
   const close = useCallback(() => setIsOpen(false), []);
 
   useHotkeys([['mod+k', open]]);
+
+  // The sidebar's search row (and anything else outside this subtree) opens
+  // the palette by event — see ~/lib/commandPalette.
+  useEffect(() => onCommandPaletteOpen(open), [open]);
 
   useEffect(() => {
     if (!isOpen) {
@@ -741,7 +746,7 @@ export function CommandPalette() {
         styles={{
           input: {
             height: 58,
-            borderRadius: 14,
+            borderRadius: 'var(--radius-xl)',
             fontSize: 16,
             paddingLeft: 52,
             backgroundColor: 'var(--color-bg-secondary)',
@@ -766,7 +771,7 @@ export function CommandPalette() {
                 alignItems: 'center',
                 gap: 6,
                 padding: '5px 10px',
-                borderRadius: 20,
+                borderRadius: 'var(--radius-2xl)',
                 fontSize: 12,
                 border: `1px solid ${isActive ? 'var(--brand-500)' : 'var(--color-border-subtle)'}`,
                 color: isActive ? 'var(--brand-400)' : 'var(--color-text-secondary)',
