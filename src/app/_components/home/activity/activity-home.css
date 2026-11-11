@@ -1631,3 +1631,56 @@
     transition: none !important;
   }
 }
+
+/* ---- inbox "Waiting on me": selectable QA ticket rows ---- */
+.wsa-row--selected,
+.wsa-row--selected:hover {
+  background: var(--color-surface-hover);
+}
+
+.wsa-row__select {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  padding-left: 6px;
+}
+
+.wsa-row__status {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+  padding-right: 6px;
+}
+
+/* Group status picker in a section header, shown while 2+ rows are ticked.
+   On a narrow card the header wraps it onto its own line rather than
+   pushing the page sideways. */
+.wsa-sub:has(.wsa-bulk) {
+  flex-wrap: wrap;
+  row-gap: 6px;
+}
+
+.wsa-bulk {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* On a phone the status controls drop onto their own line under the title,
+   indented to line up with it, so the title keeps the full row width. */
+@media (max-width: 560px) {
+  .wsa-row--wrap {
+    flex-wrap: wrap;
+    padding-bottom: 6px;
+  }
+
+  .wsa-row--wrap > .wsa-item {
+    flex-basis: calc(100% - 40px);
+  }
+
+  .wsa-row--wrap > .wsa-row__status {
+    margin-left: 50px;
+    padding-right: 0;
+  }
+}
