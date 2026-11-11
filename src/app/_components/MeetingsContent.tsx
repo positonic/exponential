@@ -53,6 +53,7 @@ import { FirefliesWizardModal } from "./integrations/FirefliesWizardModal";
 import type { WeeklyMeetingStatsResult } from "~/server/services/meetings/weeklyMeetingStats";
 import { CreateTranscriptionModal } from "./CreateTranscriptionModal";
 import { ScheduleMeetingModal } from "./calendar/ScheduleMeetingModal";
+import { Panel } from "~/app/_components/ui";
 
 type MeetingType =
   | "all"
@@ -91,9 +92,9 @@ function computeInitials(name: string): string {
 
 function RailCard({ children }: { children: React.ReactNode }) {
   return (
-    <div className="rounded-lg border border-border-subtle bg-background-secondary p-4">
+    <Panel variant="muted">
       {children}
-    </div>
+    </Panel>
   );
 }
 
