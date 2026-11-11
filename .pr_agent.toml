@@ -48,6 +48,17 @@ design tokens: semantic Tailwind classes (bg-background-primary, text-text-prima
 border-border-primary) or CSS variables declared in src/styles/globals.css. A
 pre-commit hook rejects these, so catching them in review saves a round-trip.
 
+Shape (ADR-0073) — radius and shadow come from the tokens on :root
+(--radius-xs|sm|md|lg|xl|2xl|full, --shadow-sm|md|lg|xl); Tailwind `rounded-*`,
+Mantine `radius="…"` and `var(--radius-*)` are the same scale. Flag arbitrary
+`rounded-[10px]` / `shadow-[…]`, numeric `radius={12}` or `borderRadius: 8`, raw
+`border-radius: 10px` / `box-shadow: … rgba(…)` in CSS, a feature stylesheet that
+declares its own `--radius-*`, and any `var(--x)` whose variable is declared nowhere
+(it silently renders as nothing). Boxes are drawn with the primitives in
+src/app/_components/ui (Panel, SectionHeader, Pill, Toolbar): flag a new className
+that composes `rounded-* border bg-surface-*` by hand instead of rendering <Panel>.
+`npm run tokens:check` enforces all of this; a review catch saves the round-trip.
+
 TypeScript / ESLint (these fail the build) — prefer `??` over `||` for defaulting;
 no `any`; every promise awaited or explicitly handled; no `await` on non-promises;
 type-only imports use `import type`; no unused variables or imports.
