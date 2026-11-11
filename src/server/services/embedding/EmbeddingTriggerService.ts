@@ -2,6 +2,7 @@ import type { PrismaClient } from "@prisma/client";
 import { getKnowledgeService } from "../KnowledgeService";
 import { TranscriptionSource } from "./sources/TranscriptionSource";
 import { PageSource } from "./sources/PageSource";
+import { projectedPageBody } from "~/server/services/databases/projection";
 import type { EmbeddingResult, EmbeddingStatus } from "./types";
 
 /**
@@ -48,12 +49,29 @@ export class EmbeddingTriggerService {
 
   /** Immediately drop a Page's chunks (e.g. on delete). Fire-and-forget safe. */
   async clearPageChunks(pageId: string): Promise<void> {
+    this.cancelPageEmbedding(pageId);
+    await getKnowledgeService(this.db).deleteChunks("page", pageId);
+  }
+
+  /**
+   * Drop many pages' chunks in one statement — a database's rows going with
+   * it (ADR-0078). Pending embeds for those pages are cancelled first.
+   */
+  async clearPageChunksMany(pageIds: readonly string[]): Promise<void> {
+    if (pageIds.length === 0) return;
+    for (const pageId of pageIds) this.cancelPageEmbedding(pageId);
+    await this.db.$executeRaw`
+      DELETE FROM "KnowledgeChunk"
+      WHERE "sourceType" = 'page' AND "sourceId" = ANY(${[...pageIds]}::text[])
+    `;
+  }
+
+  private cancelPageEmbedding(pageId: string): void {
     const existing = this.pageEmbedTimers.get(pageId);
     if (existing) {
       clearTimeout(existing);
       this.pageEmbedTimers.delete(pageId);
     }
-    await getKnowledgeService(this.db).deleteChunks("page", pageId);
   }
 
   private async processPageEmbedding(pageId: string): Promise<void> {
@@ -62,13 +80,21 @@ export class EmbeddingTriggerService {
       where: { id: pageId },
     });
 
-    // Gone, opted out, or empty → ensure no stale chunks linger.
-    if (!page || !page.includeInSearch || !page.body || page.body.trim() === "") {
+    // Gone or opted out → ensure no stale chunks linger.
+    if (!page || !page.includeInSearch) {
       await knowledgeService.deleteChunks("page", pageId);
       return;
     }
-
-    const result = await knowledgeService.embedSource(PageSource.fromEntity(page));
+    // What gets indexed is what a reader sees (ADR-0078 §7): a database
+    // block's table, or a row's property header, not the stored marker. A
+    // row with values and no prose is content, so emptiness is judged on
+    // the projection, not the stored body.
+    const body = await projectedPageBody(this.db, page);
+    if (!body || body.trim() === "") {
+      await knowledgeService.deleteChunks("page", pageId);
+      return;
+    }
+    const result = await knowledgeService.embedSource(PageSource.fromEntity({ ...page, body }));
     if (result.success) {
       console.log(
         `[EmbeddingTriggerService] Embedded page ${pageId}: ${result.chunkCount} chunks`,

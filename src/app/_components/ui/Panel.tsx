@@ -18,6 +18,12 @@ import { cx } from "./cx";
  *   <Panel interactive as="button">…</Panel> hover affordance for a clickable card
  *   <Panel as={Link} href="/x">…</Panel>    any element or component via `as`
  *
+ * Padding: pick a step. For an odd one (an empty state's `px-6 py-12`, a
+ * settings row's `px-5 py-4`), pass `padding="none"` and put the padding in
+ * `className` — never a padding step *and* `p-*` classes, since the two would
+ * be settled by stylesheet order, not by the prop. `npm run tokens:check`
+ * rejects that combination (panel-padding-conflict).
+ *
  * Radius steps are the shape tokens (dev-docs/styling-architecture.md, "Shape
  * tokens"): md = list rows, lg = cards (default), xl = hero panels.
  */

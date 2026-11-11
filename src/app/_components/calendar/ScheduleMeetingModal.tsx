@@ -562,8 +562,9 @@ export function ScheduleMeetingModal({
         {unknownCount > 0 && (
           <Text size="xs" c="dimmed">
             {unknownCount} attendee{unknownCount === 1 ? " has" : "s have"} no calendar
-            connected — they can be invited, but their availability doesn&apos;t constrain
-            the suggestions.
+            connected and no availability marked — they can be invited, but their
+            availability doesn&apos;t constrain the suggestions. Anyone can mark theirs in
+            Settings → Availability.
           </Text>
         )}
 

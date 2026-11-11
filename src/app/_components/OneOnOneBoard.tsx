@@ -266,7 +266,7 @@ export function OneOnOneBoard({ userId, teamId, userName, isSharedView = false, 
         <Text size="sm" className="text-text-secondary mt-3">
           <Link 
             href="/productivity-methods/weekly-plan" 
-            className="text-brand-primary hover:text-brand-primary-hover underline"
+            className="text-link hover:text-link-hover underline"
           >
             Learn more about the Weekly Plan methodology
           </Link>

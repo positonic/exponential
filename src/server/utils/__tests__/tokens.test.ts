@@ -16,6 +16,7 @@ describe("invite URL generation", () => {
   });
 
   afterEach(() => {
+    vi.unstubAllEnvs();
     if (originalNextAuthUrl === undefined) delete process.env.NEXTAUTH_URL;
     else process.env.NEXTAUTH_URL = originalNextAuthUrl;
     if (originalPublicAppUrl === undefined) delete process.env.NEXT_PUBLIC_APP_URL;
@@ -33,7 +34,7 @@ describe("invite URL generation", () => {
     );
   });
 
-  it("ignores NEXTAUTH_URL entirely", () => {
+  it("prefers the public app URL over NEXTAUTH_URL", () => {
     process.env.NEXTAUTH_URL = "http://localhost:3000";
     process.env.NEXT_PUBLIC_APP_URL = "https://app.example.com";
 
@@ -42,7 +43,9 @@ describe("invite URL generation", () => {
     );
   });
 
-  it("falls back to the production URL when no env is set", () => {
+  it("falls back to the production URL on Vercel when no env is set", () => {
+    vi.stubEnv("VERCEL", "1");
+
     expect(generateInviteUrl("tok123")).toBe(
       "https://www.exponential.im/invite/tok123",
     );

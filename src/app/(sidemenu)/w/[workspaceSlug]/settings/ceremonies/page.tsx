@@ -21,8 +21,8 @@ import { useWorkspace } from "~/providers/WorkspaceProvider";
 import { describeCadence } from "~/lib/ceremonies/cadence";
 import {
   CEREMONY_KIND_LABELS,
-  CeremonyEditorModal,
-} from "~/app/_components/ceremonies/CeremonyEditorModal";
+  CeremonyEditorDrawer,
+} from "~/app/_components/ceremonies/CeremonyEditorDrawer";
 import { CeremonyAdminTools } from "~/app/_components/ceremonies/CeremonyAdminTools";
 import { CeremonyIconTile } from "~/app/_components/ceremonies/CeremonyIcon";
 import type { CeremonyTemplate } from "~/server/services/ceremonies/templates";
@@ -181,7 +181,7 @@ export default function CeremoniesSettingsPage() {
         {isOwnerOrAdmin && <CeremonyAdminTools workspaceId={workspaceId} />}
       </Stack>
 
-      <CeremonyEditorModal
+      <CeremonyEditorDrawer
         opened={editor !== null}
         onClose={() => setEditor(null)}
         workspaceId={workspaceId}

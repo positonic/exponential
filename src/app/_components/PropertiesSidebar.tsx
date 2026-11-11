@@ -1,6 +1,28 @@
 "use client";
 
-import { Stack, Text, Divider } from "@mantine/core";
+import { useRef } from "react";
+import { Stack, Text, Divider, Select } from "@mantine/core";
+import type { SelectProps } from "@mantine/core";
+
+/**
+ * A searchable Select for a property row. The input shows the current label
+ * ("Backlog"), so it is selected whenever the dropdown opens: typing then
+ * replaces it instead of appending, and Enter takes the top match. Call-site
+ * props win, so a row can still pass its own nothingFoundMessage.
+ */
+export function SearchableSelect(props: SelectProps) {
+  const inputRef = useRef<HTMLInputElement>(null);
+  return (
+    <Select
+      ref={inputRef}
+      searchable
+      selectFirstOptionOnChange
+      nothingFoundMessage="No matches"
+      onDropdownOpen={() => requestAnimationFrame(() => inputRef.current?.select())}
+      {...props}
+    />
+  );
+}
 
 /**
  * A single row in a properties sidebar.

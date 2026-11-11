@@ -370,7 +370,7 @@ import { Panel, SectionHeader, Pill, Toolbar, EmptyState } from "~/app/_componen
 
 <Pill>470</Pill>  <Pill tone="danger" size="xs">due 15d ago</Pill>
 
-<Toolbar aria-label="Projects" bordered>
+<Toolbar bordered>
   <Toolbar.Group>…filters…</Toolbar.Group>
   <Toolbar.Spacer />
   <Toolbar.Group>…actions…</Toolbar.Group>
@@ -400,6 +400,15 @@ Rules of the folder:
 - **`className` is appended, never merged.** There is no tailwind-merge. A
   `className="rounded-none"` on a Panel is a bug, not an override; if a
   variant is missing, add the variant.
+- **Odd padding goes through `padding="none"`.** An empty state's
+  `px-6 py-12` is `<Panel padding="none" className="px-6 py-12">`. A padding
+  step plus `p-*` in `className` is rejected by `tokens:check`
+  (`panel-padding-conflict`), because stylesheet order, not the prop, would
+  decide which wins.
+- **`Toolbar` is not `role="toolbar"`.** That role promises arrow-key focus
+  movement between controls; the primitive is layout only, so each control
+  keeps its own Tab stop. Add the role only together with roving-tabindex
+  handling.
 - **Adding a variant is a design decision**, not a local tweak: add it to the
   primitive, the table above, and a test in `ui/__tests__/primitives.test.tsx`.
 - **Feature CSS classes (`.wsa-card`, `.mp-card`) are the migration backlog.**
@@ -429,6 +438,11 @@ Rules of the folder:
 
 ### Interactive Elements
 - `bg-brand-primary` - Primary buttons/actions
+- `text-link` / `hover:text-link-hover` - Inline text links. **Never `text-brand-primary`
+  on a link**: the brand fill is tuned for buttons and drops to ~3:1 on dark surfaces,
+  while `--color-link` lifts two tuple stops in dark/slate (7:1+). Mantine `<Anchor>`,
+  `MarkdownRenderer` and `.chat-html-content a` already use it, so a plain `<Anchor>`
+  needs no colour class.
 - `bg-brand-success` - Success states
 - `bg-brand-error` - Error states
 - `bg-brand-warning` - Warning states

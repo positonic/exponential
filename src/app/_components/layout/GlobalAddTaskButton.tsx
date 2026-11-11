@@ -109,6 +109,7 @@ export function GlobalAddTaskButton({ variant = "icon" }: { variant?: "icon" | "
         sourceId: null,
         lastUpdatedBy: null,
         lastUpdatedSource: null,
+        occurrenceId: null,
         syncs: [],
         assignees: [],
         tags: [],

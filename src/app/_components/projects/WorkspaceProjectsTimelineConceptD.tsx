@@ -29,6 +29,7 @@ import {
   useProjectViewState,
   filterProjects,
   computeProjectFilterCounts,
+  collectProjectGoals,
   PROJECT_FILTER_KEYS,
   DRI_ME,
   PROJECT_DEFAULT_VIEW_STATE,
@@ -67,6 +68,7 @@ interface TimelineProject {
   startDate: Date | null;
   endDate: Date | null;
   workspaceSlug?: string;
+  goals: { id: number; title: string }[];
 }
 
 interface TimelineProjectRange extends TimelineProject {
@@ -277,12 +279,18 @@ export function WorkspaceProjectsTimelineConceptD() {
         startDate: p.startDate ?? null,
         endDate: p.endDate ?? null,
         workspaceSlug: p.workspace?.slug,
+        goals: p.goals.map((g) => ({ id: g.id, title: g.title })),
       })) ?? [],
   });
 
   const timelineProjects = useMemo(
     () => (rawProjects ?? []).map(buildProjectRange),
     [rawProjects],
+  );
+
+  const projectGoals = useMemo(
+    () => collectProjectGoals(timelineProjects),
+    [timelineProjects],
   );
 
   const filteredProjects = useMemo(() => {
@@ -426,6 +434,7 @@ export function WorkspaceProjectsTimelineConceptD() {
               filters={filters}
               onFiltersChange={setFilters}
               members={workspaceMembers}
+              goals={projectGoals}
             />
           </>
         }
@@ -436,6 +445,7 @@ export function WorkspaceProjectsTimelineConceptD() {
               filters={filters}
               onFiltersChange={setFilters}
               members={workspaceMembers}
+              goals={projectGoals}
               counts={optionCounts}
             />
             <ProjectSortMenu

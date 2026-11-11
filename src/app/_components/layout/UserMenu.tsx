@@ -23,6 +23,7 @@ import {
   IconDatabase,
 } from "@tabler/icons-react";
 import Link from "next/link";
+import { signOut } from "next-auth/react";
 import { useState } from "react";
 import { SidebarFeedback } from "./SidebarFeedback";
 import { VideoCount } from "./VideoCount";
@@ -316,9 +317,13 @@ export function UserMenu({ session, onClose }: UserMenuProps) {
 
             <Menu.Item
               leftSection={<IconLogout size={16} />}
-              component={Link}
-              href="/api/auth/signout"
-              onClick={onClose}
+              onClick={() => {
+                onClose();
+                // An explicit target: without one Auth.js falls back to the sticky
+                // callback-url cookie, which the native app's sign-in leaves set to
+                // /api/auth/native/start — and that 400s once the handshake is gone.
+                void signOut({ redirectTo: "/signin" });
+              }}
               className="text-text-primary hover:bg-surface-hover"
             >
               Log out

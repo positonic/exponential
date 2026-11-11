@@ -14,6 +14,7 @@ import { modals } from "@mantine/modals";
 import { api } from "~/trpc/react";
 import { useWorkspace } from "~/providers/WorkspaceProvider";
 import { MarkdownRenderer } from "~/app/_components/shared/MarkdownRenderer";
+import { useProductDetailTitle } from "../../ProductDetailTitle";
 
 export default function RetrospectiveDetailPage() {
   const router = useRouter();
@@ -27,6 +28,7 @@ export default function RetrospectiveDetailPage() {
     { id: retroId },
     { enabled: !!retroId },
   );
+  useProductDetailTitle(retro?.title);
 
   const deleteRetro = api.product.retrospective.delete.useMutation({
     onSuccess: async () => {

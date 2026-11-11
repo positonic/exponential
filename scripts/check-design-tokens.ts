@@ -56,6 +56,7 @@ export interface Finding {
     | "raw-radius"
     | "raw-shadow"
     | "raw-surface"
+    | "panel-padding-conflict"
     | "arbitrary-tailwind"
     | "numeric-mantine-radius";
   detail: string;
@@ -251,10 +252,42 @@ export function isTokenShadow(value: string): boolean {
  */
 export function isHandRolledSurface(classes: string): boolean {
   const toks = classes.split(/\s+/);
-  const hasBorder = toks.some((t) => /^border(-[xytblr])?$/.test(t));
-  const hasRadius = toks.some((t) => /^rounded(-(xs|sm|md|lg|xl|2xl|3xl))?$/.test(t));
+  const hasBorder = toks.some((t) => /^border(-[xytblrse])?(-[0248])?$/.test(t));
+  const hasRadius = toks.some((t) =>
+    /^rounded(-(t|b|l|r|s|e|tl|tr|bl|br|ss|se|es|ee))?(-(xs|sm|md|lg|xl|2xl|3xl))?$/.test(t),
+  );
   const hasSurface = toks.some((t) => /^bg-(surface|background)-/.test(t));
   return hasBorder && hasRadius && hasSurface;
+}
+
+/**
+ * Every class list a `className` can carry: a static `className="…"`, and for
+ * `className={…}` (cx calls, ternaries, template literals) all the string
+ * literals in the expression joined together, so a surface split across a
+ * conditional is still one surface.
+ */
+export function classNameValues(text: string): { index: number; classes: string }[] {
+  const out: { index: number; classes: string }[] = [];
+  for (const m of text.matchAll(/className=(["'])([^"']*)\1/g)) {
+    out.push({ index: m.index ?? 0, classes: m[2]! });
+  }
+  for (const m of text.matchAll(/className=\{/g)) {
+    const start = (m.index ?? 0) + m[0].length;
+    let depth = 1;
+    let i = start;
+    while (i < text.length && depth > 0) {
+      const ch = text[i];
+      if (ch === "{") depth++;
+      else if (ch === "}") depth--;
+      i++;
+    }
+    const expr = text.slice(start, i - 1);
+    const literals = [...expr.matchAll(/(["'`])((?:(?!\1)[^\\]|\\.)*)\1/g)].map((l) =>
+      l[2]!.replace(/\$\{[^}]*\}/g, " "),
+    );
+    if (literals.length) out.push({ index: m.index ?? 0, classes: literals.join(" ") });
+  }
+  return out;
 }
 
 export function findRawValues(file: string, text: string): Finding[] {
@@ -296,9 +329,17 @@ export function findRawValues(file: string, text: string): Finding[] {
     }
   }
   if (!file.startsWith(PRIMITIVES_DIR)) {
-    for (const m of text.matchAll(/className=(["'])([^"']*)\1/g)) {
-      if (isHandRolledSurface(m[2]!)) {
-        push(m.index ?? 0, "raw-surface", `className draws its own box (${m[2]!.trim().slice(0, 60)}…) — use <Panel> from ~/app/_components/ui`);
+    for (const { index, classes } of classNameValues(text)) {
+      if (isHandRolledSurface(classes)) {
+        push(index, "raw-surface", `className draws its own box (${classes.trim().slice(0, 60)}…) — use <Panel> from ~/app/_components/ui`);
+      }
+    }
+    for (const m of text.matchAll(/<Panel\b[^>]*>/g)) {
+      const tag = m[0];
+      if (/\bpadding=["']none["']/.test(tag)) continue;
+      const cls = /className=(["'])([^"']*)\1/.exec(tag)?.[2] ?? "";
+      if (cls.split(/\s+/).some((t) => /^p[xytblrse]?-/.test(t))) {
+        push(m.index ?? 0, "panel-padding-conflict", `<Panel> with a padding step and p-* in className — pick a padding step, or padding="none" and put the padding in className`);
       }
     }
   }

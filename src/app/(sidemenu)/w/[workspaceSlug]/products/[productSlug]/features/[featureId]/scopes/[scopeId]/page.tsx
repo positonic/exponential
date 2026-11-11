@@ -17,6 +17,7 @@ import {
 } from "~/app/_components/shared/ActivityFilterMenu";
 import { useFeatureActivity } from "~/hooks/useFeatureActivity";
 import { SCOPE_STATUS_OPTIONS, SCOPE_STATUS_COLORS } from "~/lib/feature-statuses";
+import { useProductDetailTitle } from "../../../../ProductDetailTitle";
 
 /**
  * Scope detail page (Features V2): a Feature scope's own page beneath its
@@ -36,6 +37,7 @@ export default function ScopeDetailPage() {
     { id: scopeId },
     { enabled: !!scopeId },
   );
+  useProductDetailTitle(scope ? `${scope.feature.name} ${scope.version}` : null);
 
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState("");

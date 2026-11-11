@@ -4043,6 +4043,11 @@ export const mastraRouter = createTRPCRouter({
         title: z.string().min(1),
         body: z.string().min(1),
         includeInSearch: z.boolean().optional(),
+        // Why the page exists — recorded on its first revision (ADR-0074).
+        note: z.string().optional(),
+        // Provenance: where the facts come from, and the date they were true.
+        source: z.string().nullish(),
+        asOf: z.coerce.date().nullish(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
@@ -4053,6 +4058,9 @@ export const mastraRouter = createTRPCRouter({
         title: input.title,
         body: input.body,
         includeInSearch: input.includeInSearch,
+        note: input.note,
+        source: input.source,
+        asOf: input.asOf,
       });
       return {
         page: {
@@ -4076,6 +4084,10 @@ export const mastraRouter = createTRPCRouter({
         // a compare-and-set: a newer save makes page.update throw CONFLICT
         // (`data.conflict`) instead of being overwritten (ADR-0071).
         baseVersion: z.number().int().min(0).optional(),
+        // Why this change — shown in the page's history (ADR-0074).
+        note: z.string().optional(),
+        source: z.string().nullish(),
+        asOf: z.coerce.date().nullish(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
@@ -4086,6 +4098,9 @@ export const mastraRouter = createTRPCRouter({
         body: input.body,
         includeInSearch: input.includeInSearch,
         baseVersion: input.baseVersion,
+        note: input.note,
+        source: input.source,
+        asOf: input.asOf,
       });
       // The agent sends Markdown `body` (never `bodyDoc`), so page.update takes
       // the metadata path and returns the full record (not the {id, docVersion}

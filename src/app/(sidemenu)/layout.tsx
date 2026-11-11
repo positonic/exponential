@@ -1,7 +1,7 @@
 import Layout from "~/app/_components/layout/Layout";
 import "~/styles/globals.css";
 import { GeistSans } from "geist/font/sans";
-import { inter } from '~/lib/fonts';
+import { fontVariables } from '~/lib/fonts';
 import { type Metadata } from "next";
 import { TRPCReactProvider } from "~/trpc/react";
 import '@mantine/core/styles.css';
@@ -54,7 +54,7 @@ export default async function RootLayout({
   const session = await auth();
 
   return (
-    <html lang="en" data-mantine-color-scheme="dark" className={`${GeistSans.variable} ${inter.variable} h-full`} suppressHydrationWarning>
+    <html lang="en" data-mantine-color-scheme="dark" className={`${GeistSans.variable} ${fontVariables} h-full`} suppressHydrationWarning>
       <head>
         {/* Migration + dark-variant first, then Mantine's scheme script reads
             the (possibly just-migrated) mantine-color-scheme-value key. */}

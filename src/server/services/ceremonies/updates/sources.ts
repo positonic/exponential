@@ -8,7 +8,7 @@
  * returns no lines, and the question it feeds drafts empty.
  */
 import type { PrismaClient, Prisma } from "@prisma/client";
-import { parseGithubUsername } from "~/server/services/github/memberLogins";
+import { resolveGithubLogins } from "~/server/services/github/memberLogins";
 
 /** Per-source caps: a standup answer nobody reads is as useless as an empty one. */
 const COMPLETED_ACTION_LIMIT = 20;
@@ -144,17 +144,15 @@ export async function commitLines(db: PrismaClient, window: ActivityWindow): Pro
     .filter((line): line is string => line !== null);
 }
 
-/** The participant's GitHub username, from the metadata on their own integration. */
+/**
+ * The participant's GitHub username: their own integration's, else the one a
+ * workspace admin set for them (see `resolveGithubLogins`).
+ */
 export async function resolveGithubLogin(
   db: PrismaClient,
   workspaceId: string,
   userId: string,
 ): Promise<string | null> {
-  const integration = await db.integration.findFirst({
-    where: { workspaceId, provider: "github", userId },
-    orderBy: { updatedAt: "desc" },
-    select: { credentials: { where: { keyType: "github_metadata" }, select: { key: true }, take: 1 } },
-  });
-  // A metadata blob we can't read is not worth failing a standup draft over.
-  return parseGithubUsername(integration?.credentials[0]?.key);
+  const logins = await resolveGithubLogins(db, workspaceId, [userId]);
+  return logins.get(userId) ?? null;
 }
