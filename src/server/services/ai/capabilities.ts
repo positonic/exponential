@@ -28,6 +28,9 @@ export interface AiCapabilities {
   voice: boolean;
 }
 
+/** A capability an AI entry point can require. */
+export type AiRequirement = keyof AiCapabilities;
+
 /** `process.env`, or any subset of it. */
 export type AiEnv = Partial<Record<string, string | undefined>>;
 
@@ -113,4 +116,34 @@ export function aiCapabilityLines(env: AiEnv): string[] {
     head,
     ...off.map((option) => `[selfhost]   To turn on ${option.turnsOn}: set ${option.variable} and restart.`),
   ];
+}
+
+const WHAT_IS_MISSING: Record<AiRequirement, string> = {
+  openai: "no OpenAI key",
+  anthropic: "no Anthropic key",
+  assistant: "no Assistant (Mastra)",
+  summaries: "no OpenAI or Anthropic key",
+  voice: "no OpenAI key and Assistant (Mastra)",
+};
+
+const HOW_TO_TURN_ON: Record<AiRequirement, string> = {
+  openai: "Add OPENAI_API_KEY and restart to turn it on.",
+  anthropic: "Add ANTHROPIC_API_KEY and restart to turn it on.",
+  assistant: "Set MASTRA_API_URL to your Mastra service and restart to turn it on.",
+  summaries: "Add OPENAI_API_KEY or ANTHROPIC_API_KEY and restart to turn it on.",
+  voice: "Add OPENAI_API_KEY and set MASTRA_API_URL, then restart to turn it on.",
+};
+
+/** What to set, and that a restart is needed: "Add OPENAI_API_KEY and restart to turn it on." */
+export function aiTurnOnHint(requirement: AiRequirement): string {
+  return HOW_TO_TURN_ON[requirement];
+}
+
+/**
+ * The one "not configured" sentence, shared by the server's
+ * AiNotConfiguredError and the UI's note:
+ * "Semantic search: this install has no OpenAI key. Add OPENAI_API_KEY and restart to turn it on."
+ */
+export function aiNotConfiguredMessage(requirement: AiRequirement, feature: string): string {
+  return `${feature}: this install has ${WHAT_IS_MISSING[requirement]}. ${HOW_TO_TURN_ON[requirement]}`;
 }

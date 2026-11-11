@@ -7,30 +7,14 @@
  */
 
 import { TRPCError } from "@trpc/server";
-import { resolveAiCapabilities, type AiCapabilities, type AiEnv } from "./capabilities";
+import {
+  aiNotConfiguredMessage,
+  resolveAiCapabilities,
+  type AiEnv,
+  type AiRequirement,
+} from "./capabilities";
 
-export type AiRequirement = keyof AiCapabilities;
-
-const HOW_TO_TURN_ON: Record<AiRequirement, string> = {
-  openai: "Add OPENAI_API_KEY and restart to turn it on.",
-  anthropic: "Add ANTHROPIC_API_KEY and restart to turn it on.",
-  assistant: "Set MASTRA_API_URL to your Mastra service and restart to turn it on.",
-  summaries: "Add OPENAI_API_KEY or ANTHROPIC_API_KEY and restart to turn it on.",
-  voice: "Add OPENAI_API_KEY and set MASTRA_API_URL, then restart to turn it on.",
-};
-
-const WHAT_IS_MISSING: Record<AiRequirement, string> = {
-  openai: "an OpenAI key",
-  anthropic: "an Anthropic key",
-  assistant: "the Assistant (Mastra)",
-  summaries: "an OpenAI or Anthropic key",
-  voice: "an OpenAI key and the Assistant (Mastra)",
-};
-
-/** "<Feature> needs an OpenAI key, which this install doesn't have. Add OPENAI_API_KEY and restart to turn it on." */
-export function aiNotConfiguredMessage(requirement: AiRequirement, feature = "This feature"): string {
-  return `${feature} needs ${WHAT_IS_MISSING[requirement]}, which this install doesn't have. ${HOW_TO_TURN_ON[requirement]}`;
-}
+export { aiNotConfiguredMessage, type AiRequirement };
 
 /**
  * Thrown by an AI entry point when its provider isn't configured. A TRPCError
@@ -40,7 +24,7 @@ export function aiNotConfiguredMessage(requirement: AiRequirement, feature = "Th
 export class AiNotConfiguredError extends TRPCError {
   readonly requirement: AiRequirement;
 
-  constructor(requirement: AiRequirement, feature?: string) {
+  constructor(requirement: AiRequirement, feature = "This feature") {
     super({ code: "PRECONDITION_FAILED", message: aiNotConfiguredMessage(requirement, feature) });
     this.name = "AiNotConfiguredError";
     this.requirement = requirement;
@@ -67,6 +51,6 @@ export function requireAi(requirement: AiRequirement, feature?: string, env: AiE
  */
 export function aiConfiguredOrSkip(requirement: AiRequirement, job: string, env: AiEnv = process.env): boolean {
   if (isAiConfigured(requirement, env)) return true;
-  console.log(`[ai] ${job} skipped: ${aiNotConfiguredMessage(requirement, "It")}`);
+  console.log(`[ai] ${aiNotConfiguredMessage(requirement, `${job} skipped`)}`);
   return false;
 }

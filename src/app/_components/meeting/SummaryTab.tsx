@@ -13,6 +13,8 @@ import {
 import { FirefliesSummaryDisplay } from "~/app/_components/FirefliesSummaryRenderer";
 import { MarkdownInput } from "~/app/_components/shared/MarkdownInput";
 import { MarkdownRenderer } from "~/app/_components/shared/MarkdownRenderer";
+import { useAiCapabilities } from "~/providers/AiCapabilitiesProvider";
+import { AiNotConfiguredNote } from "~/app/_components/ai/AiNotConfiguredNote";
 import { parseFirefliesSummary } from "~/lib/fireflies-summary";
 import { ActionsList } from "~/app/_components/actions/ActionsList";
 import type { MeetingViewModel } from "~/lib/meeting-view-model";
@@ -62,6 +64,7 @@ export function SummaryTab({
   onIdeateFeatures,
   onRegenerate,
 }: SummaryTabProps) {
+  const { summaries: canSummarize, openai: canIdeate } = useAiCapabilities();
   const [draft, setDraft] = useState<EditDraft | null>(null);
   const [isSaving, setIsSaving] = useState(false);
 
@@ -193,7 +196,12 @@ export function SummaryTab({
                 <Loader size="xs" /> Generating summary…
               </p>
             ) : (
-              <p className="mp-tldr__text">No summary yet for this meeting.</p>
+              <>
+                <p className="mp-tldr__text">No summary yet for this meeting.</p>
+                {hasTranscript && !canSummarize && (
+                  <AiNotConfiguredNote requirement="summaries" feature="Meeting summaries" className="mt-2" />
+                )}
+              </>
             )}
             <div className="mp-tldr__foot">
               {hasSummary && (
@@ -204,7 +212,7 @@ export function SummaryTab({
               <button className="mp-chipbtn" onClick={startEdit}>
                 <IconPencil size={11} /> Edit
               </button>
-              {hasTranscript && (
+              {hasTranscript && canSummarize && (
                 <button
                   className="mp-chipbtn"
                   onClick={onRegenerate}
@@ -265,7 +273,10 @@ export function SummaryTab({
 
         {/* Ideating features stays here: it is a separate, optional pass, not
             one of the meeting's reviewed outputs. */}
-        {hasTranscript && (
+        {hasTranscript && !canIdeate && (
+          <AiNotConfiguredNote requirement="openai" feature="Feature ideation" className="mt-3" />
+        )}
+        {hasTranscript && canIdeate && (
           <div className="mp-actbar">
             <div className="mp-actbar__txt">
               <b>Product features</b> can be ideated from this meeting. Review

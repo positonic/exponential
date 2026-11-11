@@ -28,7 +28,7 @@ describe("requireAi", () => {
     expect(thrown).toBeInstanceOf(TRPCError);
     expect(thrown).toMatchObject({ code: "PRECONDITION_FAILED", requirement: "openai" });
     expect((thrown as Error).message).toBe(
-      "Semantic search needs an OpenAI key, which this install doesn't have. Add OPENAI_API_KEY and restart to turn it on.",
+      "Semantic search: this install has no OpenAI key. Add OPENAI_API_KEY and restart to turn it on.",
     );
   });
 

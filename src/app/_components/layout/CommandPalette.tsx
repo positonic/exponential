@@ -44,6 +44,7 @@ import { api } from '~/trpc/react';
 import type { RouterOutputs } from '~/trpc/react';
 import { useWorkspace } from '~/providers/WorkspaceProvider';
 import { useAgentModal } from '~/providers/AgentModalProvider';
+import { useAiCapabilities } from '~/providers/AiCapabilitiesProvider';
 import { reportHandledError } from '~/lib/reportHandledError';
 import { useWikiBridge } from '~/lib/wiki/useWikiBridge';
 import { pageTitle, wikiHref, WIKI_ROUTE } from '~/lib/wiki/wikiLinks';
@@ -245,7 +246,9 @@ export function CommandPalette() {
   // rather than quietly searching just one of them.
   const [knowledgeQuery] = useDebouncedValue(trimmedQuery, KNOWLEDGE_DEBOUNCE_MS);
   const knowledgeWorkspaceId = allWorkspaces ? null : workspaceId ?? null;
-  const knowledgeEnabled = isOpen && mode === 'all' && !!knowledgeWorkspaceId;
+  // Semantic search needs an embeddings provider; without one the palette is title search only.
+  const { openai: hasEmbeddings } = useAiCapabilities();
+  const knowledgeEnabled = isOpen && mode === 'all' && !!knowledgeWorkspaceId && hasEmbeddings;
   const { data: knowledgeData, isFetching: knowledgeFetching } = api.search.knowledge.useQuery(
     { query: knowledgeQuery, workspaceId: knowledgeWorkspaceId ?? '', limit: KNOWLEDGE_RESULT_LIMIT },
     {

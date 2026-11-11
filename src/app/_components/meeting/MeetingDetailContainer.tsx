@@ -1,5 +1,6 @@
 'use client';
 
+import { useAiCapabilities } from "~/providers/AiCapabilitiesProvider";
 import { api } from "~/trpc/react";
 import { Skeleton, Paper, Text } from "@mantine/core";
 import { useEffect, useMemo, useRef } from "react";
@@ -106,8 +107,11 @@ export function MeetingDetailContainer({ id }: { id: string }) {
     }
   }
 
+  const { summaries: canSummarize } = useAiCapabilities();
   useEffect(() => {
     if (!session) return;
+    // No summarisation provider on this install: the Summary tab says so.
+    if (!canSummarize) return;
     const hasSummary = Boolean(session.summary?.trim());
     if (hasSummary || !session.hasTranscript) return;
     if (summaryAttemptedRef.current.has(session.id)) return;
@@ -126,7 +130,7 @@ export function MeetingDetailContainer({ id }: { id: string }) {
         },
       },
     );
-  }, [session, generateSummary]);
+  }, [session, generateSummary, canSummarize]);
 
   // "Extract outputs" (one button on every tab): one reading of the meeting
   // drafts its actions, decisions and open questions, so each item lands in
