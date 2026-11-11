@@ -43,6 +43,7 @@ import {
   STATUS_COLORS,
   STATUS_LABELS,
 } from "~/lib/ticket-statuses";
+import { invalidateTicketLists } from "~/app/_components/product/invalidateTicketLists";
 
 const TICKET_TYPES = ["BUG", "FEATURE", "CHORE", "IMPROVEMENT", "SPIKE", "RESEARCH"] as const;
 
@@ -90,7 +91,7 @@ export function TicketPeek({ ticketId, basePath }: { ticketId: string; basePath:
     await utils.product.ticket.getById.invalidate({ id: ticketId });
     await utils.product.ticket.listEvents.invalidate({ id: ticketId });
     if (ticket?.product.id) {
-      await utils.product.ticket.listSummaries.invalidate({ productId: ticket.product.id });
+      await invalidateTicketLists(utils, { productId: ticket.product.id });
     }
   };
 

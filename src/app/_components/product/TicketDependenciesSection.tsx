@@ -29,6 +29,7 @@ import {
   STATUS_LABELS,
   type TicketStatus,
 } from "~/lib/ticket-statuses";
+import { invalidateTicketLists } from "~/app/_components/product/invalidateTicketLists";
 
 interface LinkedTicket {
   id: string;
@@ -274,7 +275,7 @@ function DependencyRow({
     await Promise.all([
       utils.product.ticket.getById.invalidate({ id: ticketId }),
       utils.product.ticket.getById.invalidate({ id: ticket.id }),
-      utils.product.ticket.listSummaries.invalidate({ productId }),
+      invalidateTicketLists(utils, { productId }),
     ]);
   };
 
@@ -412,7 +413,7 @@ function AddDependencyCombobox({
         utils.product.ticket.getById.invalidate({
           id: direction === "out" ? vars.dependsOnId : vars.ticketId,
         }),
-        utils.product.ticket.listSummaries.invalidate({ productId }),
+        invalidateTicketLists(utils, { productId }),
       ]);
       onDone();
     },

@@ -289,6 +289,76 @@ describe("ticket router — listSummaries (mocked)", () => {
     ).rejects.toMatchObject({ code: "FORBIDDEN" });
     expect(dbMock.ticket.findMany).not.toHaveBeenCalled();
   });
+
+  it("includes completed tickets unless asked otherwise", async () => {
+    const caller = createMockCaller({ userId: callerId, db: dbMock });
+    await caller.product.ticket.listSummaries({ productId });
+
+    expect(findManyWhere(dbMock)).not.toHaveProperty("AND");
+  });
+
+  it("excludes or isolates completed tickets on request", async () => {
+    const caller = createMockCaller({ userId: callerId, db: dbMock });
+    await caller.product.ticket.listSummaries({ productId, completed: "exclude" });
+    await caller.product.ticket.listSummaries({ productId, completed: "only" });
+
+    const [exclude, only] = dbMock.ticket.findMany.mock.calls.map((c) => c[0]?.where);
+    const completed = ["DONE", "DEPLOYED", "ARCHIVED"];
+    expect(exclude).toMatchObject({ productId, AND: [{ status: { notIn: completed } }] });
+    expect(only).toMatchObject({ productId, AND: [{ status: { in: completed } }] });
+  });
+
+  it("narrows an explicit status filter instead of replacing it", async () => {
+    const caller = createMockCaller({ userId: callerId, db: dbMock });
+    await caller.product.ticket.listSummaries({
+      productId,
+      status: "DONE",
+      completed: "exclude",
+    });
+
+    // Both constraints stand, so this matches nothing rather than every
+    // active ticket.
+    expect(findManyWhere(dbMock)).toMatchObject({
+      status: "DONE",
+      AND: [{ status: { notIn: ["DONE", "DEPLOYED", "ARCHIVED"] } }],
+    });
+  });
+});
+
+describe("ticket router — countCompleted (mocked)", () => {
+  let dbMock: DeepMockProxy<PrismaClient>;
+
+  beforeEach(() => {
+    dbMock = getDbMock();
+    mockReset(dbMock);
+    stubProductLookup(dbMock);
+    stubMembership(dbMock, true);
+  });
+
+  it("counts the completed tickets matching the list filters", async () => {
+    dbMock.ticket.count.mockResolvedValue(376);
+
+    const caller = createMockCaller({ userId: callerId, db: dbMock });
+    const n = await caller.product.ticket.countCompleted({ productId, assigneeId: "user-2" });
+
+    expect(n).toBe(376);
+    expect(dbMock.ticket.count.mock.calls[0]?.[0]?.where).toMatchObject({
+      productId,
+      assigneeId: "user-2",
+      AND: [{ status: { in: ["DONE", "DEPLOYED", "ARCHIVED"] } }],
+    });
+  });
+
+  it("refuses a caller outside the product's workspace", async () => {
+    stubMembership(dbMock, false);
+    dbMock.teamUser.findFirst.mockResolvedValue(null);
+
+    const caller = createMockCaller({ userId: callerId, db: dbMock });
+    await expect(
+      caller.product.ticket.countCompleted({ productId }),
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
+    expect(dbMock.ticket.count).not.toHaveBeenCalled();
+  });
 });
 
 describe("ticket router — cross-workspace link guard (mocked)", () => {

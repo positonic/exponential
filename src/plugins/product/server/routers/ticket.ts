@@ -145,6 +145,33 @@ function ticketListWhere(
   };
 }
 
+/**
+ * `listSummaries` can leave out, or return only, completed tickets: the
+ * backlog loads its Completed section on demand, and on a mature product
+ * that section is most of the tickets.
+ */
+const ticketSummariesInput = ticketListInput.extend({
+  completed: z.enum(["include", "exclude", "only"]).default("include"),
+});
+
+function ticketSummariesWhere(
+  input: z.infer<typeof ticketSummariesInput>,
+): Prisma.TicketWhereInput {
+  const where = ticketListWhere(input);
+  if (input.completed === "include") return where;
+  // Under AND so it narrows an explicit `status` filter instead of replacing it.
+  const statuses = [...COMPLETED_TICKET_STATUSES];
+  return {
+    ...where,
+    AND: [
+      {
+        status:
+          input.completed === "only" ? { in: statuses } : { notIn: statuses },
+      },
+    ],
+  };
+}
+
 const TICKET_LIST_ORDER_BY: Prisma.TicketOrderByWithRelationInput[] = [
   { status: "asc" },
   { createdAt: "desc" },
@@ -367,17 +394,31 @@ export const ticketRouter = createTRPCRouter({
    * shows.
    */
   listSummaries: protectedProcedure
-    .input(ticketListInput)
+    .input(ticketSummariesInput)
     .query(async ({ ctx, input }) => {
       await loadProductWithAccess(ctx.db, ctx.session.user.id, input.productId);
 
       const tickets = await ctx.db.ticket.findMany({
-        where: ticketListWhere(input),
+        where: ticketSummariesWhere(input),
         orderBy: TICKET_LIST_ORDER_BY,
         select: TICKET_SUMMARY_SELECT,
       });
 
       return withBlockerCounts(tickets);
+    }),
+
+  /**
+   * How many completed tickets match `listSummaries`' filters: the count on
+   * the backlog's Completed header before that section's rows are loaded.
+   */
+  countCompleted: protectedProcedure
+    .input(ticketListInput)
+    .query(async ({ ctx, input }) => {
+      await loadProductWithAccess(ctx.db, ctx.session.user.id, input.productId);
+
+      return ctx.db.ticket.count({
+        where: ticketSummariesWhere({ ...input, completed: "only" }),
+      });
     }),
 
   getById: protectedProcedure

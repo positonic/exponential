@@ -18,6 +18,7 @@ import {
 import { useWorkspace } from "~/providers/WorkspaceProvider";
 import { api } from "~/trpc/react";
 import { ticketUrlId } from "~/lib/fun-ids";
+import { invalidateTicketLists } from "~/app/_components/product/invalidateTicketLists";
 
 const TYPE_OPTIONS = [
   { value: "BUG", label: "Bug" },
@@ -98,7 +99,7 @@ export default function NewTicketPage() {
   const createTicket = api.product.ticket.create.useMutation({
     onSuccess: async (ticket) => {
       if (product?.id) {
-        await utils.product.ticket.listSummaries.invalidate({ productId: product.id });
+        await invalidateTicketLists(utils, { productId: product.id });
       }
       if (workspace) {
         router.push(

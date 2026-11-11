@@ -142,7 +142,10 @@ export default function ProductLayout({
 
     const warm = () => {
       warmedProductRef.current = productId;
-      void utils.product.ticket.listSummaries.prefetch({ productId });
+      // The Backlog's first view: active tickets, and the count on its
+      // collapsed Completed section (whose rows load when it is opened).
+      void utils.product.ticket.listSummaries.prefetch({ productId, completed: "exclude" });
+      void utils.product.ticket.countCompleted.prefetch({ productId });
       // The Backlog holds its tickets until the saved view loads, so warm
       // that too or the cached list still waits on a round trip.
       void utils.product.product.getViewPrefs.prefetch({ productSlug, workspaceId });

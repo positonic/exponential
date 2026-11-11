@@ -13,6 +13,7 @@ import { generateLinearId } from "~/lib/fun-ids";
 import { KanbanBoard as SharedKanbanBoard } from "~/app/_components/shared/kanban";
 import type { ColumnAccent, KanbanColumnDef, KanbanItem } from "~/app/_components/shared/kanban";
 import { CardSelectCheckbox } from "~/app/_components/shared/multiSelect";
+import { invalidateTicketLists } from "~/app/_components/product/invalidateTicketLists";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -172,7 +173,7 @@ export function TicketKanbanBoard({ tickets, productId, productName, funTicketId
 
   const updateTicket = api.product.ticket.update.useMutation({
     onSuccess: async () => {
-      await utils.product.ticket.listSummaries.invalidate({ productId });
+      await invalidateTicketLists(utils, { productId });
     },
   });
 

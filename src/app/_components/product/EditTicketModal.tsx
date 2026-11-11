@@ -31,6 +31,7 @@ import { api } from "~/trpc/react";
 import { STATUS_OPTIONS, type TicketStatus } from "~/lib/ticket-statuses";
 import { TagSelector } from "~/app/_components/TagSelector";
 import "@mantine/tiptap/styles.css";
+import { invalidateTicketLists } from "~/app/_components/product/invalidateTicketLists";
 
 type TicketType = "BUG" | "FEATURE" | "CHORE" | "IMPROVEMENT" | "SPIKE" | "RESEARCH";
 
@@ -186,7 +187,7 @@ export function EditTicketModal({
         tagIds,
       });
 
-      await utils.product.ticket.listSummaries.invalidate();
+      await invalidateTicketLists(utils);
       await utils.product.ticket.getById.invalidate({ id: ticketId });
       await utils.tag.listForEntity.invalidate({
         entityType: "ticket",

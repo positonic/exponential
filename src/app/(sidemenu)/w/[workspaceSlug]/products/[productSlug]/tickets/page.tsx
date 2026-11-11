@@ -95,6 +95,7 @@ import {
   COMPLETED_STATUSES,
   type TicketStatus,
 } from "~/lib/ticket-statuses";
+import { invalidateTicketLists } from "~/app/_components/product/invalidateTicketLists";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -330,7 +331,22 @@ export default function TicketsBacklogPage() {
   const [entity, setEntity] = useState<"tickets" | "epics">("tickets");
   const [groupBy, setGroupBy] = useState<GroupByField>("none");
   const [filters, setFilters] = useState<TicketFilters>(EMPTY_FILTERS);
-  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  // Completed starts collapsed: its tickets load when it is opened (see
+  // needCompleted below). A deep link to a completed status (?status=DONE)
+  // opens it, since that is every row the link asks for.
+  const urlStatusIsCompleted = !!urlStatus && COMPLETED_STATUSES.has(urlStatus);
+  const [collapsed, setCollapsed] = useState<Set<string>>(
+    () => new Set(urlStatusIsCompleted ? [] : ["__completed"]),
+  );
+  useEffect(() => {
+    if (!urlStatusIsCompleted) return;
+    setCollapsed((prev) => {
+      if (!prev.has("__completed")) return prev;
+      const next = new Set(prev);
+      next.delete("__completed");
+      return next;
+    });
+  }, [urlStatusIsCompleted]);
   const [visibleColumns, setVisibleColumns] = useState<Set<string>>(
     new Set(["id", "status", "title", "priority", "dri", "type", "labels", "epic", "cycle"]),
   );
@@ -435,9 +451,8 @@ export default function TicketsBacklogPage() {
     { enabled: !!workspaceId && !!productSlug },
   );
 
-  // Kept as one memoised object because the bulk-update optimistic patch
-  // must read/write the cache under the exact same query input.
-  const listInput = useMemo(
+  // The server-side filters (the Overview deep links).
+  const baseInput = useMemo(
     () => ({
       productId: product?.id ?? "",
       ...(urlStatus ? { status: urlStatus } : {}),
@@ -447,13 +462,67 @@ export default function TicketsBacklogPage() {
     }),
     [product?.id, urlStatus, filterAssigneeMe, sessionUserId],
   );
+  // When ?assignee=me is present, wait for the session so the first fetch
+  // is already filtered instead of flashing the full backlog.
+  const listEnabled = !!product?.id && (!filterAssigneeMe || !!sessionUserId);
 
-  const { data: tickets, isLoading } = api.product.ticket.listSummaries.useQuery(
-    listInput,
-    // When ?assignee=me is present, wait for the session so the first fetch
-    // is already filtered instead of flashing the full backlog.
-    { enabled: !!product?.id && (!filterAssigneeMe || !!sessionUserId) },
+  // Completed tickets (Done / Deployed / Archived) are most of a mature
+  // product's backlog and sit in a collapsed section, so they load only when
+  // something shows them or filters them: the section opened, the board (it
+  // has Done and Deployed columns), a search, or a Filter facet. A status
+  // facet that names no completed status rules them all out instead. A
+  // ?status= deep link is already one status, so it stays a single list.
+  const splitCompleted = !urlStatus;
+  const statusFilterExcludesCompleted =
+    filters.status.length > 0 &&
+    !filters.status.some((s) => COMPLETED_STATUSES.has(s));
+  const clientFilterActive =
+    search.trim() !== "" ||
+    FILTER_FACET_META.some((f) => filters[f.key].length > 0);
+  const needCompleted =
+    splitCompleted &&
+    !statusFilterExcludesCompleted &&
+    (view === "board" || !collapsed.has("__completed") || clientFilterActive);
+
+  // Each input is one memoised object: the optimistic patches below must
+  // read/write the cache under exactly these keys.
+  const activeInput = useMemo(
+    () => ({
+      ...baseInput,
+      completed: splitCompleted ? ("exclude" as const) : ("include" as const),
+    }),
+    [baseInput, splitCompleted],
   );
+  const completedInput = useMemo(
+    () => ({ ...baseInput, completed: "only" as const }),
+    [baseInput],
+  );
+
+  const { data: activeList, isLoading } = api.product.ticket.listSummaries.useQuery(
+    activeInput,
+    { enabled: listEnabled },
+  );
+  const { data: completedList } = api.product.ticket.listSummaries.useQuery(
+    completedInput,
+    { enabled: listEnabled && needCompleted },
+  );
+  const { data: completedCount, isLoading: completedCountLoading } =
+    api.product.ticket.countCompleted.useQuery(baseInput, {
+      enabled: listEnabled && splitCompleted,
+    });
+  // Once loaded, completed tickets stay merged in even if the section closes
+  // again (a disabled query keeps its cached data).
+  const completedLoaded = splitCompleted && !!completedList;
+
+  // One list for everything below. A ticket can briefly sit in both while
+  // the two refetch after a status change; the active copy wins.
+  const tickets = useMemo(() => {
+    if (!activeList) return undefined;
+    if (!splitCompleted || !completedList) return activeList;
+    const byId = new Map(completedList.map((t) => [t.id, t]));
+    for (const t of activeList) byId.set(t.id, t);
+    return [...byId.values()];
+  }, [activeList, completedList, splitCompleted]);
 
   const { data: features } = api.product.feature.list.useQuery(
     { productId: product?.id ?? "" },
@@ -474,29 +543,43 @@ export default function TicketsBacklogPage() {
 
   const utils = api.useUtils();
 
+  // Optimistic edits patch every cached list the page reads (the active one
+  // and, once loaded, the completed one) and hand back a snapshot to restore.
+  type TicketRow = NonNullable<typeof activeList>[number];
+  const patchTicketLists = async (patch: (t: TicketRow) => TicketRow) => {
+    const inputs = splitCompleted ? [activeInput, completedInput] : [activeInput];
+    await Promise.all(inputs.map((i) => utils.product.ticket.listSummaries.cancel(i)));
+    const snapshot = inputs.map((i) => ({
+      input: i,
+      data: utils.product.ticket.listSummaries.getData(i),
+    }));
+    for (const { input, data } of snapshot) {
+      if (data) utils.product.ticket.listSummaries.setData(input, data.map(patch));
+    }
+    return snapshot;
+  };
+  const restoreTicketLists = (snapshot: Awaited<ReturnType<typeof patchTicketLists>>) => {
+    for (const { input, data } of snapshot) {
+      if (data) utils.product.ticket.listSummaries.setData(input, data);
+    }
+  };
+
   // In-place Status / Priority / Type edits from the table's pill selects.
   // Optimistic so the pill shows the new value at once; rolled back on error.
   const updateTicket = api.product.ticket.update.useMutation({
     onMutate: async (vars) => {
-      await utils.product.ticket.listSummaries.cancel(listInput);
-      const prev = utils.product.ticket.listSummaries.getData(listInput);
-      if (prev) {
-        utils.product.ticket.listSummaries.setData(
-          listInput,
-          prev.map((t) => {
-            if (t.id !== vars.id) return t;
-            const next = { ...t };
-            if (vars.status !== undefined) next.status = vars.status;
-            if (vars.type !== undefined) next.type = vars.type;
-            if (vars.priority !== undefined) next.priority = vars.priority;
-            return next;
-          }),
-        );
-      }
+      const prev = await patchTicketLists((t) => {
+        if (t.id !== vars.id) return t;
+        const next = { ...t };
+        if (vars.status !== undefined) next.status = vars.status;
+        if (vars.type !== undefined) next.type = vars.type;
+        if (vars.priority !== undefined) next.priority = vars.priority;
+        return next;
+      });
       return { prev };
     },
     onError: (_err, _vars, mctx) => {
-      if (mctx?.prev) utils.product.ticket.listSummaries.setData(listInput, mctx.prev);
+      if (mctx?.prev) restoreTicketLists(mctx.prev);
       notifications.show({
         title: "Update failed",
         message: "Your change was not saved. Please try again.",
@@ -505,7 +588,7 @@ export default function TicketsBacklogPage() {
     },
     onSettled: async () => {
       if (product?.id) {
-        await utils.product.ticket.listSummaries.invalidate({ productId: product.id });
+        await invalidateTicketLists(utils, { productId: product.id });
       }
     },
   });
@@ -540,52 +623,45 @@ export default function TicketsBacklogPage() {
   );
 
   const bulkUpdate = api.product.ticket.bulkUpdate.useMutation({
-    // Optimistic: patch the cached list immediately, roll back on error.
+    // Optimistic: patch the cached lists immediately, roll back on error.
     onMutate: async (vars) => {
-      await utils.product.ticket.listSummaries.cancel(listInput);
-      const prev = utils.product.ticket.listSummaries.getData(listInput);
-      if (prev) {
-        const idSet = new Set(vars.ids);
-        utils.product.ticket.listSummaries.setData(
-          listInput,
-          prev.map((t) => {
-            if (!idSet.has(t.id)) return t;
-            const next = { ...t };
-            if (vars.status !== undefined) next.status = vars.status;
-            if (vars.type !== undefined) next.type = vars.type;
-            if (vars.priority !== undefined) next.priority = vars.priority;
-            if (vars.assigneeId !== undefined) {
-              const m = members.find((x) => x.id === vars.assigneeId);
-              next.assignee =
-                vars.assigneeId && m
-                  ? { id: m.id, name: m.name, image: null }
-                  : null;
-            }
-            if (vars.epicId !== undefined) {
-              const e = (epics ?? []).find((x) => x.id === vars.epicId);
-              next.epic = vars.epicId && e ? { id: e.id, name: e.name } : null;
-            }
-            if (vars.cycleId !== undefined) {
-              const c = (cycles ?? []).find((x) => x.id === vars.cycleId);
-              next.cycle =
-                vars.cycleId && c
-                  ? {
-                      id: c.id,
-                      name: c.name,
-                      status: c.status,
-                      startDate: c.startDate,
-                      endDate: c.endDate,
-                    }
-                  : null;
-            }
-            return next;
-          }),
-        );
-      }
+      const idSet = new Set(vars.ids);
+      const prev = await patchTicketLists((t) => {
+        if (!idSet.has(t.id)) return t;
+        const next = { ...t };
+        if (vars.status !== undefined) next.status = vars.status;
+        if (vars.type !== undefined) next.type = vars.type;
+        if (vars.priority !== undefined) next.priority = vars.priority;
+        if (vars.assigneeId !== undefined) {
+          const m = members.find((x) => x.id === vars.assigneeId);
+          next.assignee =
+            vars.assigneeId && m
+              ? { id: m.id, name: m.name, image: null }
+              : null;
+        }
+        if (vars.epicId !== undefined) {
+          const e = (epics ?? []).find((x) => x.id === vars.epicId);
+          next.epic = vars.epicId && e ? { id: e.id, name: e.name } : null;
+        }
+        if (vars.cycleId !== undefined) {
+          const c = (cycles ?? []).find((x) => x.id === vars.cycleId);
+          next.cycle =
+            vars.cycleId && c
+              ? {
+                  id: c.id,
+                  name: c.name,
+                  status: c.status,
+                  startDate: c.startDate,
+                  endDate: c.endDate,
+                }
+              : null;
+        }
+        return next;
+      });
       return { prev };
     },
     onError: (_err, _vars, mctx) => {
-      if (mctx?.prev) utils.product.ticket.listSummaries.setData(listInput, mctx.prev);
+      if (mctx?.prev) restoreTicketLists(mctx.prev);
       notifications.show({
         title: "Bulk update failed",
         message: "Your changes were not saved. Please try again.",
@@ -594,7 +670,7 @@ export default function TicketsBacklogPage() {
     },
     onSettled: async () => {
       if (product?.id) {
-        await utils.product.ticket.listSummaries.invalidate({ productId: product.id });
+        await invalidateTicketLists(utils, { productId: product.id });
       }
     },
   });
@@ -609,7 +685,7 @@ export default function TicketsBacklogPage() {
         message: `Deleted ${res.count} ticket${res.count === 1 ? "" : "s"}`,
       });
       if (product?.id) {
-        await utils.product.ticket.listSummaries.invalidate({ productId: product.id });
+        await invalidateTicketLists(utils, { productId: product.id });
       }
     },
     onError: () => {
@@ -706,6 +782,11 @@ export default function TicketsBacklogPage() {
     const cycle = new Map<string, string>();
     const labels = new Map<string, string>();
 
+    // Not loaded yet: offer the completed statuses anyway, since picking one
+    // is what loads them.
+    if (splitCompleted && !completedLoaded && (completedCount ?? 0) > 0) {
+      for (const s of COMPLETED_STATUSES) status.set(s, STATUS_LABELS[s] ?? s);
+    }
     for (const t of tickets ?? []) {
       status.set(t.status, STATUS_LABELS[t.status] ?? t.status);
       const pKey = t.priority == null ? "none" : String(t.priority);
@@ -736,7 +817,7 @@ export default function TicketsBacklogPage() {
       cycle: alpha(cycle),
       labels: alpha(labels),
     };
-  }, [tickets]);
+  }, [tickets, splitCompleted, completedLoaded, completedCount]);
 
   const activeFilterCount = FILTER_FACET_META.reduce((n, f) => n + filters[f.key].length, 0);
 
@@ -799,6 +880,18 @@ export default function TicketsBacklogPage() {
     }
     return { active, completed };
   }, [sorted]);
+
+  // The Completed header's count. Once the rows are in, count them (search
+  // and facets apply to them); before that the server's count is exact,
+  // because any client-side filter would already have loaded them.
+  const completedTotal =
+    !splitCompleted || completedLoaded
+      ? completedTickets.length
+      : statusFilterExcludesCompleted
+        ? 0
+        : (completedCount ?? 0);
+  // The section is open (or the board is showing) but its rows are in flight.
+  const completedRowsPending = needCompleted && !completedLoaded;
 
   // Group active tickets (pure grouping core lives in ./ticketGrouping)
   const groups = useMemo(
@@ -1162,13 +1255,13 @@ export default function TicketsBacklogPage() {
   };
 
   // Group-header row (Group by buckets and the Completed section).
-  const renderGroupRow = (key: string, label: string, ids: string[]) => (
+  const renderGroupRow = (key: string, label: string, ids: string[], count = ids.length) => (
     <tr key={`group-${key}`} className={`${table.groupRow} group/row`} onClick={() => toggleCollapsed(key)}>
       <td colSpan={colCount}>
         <div className={table.groupLabel}>
           {renderGroupChevron(ids, key)}
           {label}
-          <Badge size="xs" variant="light">{ids.length}</Badge>
+          <Badge size="xs" variant="light">{count}</Badge>
         </div>
       </td>
     </tr>
@@ -1321,11 +1414,12 @@ export default function TicketsBacklogPage() {
             <EpicsList epics={epics ?? []} search={search} basePath={epicsBasePath} view={view === "list" ? "list" : "table"} />
           )}
         </div>
-      ) : (isLoading || sessionPending || awaitingPrefs) ? (
+      ) : (isLoading || sessionPending || awaitingPrefs || completedCountLoading ||
+          (view === "board" && completedRowsPending)) ? (
         <Stack gap="xs" className="px-8 py-4">
           {[1, 2, 3, 4].map((i) => <Skeleton key={i} height={36} />)}
         </Stack>
-      ) : (activeTickets.length > 0 || completedTickets.length > 0) ? (
+      ) : (activeTickets.length > 0 || completedTotal > 0) ? (
         view === "board" ? (
           <div className="px-8 py-4">
             <TicketKanbanBoard
@@ -1359,7 +1453,7 @@ export default function TicketsBacklogPage() {
                 </React.Fragment>
               )
             ))}
-            {completedTickets.length > 0 && (
+            {completedTotal > 0 && (
               <>
                 <div
                   className="group/row bg-surface-secondary/50 px-8 pt-4 pb-2 border-b border-border-primary cursor-pointer select-none flex items-center gap-1.5"
@@ -1367,9 +1461,16 @@ export default function TicketsBacklogPage() {
                 >
                   {renderGroupChevron(completedTickets.map((t) => t.id), "__completed")}
                   <Text size="xs" fw={600} className="text-text-muted uppercase tracking-wide">Completed</Text>
-                  <Badge size="xs" variant="light">{completedTickets.length}</Badge>
+                  <Badge size="xs" variant="light">{completedTotal}</Badge>
                 </div>
-                {!collapsed.has("__completed") && completedTickets.map(renderListItem)}
+                {!collapsed.has("__completed") &&
+                  (completedRowsPending ? (
+                    <div className="px-8 py-2" aria-busy="true">
+                      <Skeleton height={28} />
+                    </div>
+                  ) : (
+                    completedTickets.map(renderListItem)
+                  ))}
               </>
             )}
           </div>
@@ -1412,17 +1513,26 @@ export default function TicketsBacklogPage() {
               ))}
 
               {/* Completed section */}
-              {completedTickets.length > 0 && (
+              {completedTotal > 0 && (
                 <>
-                  {renderGroupRow("__completed", "Completed", completedTickets.map((t) => t.id))}
-                  {!collapsed.has("__completed") && completedTickets.map(renderRow)}
+                  {renderGroupRow("__completed", "Completed", completedTickets.map((t) => t.id), completedTotal)}
+                  {!collapsed.has("__completed") &&
+                    (completedRowsPending ? (
+                      <tr aria-busy="true">
+                        <td colSpan={colCount}>
+                          <Skeleton height={28} />
+                        </td>
+                      </tr>
+                    ) : (
+                      completedTickets.map(renderRow)
+                    ))}
                 </>
               )}
             </tbody>
           </table>
         </div>
         )
-      ) : tickets && tickets.length > 0 ? (
+      ) : (tickets?.length ?? 0) > 0 || (completedCount ?? 0) > 0 ? (
         <div className={table.empty}>
           <span className="inline-flex items-center gap-3">
             No tickets match your{" "}

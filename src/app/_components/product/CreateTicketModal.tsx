@@ -32,6 +32,7 @@ import DOMPurify from "dompurify";
 import { api } from "~/trpc/react";
 import { STATUS_OPTIONS, type TicketStatus } from "~/lib/ticket-statuses";
 import "@mantine/tiptap/styles.css";
+import { invalidateTicketLists } from "~/app/_components/product/invalidateTicketLists";
 
 // ---------------------------------------------------------------------------
 // Option data
@@ -155,7 +156,7 @@ export function CreateTicketModal({
 
   const createTicket = api.product.ticket.create.useMutation({
     onSuccess: async (ticket) => {
-      await utils.product.ticket.listSummaries.invalidate({ productId });
+      await invalidateTicketLists(utils, { productId });
       resetForm();
       onClose();
       router.push(`${basePath}/${ticket.id}`);
