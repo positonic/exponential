@@ -10,6 +10,7 @@ import {
 import { useMemo, useState } from 'react';
 import { useWorkspace } from '~/providers/WorkspaceProvider';
 import { api } from '~/trpc/react';
+import { Panel } from "~/app/_components/ui";
 
 interface ProjectLike {
   id: string;
@@ -90,7 +91,7 @@ export function ProjectsPanel() {
   }, [projects, query, statusFilter]);
 
   return (
-    <section className="wsa-card">
+    <Panel as="section" variant="plain" radius="xl" padding="none" className="wsa-card">
       <div className="wsa-card__head" style={{ marginBottom: 8 }}>
         <div style={{ display: 'flex', gap: 14, alignItems: 'baseline' }}>
           {(['workspace', 'organization'] as const).map((value) => (
@@ -190,6 +191,6 @@ export function ProjectsPanel() {
           })}
         </div>
       )}
-    </section>
+    </Panel>
   );
 }

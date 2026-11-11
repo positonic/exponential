@@ -33,6 +33,7 @@ import {
 import { compactAge } from '~/app/_components/product/overview/overviewShared';
 import { toPlainText } from '~/lib/content/plainText';
 import { InboxPeekDrawer, inboxPeekLinkProps } from './InboxPeek';
+import { Panel } from "~/app/_components/ui";
 
 const PAGE_SIZE = 20;
 
@@ -98,7 +99,7 @@ export function NotificationsTab() {
   const notifications = list.data?.pages.flatMap((page) => page.notifications) ?? [];
 
   return (
-    <section className="wsa-card">
+    <Panel as="section" variant="plain" radius="xl" padding="none" className="wsa-card">
       <div className="mb-3 flex flex-wrap items-center gap-3">
         <SegmentedControl
           size="xs"
@@ -214,6 +215,6 @@ export function NotificationsTab() {
       <InboxPeekDrawer
         hrefs={notifications.flatMap((n) => (n.deeplink ? [n.deeplink] : []))}
       />
-    </section>
+    </Panel>
   );
 }

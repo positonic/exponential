@@ -15,6 +15,7 @@ import {
 import { WeeklyWorkDigestPanel } from './WeeklyWorkDigestPanel';
 
 import './activity-home.css';
+import { Panel } from "~/app/_components/ui";
 
 const PAGE_SIZE = 50;
 
@@ -106,7 +107,7 @@ export function AggregatedActivityFeed() {
 
         <WeeklyWorkDigestPanel />
 
-        <section className="wsa-card">
+        <Panel as="section" variant="plain" radius="xl" padding="none" className="wsa-card">
           <div className="wsa-card__head">
             <h2 className="wsa-card__title">
               <IconClipboardList size={14} stroke={1.8} />
@@ -190,7 +191,7 @@ export function AggregatedActivityFeed() {
               ) : null}
             </>
           )}
-        </section>
+        </Panel>
       </Stack>
     </Container>
   );

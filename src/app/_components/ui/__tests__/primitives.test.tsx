@@ -41,6 +41,12 @@ describe("Panel", () => {
     );
     expect(screen.getByTestId("e").className).toContain("shadow-md");
     expect(screen.getByTestId("e").className).toContain("p-6");
+    render(
+      <Panel data-testid="pl" variant="plain">
+        x
+      </Panel>,
+    );
+    expect(screen.getByTestId("pl").className).toBe("bg-surface-secondary rounded-lg p-4");
   });
 
   test("interactive adds the shared hover affordance and `as` swaps the element", () => {
