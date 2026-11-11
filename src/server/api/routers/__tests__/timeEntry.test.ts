@@ -8,6 +8,8 @@
  *   agent can reach is NOT_FOUND);
  * - error cases: BAD_REQUEST on an inverted range, CONFLICT on a sourceRef
  *   another user holds, FORBIDDEN for an agent key with no bound agent;
+ * - `confirmDay` / `rememberResolution` are human-only: an agent key, a shadow
+ *   principal, and Zoe's tokens (person as session user) are FORBIDDEN;
  * - `action.upsertBySource` reuses the (sourceType, sourceId) match.
  *
  * Uses `vitest-mock-extended`'s `mockDeep<PrismaClient>()` — no real DB, ever
@@ -93,6 +95,15 @@ const END = new Date("2026-09-11T10:30:00Z"); // 68 minutes
 
 function humanCaller(db: DeepMockProxy<PrismaClient>) {
   return createMockCaller({ userId: OWNER_ID, db: db as unknown as PrismaClient });
+}
+
+/** Zoe's tokens: the PERSON is the session user, but Zoe is the one acting. */
+const ZOE_TOKEN_TYPES = ["agent-context", "whatsapp-gateway", "telegram-gateway", "matrix-gateway", "voice-session"];
+/** Tokens the person holds themselves: the CLI, the extension, devices. */
+const PERSON_TOKEN_TYPES = ["api-token", "extension-token", "device-token"];
+
+function callerWithToken(db: DeepMockProxy<PrismaClient>, tokenType: string) {
+  return createMockCaller({ userId: OWNER_ID, db: db as unknown as PrismaClient, tokenType });
 }
 
 /** The context an `exp_agent_…` key produces: the shadow user's session, tokenType "agent-key". */
@@ -393,6 +404,23 @@ describe("timeEntry.confirmDay — human-only", () => {
     expect(db.timeEntry.findMany).not.toHaveBeenCalled();
   });
 
+  it.each(ZOE_TOKEN_TYPES)(
+    "a %s token is FORBIDDEN, even with a person as session user (ADR-0070)",
+    async (tokenType) => {
+      db.user.findUnique.mockResolvedValue({ isAgent: false } as never);
+      await expect(callerWithToken(db, tokenType).timeEntry.confirmDay({ date: day })).rejects.toMatchObject({
+        code: "FORBIDDEN",
+      });
+      expect(db.timeEntry.findMany).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(PERSON_TOKEN_TYPES)("a %s token is the person, so it confirms", async (tokenType) => {
+    db.user.findUnique.mockResolvedValue({ isAgent: false } as never);
+    db.timeEntry.findMany.mockResolvedValue([] as never);
+    expect(await callerWithToken(db, tokenType).timeEntry.confirmDay({ date: day })).toEqual({ confirmed: 0 });
+  });
+
   it("a human confirms the 24 hours from the given day start", async () => {
     db.user.findUnique.mockResolvedValue({ isAgent: false } as never);
     db.timeEntry.findMany.mockResolvedValue([
@@ -448,6 +476,17 @@ describe("timeEntry.rememberResolution", () => {
     ).rejects.toMatchObject({ code: "FORBIDDEN" });
     expect(db.timeResolutionRule.upsert).not.toHaveBeenCalled();
   });
+
+  it.each(ZOE_TOKEN_TYPES)(
+    "a %s token is FORBIDDEN, even with a person as session user (ADR-0070)",
+    async (tokenType) => {
+      db.user.findUnique.mockResolvedValue({ isAgent: false } as never);
+      await expect(
+        callerWithToken(db, tokenType).timeEntry.rememberResolution({ titlePattern: "Ontology one-pager", projectId: "p1" }),
+      ).rejects.toMatchObject({ code: "FORBIDDEN" });
+      expect(db.timeResolutionRule.upsert).not.toHaveBeenCalled();
+    },
+  );
 
   it("a human upserts one rule per title, keyed on the trimmed title", async () => {
     db.user.findUnique.mockResolvedValue({ isAgent: false } as never);
