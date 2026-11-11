@@ -104,9 +104,11 @@ export class EmbeddingTriggerService {
    * last save (a dropped or failed trigger), and clear chunks left on Pages that
    * have since been opted out of search. Bounded per run, oldest first, and only
    * within the lookback window so a page that can never embed isn't retried
-   * forever. Candidates are picked on the stored body; `indexPage` decides on
-   * the projection (ADR-0078 §7), so a database row with properties but no
-   * prose is left to its own trigger here.
+   * forever. A searchable page is a candidate when its index is older than its
+   * last save and it either has a body or still has chunks (an emptied page
+   * whose stale chunks need clearing); `indexPage` then decides on the
+   * projection (ADR-0078 §7). A database row with properties but no prose that
+   * was never indexed is left to its own trigger.
    */
   async reindexStalePages(
     now: Date = new Date(),
@@ -118,12 +120,17 @@ export class EmbeddingTriggerService {
       SELECT p.id FROM "KnowledgePage" p
       WHERE p."updatedAt" > ${since} AND p."updatedAt" < ${settledBefore}
         AND (
-          (p."includeInSearch" AND btrim(coalesce(p.body, '')) <> ''
+          (p."includeInSearch"
             AND NOT EXISTS (
               SELECT 1 FROM "KnowledgeChunk" c
               WHERE c."sourceType" = 'page' AND c."sourceId" = p.id
                 AND c."createdAt" >= p."updatedAt"
-            ))
+            )
+            AND (btrim(coalesce(p.body, '')) <> ''
+              OR EXISTS (
+                SELECT 1 FROM "KnowledgeChunk" c
+                WHERE c."sourceType" = 'page' AND c."sourceId" = p.id
+              )))
           OR
           (NOT p."includeInSearch"
             AND EXISTS (
