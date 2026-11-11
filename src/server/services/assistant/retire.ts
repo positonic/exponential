@@ -15,6 +15,9 @@ export interface RetirementResult {
   /** Position holdings the survivor gained along with those memberships. */
   positionsMoved: number;
   membershipsRemoved: number;
+  /** Project memberships (ADR-0049 project grants) the survivor gained, and those removed. */
+  projectMembershipsMoved: number;
+  projectMembershipsRemoved: number;
   /** Open assignments the survivor gained (it may already have held some). */
   assignmentsMoved: number;
   assignmentsRemoved: number;
@@ -34,6 +37,8 @@ export interface RetirementResult {
  *  - removes its workspace memberships, so it cannot be assigned anywhere —
  *    moving them, with the Positions held through them, to `survivorId` when
  *    given (a `PositionHolder` row cascades with its membership);
+ *  - removes its project memberships, which grant access to a restricted
+ *    project on their own — moving them to the survivor too, same role;
  *  - removes its assignments on open Actions, moving them to the survivor when
  *    given, and **starts no Agent run** for the survivor (nothing is enqueued);
  *    assignments on completed or cancelled Actions stay, as history;
@@ -41,7 +46,7 @@ export interface RetirementResult {
  *
  * One transaction, idempotent: an already-retired Assistant is left alone. The
  * migration that retires duplicates does the same in SQL
- * (`20261011200100_retire_duplicate_assistants`).
+ * (`20261111120100_retire_duplicate_assistants`).
  */
 export async function retireAssistant(
   db: PrismaClient,
@@ -66,15 +71,18 @@ export async function retireAssistant(
         membershipsMoved: 0,
         positionsMoved: 0,
         membershipsRemoved: 0,
+        projectMembershipsMoved: 0,
+        projectMembershipsRemoved: 0,
         assignmentsMoved: 0,
         assignmentsRemoved: 0,
         runsCancelled: 0,
       };
     }
 
-    const survivorShadowUserId = input.survivorId
-      ? await loadSurvivorShadowUser(tx, input.survivorId, retiring)
+    const survivor = input.survivorId
+      ? await loadSurvivor(tx, input.survivorId, retiring)
       : null;
+    const survivorShadowUserId = survivor?.shadowUserId ?? null;
     const { id: agentId, shadowUserId } = retiring.externalAgent;
 
     await tx.assistant.update({
@@ -105,6 +113,31 @@ export async function retireAssistant(
       ).count;
       positionsMoved = await movePositionHoldings(tx, memberships, survivorShadowUserId);
     }
+    // Project memberships the same way: copy to the survivor (same role and
+    // responsibilities, under the survivor's name), then drop them all.
+    const projectMemberships = await tx.projectMember.findMany({
+      where: { userId: shadowUserId },
+      select: { projectId: true, role: true, responsibilities: true },
+    });
+    const projectMembershipsMoved =
+      survivor && projectMemberships.length > 0
+        ? (
+            await tx.projectMember.createMany({
+              data: projectMemberships.map((m) => ({
+                projectId: m.projectId,
+                userId: survivor.shadowUserId,
+                name: survivor.name,
+                role: m.role,
+                responsibilities: m.responsibilities,
+              })),
+              skipDuplicates: true,
+            })
+          ).count
+        : 0;
+    const projectMembershipsRemoved = (
+      await tx.projectMember.deleteMany({ where: { userId: shadowUserId } })
+    ).count;
+
     const membershipsRemoved = (
       await tx.workspaceUser.deleteMany({ where: { userId: shadowUserId } })
     ).count;
@@ -135,6 +168,8 @@ export async function retireAssistant(
       membershipsMoved,
       positionsMoved,
       membershipsRemoved,
+      projectMembershipsMoved,
+      projectMembershipsRemoved,
       assignmentsMoved,
       assignmentsRemoved,
       runsCancelled,
@@ -142,17 +177,17 @@ export async function retireAssistant(
   });
 }
 
-async function loadSurvivorShadowUser(
+async function loadSurvivor(
   tx: Prisma.TransactionClient,
   survivorId: string,
   retiring: { id: string; createdById: string },
-): Promise<string> {
+): Promise<{ shadowUserId: string; name: string }> {
   if (survivorId === retiring.id) {
     throw new Error("An Assistant cannot survive its own retirement");
   }
   const survivor = await tx.assistant.findUniqueOrThrow({
     where: { id: survivorId },
-    select: { createdById: true, retiredAt: true, externalAgent: { select: { shadowUserId: true } } },
+    select: { createdById: true, retiredAt: true, name: true, externalAgent: { select: { shadowUserId: true } } },
   });
   if (survivor.createdById !== retiring.createdById) {
     throw new Error("The surviving Assistant must belong to the same person");
@@ -160,7 +195,7 @@ async function loadSurvivorShadowUser(
   if (survivor.retiredAt) {
     throw new Error("The surviving Assistant is itself retired");
   }
-  return survivor.externalAgent.shadowUserId;
+  return { shadowUserId: survivor.externalAgent.shadowUserId, name: survivor.name };
 }
 
 /**

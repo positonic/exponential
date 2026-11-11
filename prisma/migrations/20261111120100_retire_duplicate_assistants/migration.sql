@@ -49,7 +49,8 @@ END $$;
 -- Retirement is `retireAssistant` (src/server/services/assistant/retire.ts):
 -- the Assistant, its External agent and its shadow user are KEPT (deleting the
 -- External agent would cascade-delete its Agent runs); its keys are revoked;
--- its memberships, the Positions held through them, and its assignments on
+-- its memberships, the Positions held through them, its project memberships
+-- (which grant restricted-project access on their own) and its assignments on
 -- open Actions move to the survivor; its live and waiting runs are cancelled.
 -- Nothing here starts an Agent run.
 DO $$
@@ -59,10 +60,12 @@ DECLARE
   old_agent TEXT;
   old_shadow TEXT;
   new_shadow TEXT;
+  new_name TEXT;
   retired INT := 0;
   n INT;
   memberships_moved INT := 0;
   positions_moved INT := 0;
+  projects_moved INT := 0;
   assignments_moved INT := 0;
   runs_cancelled INT := 0;
 BEGIN
@@ -106,7 +109,7 @@ BEGIN
     FROM "Assistant" a JOIN "ExternalAgent" ea ON ea."id" = a."externalAgentId"
     WHERE a."id" = r.retire_id;
 
-    SELECT ea."shadowUserId" INTO new_shadow
+    SELECT ea."shadowUserId", a."name" INTO new_shadow, new_name
     FROM "Assistant" a JOIN "ExternalAgent" ea ON ea."id" = a."externalAgentId"
     WHERE a."id" = r.survivor_id;
 
@@ -134,6 +137,17 @@ BEGIN
     positions_moved := positions_moved + n;
 
     DELETE FROM "WorkspaceUser" WHERE "userId" = old_shadow;
+
+    -- Project memberships: same role and responsibilities, under the survivor's name.
+    INSERT INTO "ProjectMember" ("id", "name", "role", "responsibilities", "projectId", "userId")
+    SELECT replace(gen_random_uuid()::text, '-', ''), new_name, pm."role", pm."responsibilities", pm."projectId", new_shadow
+    FROM "ProjectMember" pm
+    WHERE pm."userId" = old_shadow
+    ON CONFLICT ("projectId", "userId") DO NOTHING;
+    GET DIAGNOSTICS n = ROW_COUNT;
+    projects_moved := projects_moved + n;
+
+    DELETE FROM "ProjectMember" WHERE "userId" = old_shadow;
 
     -- Assignments on open Actions; those on completed or cancelled ones stay.
     INSERT INTO "ActionAssignee" ("id", "actionId", "userId")
@@ -180,8 +194,8 @@ BEGIN
     RAISE NOTICE 'Retired Assistant % into %', r.retire_id, r.survivor_id;
   END LOOP;
 
-  RAISE NOTICE 'Assistant retirement done: % retired; % membership(s), % Position holding(s), % open assignment(s) moved; % run(s) cancelled',
-    retired, memberships_moved, positions_moved, assignments_moved, runs_cancelled;
+  RAISE NOTICE 'Assistant retirement done: % retired; % membership(s), % Position holding(s), % project membership(s), % open assignment(s) moved; % run(s) cancelled',
+    retired, memberships_moved, positions_moved, projects_moved, assignments_moved, runs_cancelled;
 END $$;
 
 -- Step 3 — a person's only Assistant is their default. The per-workspace

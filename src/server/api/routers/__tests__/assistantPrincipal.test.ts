@@ -264,6 +264,8 @@ describe("assistant.update / delete — the principal follows the Assistant (ADR
     dbMock.externalAgentKey.deleteMany.mockResolvedValue({ count: 0 });
     dbMock.workspaceUser.findMany.mockResolvedValue([] as never);
     dbMock.workspaceUser.deleteMany.mockResolvedValue({ count: 1 });
+    dbMock.projectMember.findMany.mockResolvedValue([] as never);
+    dbMock.projectMember.deleteMany.mockResolvedValue({ count: 0 });
     dbMock.actionAssignee.findMany.mockResolvedValue([] as never);
     dbMock.actionAssignee.deleteMany.mockResolvedValue({ count: 0 });
     dbMock.agentRun.findMany.mockResolvedValue([] as never);

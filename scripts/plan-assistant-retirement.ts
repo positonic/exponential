@@ -1,7 +1,7 @@
 /**
  * Read-only report: which Assistant each person keeps, and which are retired,
  * when one Assistant per person lands (ADR-0072). Run it against production
- * BEFORE `20261011200100_retire_duplicate_assistants`, so the survivors are
+ * BEFORE `20261111120100_retire_duplicate_assistants`, so the survivors are
  * known (the PRD's open question "which Assistant survives, per affected
  * person"). The ranking is `planAssistantRetirement`'s, which the migration's
  * SQL mirrors.

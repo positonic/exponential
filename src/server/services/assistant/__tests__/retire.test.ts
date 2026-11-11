@@ -15,6 +15,7 @@ const retiring = {
 const survivor = {
   createdById: OWNER_ID,
   retiredAt: null,
+  name: "Zoe",
   externalAgent: { shadowUserId: "shadow-new" },
 };
 
@@ -39,6 +40,11 @@ describe("retireAssistant (ADR-0072)", () => {
     db.positionHolder.createMany.mockResolvedValue({ count: 1 });
     db.workspaceUser.createMany.mockResolvedValue({ count: 1 });
     db.workspaceUser.deleteMany.mockResolvedValue({ count: 2 });
+    db.projectMember.findMany.mockResolvedValue([
+      { projectId: "proj-restricted", role: "editor", responsibilities: ["triage"] },
+    ] as never);
+    db.projectMember.createMany.mockResolvedValue({ count: 1 });
+    db.projectMember.deleteMany.mockResolvedValue({ count: 1 });
     db.actionAssignee.findMany.mockResolvedValue([
       { id: "aa-1", actionId: "action-1" },
     ] as never);
@@ -75,6 +81,9 @@ describe("retireAssistant (ADR-0072)", () => {
     expect(db.actionAssignee.deleteMany).toHaveBeenCalledWith({ where: { id: { in: ["aa-1"] } } });
     expect(db.workspaceUser.createMany).not.toHaveBeenCalled();
     expect(db.positionHolder.createMany).not.toHaveBeenCalled();
+    expect(db.projectMember.createMany).not.toHaveBeenCalled();
+    // A retired Assistant keeps no project grant either.
+    expect(db.projectMember.deleteMany).toHaveBeenCalledWith({ where: { userId: "shadow-old" } });
     expect(db.actionAssignee.createMany).not.toHaveBeenCalled();
     expect(result).toMatchObject({ membershipsMoved: 0, assignmentsMoved: 0, assignmentsRemoved: 1 });
   });
@@ -99,6 +108,14 @@ describe("retireAssistant (ADR-0072)", () => {
       data: [{ positionId: "pos-cos", workspaceUserId: "wu-new-a" }],
       skipDuplicates: true,
     });
+    // Project memberships grant restricted-project access on their own: they move too.
+    expect(db.projectMember.createMany).toHaveBeenCalledWith({
+      data: [
+        { projectId: "proj-restricted", userId: "shadow-new", name: "Zoe", role: "editor", responsibilities: ["triage"] },
+      ],
+      skipDuplicates: true,
+    });
+    expect(db.projectMember.deleteMany).toHaveBeenCalledWith({ where: { userId: "shadow-old" } });
     expect(db.actionAssignee.createMany).toHaveBeenCalledWith({
       data: [{ actionId: "action-1", userId: "shadow-new" }],
       skipDuplicates: true,

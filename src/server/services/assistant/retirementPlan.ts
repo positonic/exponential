@@ -7,7 +7,7 @@
  * rule, pure so it can be tested over the awkward shapes and so the read-only
  * report (`scripts/plan-assistant-retirement.ts`) shows James exactly what the
  * migration will do before he runs it. The migration's SQL implements the same
- * ranking; `20261011200100_retire_duplicate_assistants` cites this function.
+ * ranking; `20261111120100_retire_duplicate_assistants` cites this function.
  *
  * Ranking, best first — the first three are `findGatewayAssistant`'s, extended
  * so a person always keeps one:
