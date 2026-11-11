@@ -2,7 +2,6 @@ import { z } from "zod";
 import {
   createTRPCRouter,
   protectedProcedure,
-  publicProcedure,
 } from "~/server/api/trpc";
 import {
   getWorkspaceMembership,
@@ -28,7 +27,7 @@ import {
 } from "~/server/services/goalService";
 
 export const goalRouter = createTRPCRouter({
-  myPublicGoals: publicProcedure
+  myPublicGoals: protectedProcedure
     .query(getMyPublicGoals),
 
   getById: protectedProcedure

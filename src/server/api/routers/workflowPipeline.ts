@@ -1,7 +1,11 @@
 import { z } from "zod";
-import { type Prisma } from "@prisma/client";
+import { type Prisma, type PrismaClient } from "@prisma/client";
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 import { TRPCError } from "@trpc/server";
+import {
+  assertWorkspaceMembership,
+  assertWorkspaceWriteRole,
+} from "~/server/services/access";
 import { WorkflowEngine } from "~/server/services/workflows/WorkflowEngine";
 import { createStepRegistry } from "~/server/services/workflows/StepRegistry";
 import { seedWorkflowTemplates } from "~/server/services/workflows/seedTemplates";
@@ -10,6 +14,37 @@ interface StepDefinition {
   type: string;
   label: string;
   defaultConfig?: Record<string, unknown>;
+}
+
+/**
+ * A workflow definition belongs to the user who created it, inside its
+ * workspace — the same scope `listDefinitions` lists. Reads need workspace
+ * membership; edits and runs need a write role (viewers are read-only).
+ *
+ * Someone else's definition is reported as NOT_FOUND, not FORBIDDEN, so ids
+ * can't be probed for existence.
+ */
+async function assertDefinitionAccess(
+  db: PrismaClient,
+  userId: string,
+  definitionId: string,
+  level: "view" | "edit",
+): Promise<void> {
+  const definition = await db.workflowDefinition.findUnique({
+    where: { id: definitionId },
+    select: { createdById: true, workspaceId: true },
+  });
+  if (definition?.createdById !== userId) {
+    throw new TRPCError({
+      code: "NOT_FOUND",
+      message: "Workflow definition not found",
+    });
+  }
+  if (level === "edit") {
+    await assertWorkspaceWriteRole(db, userId, definition.workspaceId);
+  } else {
+    await assertWorkspaceMembership(db, userId, definition.workspaceId);
+  }
 }
 
 export const workflowPipelineRouter = createTRPCRouter({
@@ -64,6 +99,12 @@ export const workflowPipelineRouter = createTRPCRouter({
       }),
     )
     .mutation(async ({ ctx, input }) => {
+      await assertWorkspaceWriteRole(
+        ctx.db,
+        ctx.session.user.id,
+        input.workspaceId,
+      );
+
       const template = await ctx.db.workflowTemplate.findUnique({
         where: { slug: input.templateSlug },
       });
@@ -132,6 +173,7 @@ export const workflowPipelineRouter = createTRPCRouter({
   getDefinition: protectedProcedure
     .input(z.object({ id: z.string() }))
     .query(async ({ ctx, input }) => {
+      await assertDefinitionAccess(ctx.db, ctx.session.user.id, input.id, "view");
       return ctx.db.workflowDefinition.findUniqueOrThrow({
         where: { id: input.id },
         include: {
@@ -156,6 +198,7 @@ export const workflowPipelineRouter = createTRPCRouter({
     )
     .mutation(async ({ ctx, input }) => {
       const { id, config, ...rest } = input;
+      await assertDefinitionAccess(ctx.db, ctx.session.user.id, id, "edit");
       return ctx.db.workflowDefinition.update({
         where: { id },
         data: {
@@ -171,6 +214,7 @@ export const workflowPipelineRouter = createTRPCRouter({
   deleteDefinition: protectedProcedure
     .input(z.object({ id: z.string() }))
     .mutation(async ({ ctx, input }) => {
+      await assertDefinitionAccess(ctx.db, ctx.session.user.id, input.id, "edit");
       return ctx.db.workflowDefinition.delete({
         where: { id: input.id },
       });
@@ -185,6 +229,13 @@ export const workflowPipelineRouter = createTRPCRouter({
       }),
     )
     .mutation(async ({ ctx, input }) => {
+      await assertDefinitionAccess(
+        ctx.db,
+        ctx.session.user.id,
+        input.definitionId,
+        "edit",
+      );
+
       const registry = createStepRegistry(ctx.db);
       const engine = new WorkflowEngine(ctx.db, registry);
 
@@ -206,14 +257,22 @@ export const workflowPipelineRouter = createTRPCRouter({
       }),
     )
     .query(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+      if (input.workspaceId) {
+        await assertWorkspaceMembership(ctx.db, userId, input.workspaceId);
+      }
+
+      // Only runs of the caller's own definitions — without this, omitting
+      // both filters listed every tenant's runs.
       const runs = await ctx.db.workflowPipelineRun.findMany({
         where: {
           ...(input.definitionId
             ? { definitionId: input.definitionId }
             : {}),
-          ...(input.workspaceId
-            ? { definition: { workspaceId: input.workspaceId } }
-            : {}),
+          definition: {
+            createdById: userId,
+            ...(input.workspaceId ? { workspaceId: input.workspaceId } : {}),
+          },
         },
         include: {
           definition: { select: { name: true } },
@@ -237,6 +296,20 @@ export const workflowPipelineRouter = createTRPCRouter({
   getRun: protectedProcedure
     .input(z.object({ id: z.string() }))
     .query(async ({ ctx, input }) => {
+      const run = await ctx.db.workflowPipelineRun.findUnique({
+        where: { id: input.id },
+        select: { definitionId: true },
+      });
+      if (!run) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Run not found" });
+      }
+      await assertDefinitionAccess(
+        ctx.db,
+        ctx.session.user.id,
+        run.definitionId,
+        "view",
+      );
+
       return ctx.db.workflowPipelineRun.findUniqueOrThrow({
         where: { id: input.id },
         include: {

@@ -1,4 +1,5 @@
 import type { Prisma } from "@prisma/client";
+import { TRPCError } from "@trpc/server";
 import { type Context } from "~/server/auth/types";
 import {
   getWorkspaceMembership,
@@ -167,8 +168,21 @@ export async function createGoalComment({
   return comment;
 }
 
-export async function getMyPublicGoals({ ctx }: { ctx: Context }) {
+/**
+ * The caller's id, or UNAUTHORIZED. An `undefined` id must never reach a
+ * Prisma `where`: Prisma drops undefined filters, so `{ userId: undefined }`
+ * matches every row in the table.
+ */
+function requireUserId(ctx: Context): string {
   const userId = ctx.session?.user?.id;
+  if (!userId) {
+    throw new TRPCError({ code: "UNAUTHORIZED" });
+  }
+  return userId;
+}
+
+export async function getMyPublicGoals({ ctx }: { ctx: Context }) {
+  const userId = requireUserId(ctx);
   return await ctx.db.goal.findMany({
     where: {
       userId
@@ -181,7 +195,7 @@ export async function getMyPublicGoals({ ctx }: { ctx: Context }) {
 }
 
 export async function getAllMyGoals({ ctx }: { ctx: Context }) {
-  const userId = ctx.session?.user?.id;
+  const userId = requireUserId(ctx);
   return await ctx.db.goal.findMany({
     where: {
       userId

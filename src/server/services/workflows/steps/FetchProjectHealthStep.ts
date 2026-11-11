@@ -23,8 +23,9 @@ export class FetchProjectHealthStep implements IStepExecutor {
     config: Record<string, unknown>,
     context: StepContext,
   ): Promise<Record<string, unknown>> {
-    const userId = (input.userId as string) ?? context.userId;
-    const workspaceId = (input.workspaceId as string) ?? context.workspaceId;
+    // Scope comes from the run, never from step input: input carries the
+    // definition's config and the caller's overrideConfig, both user-supplied.
+    const { userId, workspaceId } = context;
     const healthThreshold = (config.healthThreshold as number) ?? 70;
 
     const today = new Date();

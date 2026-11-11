@@ -23,8 +23,9 @@ export class FetchCompletedActionsStep implements IStepExecutor {
     context: StepContext,
   ): Promise<Record<string, unknown>> {
     const lookbackDays = (config.lookbackDays as number) ?? 1;
-    const userId = (input.userId as string) ?? context.userId;
-    const workspaceId = (input.workspaceId as string) ?? context.workspaceId;
+    // Scope comes from the run, never from step input: input carries the
+    // definition's config and the caller's overrideConfig, both user-supplied.
+    const { userId, workspaceId } = context;
 
     const since = startOfDay(subDays(new Date(), lookbackDays));
 
