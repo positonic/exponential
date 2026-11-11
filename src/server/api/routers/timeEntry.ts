@@ -402,14 +402,15 @@ export const timeEntryRouter = createTRPCRouter({
       }
       const service = new TimeEntryService(ctx.db);
       // Editing Proposed time confirms it (ADR-0061) — a person's act. Zoe
-      // can correct it for them, but it stays PROPOSED (ADR-0070).
+      // can correct it for them, but it stays PROPOSED, and she cannot touch
+      // time the person already confirmed (ADR-0070).
       return service.update({
         userId: ctx.userId,
         entryId: input.entryId,
         startedAt: input.startedAt,
         endedAt: input.endedAt,
         actionId: input.actionId,
-        keepProposed: isAgentActorToken(ctx.tokenType),
+        agentActing: isAgentActorToken(ctx.tokenType),
       });
     }),
 
@@ -417,7 +418,13 @@ export const timeEntryRouter = createTRPCRouter({
     .input(z.object({ entryId: z.string() }))
     .mutation(async ({ ctx, input }) => {
       const service = new TimeEntryService(ctx.db);
-      return service.delete({ userId: ctx.userId, entryId: input.entryId });
+      // Zoe may discard Proposed time; deleting CONFIRMED time is the
+      // person's call (ADR-0061, ADR-0070).
+      return service.delete({
+        userId: ctx.userId,
+        entryId: input.entryId,
+        agentActing: isAgentActorToken(ctx.tokenType),
+      });
     }),
 
   getActive: apiKeyMiddleware.query(async ({ ctx }) => {
