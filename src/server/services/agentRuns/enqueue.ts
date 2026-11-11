@@ -1,3 +1,4 @@
+import { isAiConfigured } from "~/server/services/ai/requireAi";
 import { Prisma, type PrismaClient } from "@prisma/client";
 import { LIVE_RUN_STATUSES, NO_RUN_KANBAN_STATES } from "./constants";
 
@@ -28,10 +29,15 @@ export async function enqueueAgentRunsForAssignees(
   // sees the assignment notification and picks the action up itself — so the
   // dispatcher never does the same work in parallel with it. V2's local
   // runner widens this to `executor = LOCAL_CLI` agents that claim runs.
-  const agents = await db.externalAgent.findMany({
+  const candidates = await db.externalAgent.findMany({
     where: { shadowUserId: { in: input.userIds }, assistant: { isNot: null } },
     select: { id: true, executor: true },
   });
+  // No Assistant (Mastra) on this install: a hosted run would sit QUEUED
+  // forever, so only locally executed agents get one.
+  const agents = isAiConfigured("assistant")
+    ? candidates
+    : candidates.filter((agent) => agent.executor !== "MASTRA");
   if (agents.length === 0) return [];
 
   const action = await db.action.findUnique({

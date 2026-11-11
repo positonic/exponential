@@ -78,3 +78,39 @@ describe("ai.getCapabilities", () => {
     expect(JSON.stringify(capabilities)).not.toMatch(/sk-|mastra\.example/);
   });
 });
+
+describe("the Assistant on an install without Mastra", () => {
+  function signedInCaller() {
+    return createCaller({
+      db: mockDeep<PrismaClient>(),
+      session: {
+        user: { id: "user-1", email: "user-1@test.com", name: "Test User", image: null, isAdmin: false },
+        expires: new Date(Date.now() + 60_000).toISOString(),
+      },
+      headers: new Headers(),
+    });
+  }
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.restoreAllMocks();
+  });
+
+  it("lists no agents and never dials localhost", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("MASTRA_API_URL", "");
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+
+    await expect(signedInCaller().mastra.getMastraAgents()).resolves.toEqual([]);
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("answers a chat call with the typed not-configured error", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("MASTRA_API_URL", "");
+
+    await expect(
+      signedInCaller().mastra.callAgent({ agentId: "zoeAgent", messages: [{ role: "user", content: "hi" }] }),
+    ).rejects.toMatchObject({ code: "PRECONDITION_FAILED", message: expect.stringContaining("MASTRA_API_URL") as unknown });
+  });
+});

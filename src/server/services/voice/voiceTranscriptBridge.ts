@@ -16,12 +16,19 @@
  * Idempotent: a turn's id is derived from (threadKey, role, text), so a retry of
  * the same turn upserts rather than duplicating.
  */
+import { resolveMastraUrl } from "~/server/services/ai/capabilities";
+import { AiNotConfiguredError } from "~/server/services/ai/requireAi";
 import crypto from "crypto";
 
 import { MastraClient } from "@mastra/client-js";
 import { generateAgentJWT } from "~/server/utils/jwt";
 
-const MASTRA_API_URL = process.env.MASTRA_API_URL ?? "http://localhost:4111";
+/** Where the Assistant lives; throws the typed "not configured" error when there is none. */
+function mastraApiUrl(): string {
+  const url = resolveMastraUrl(process.env);
+  if (!url) throw new AiNotConfiguredError("assistant", "Voice mode");
+  return url;
+}
 /** Same agent brainPassthrough drives, so the voice thread is one conversation. */
 const VOICE_AGENT_ID = "zoeAgent";
 
@@ -77,7 +84,7 @@ export interface VoiceMemoryClient {
 function defaultClient(userId: string): VoiceMemoryClient {
   const agentJWT = generateAgentJWT({ id: userId });
   return new MastraClient({
-    baseUrl: MASTRA_API_URL,
+    baseUrl: mastraApiUrl(),
     headers: { Authorization: `Bearer ${agentJWT}` },
   }) as unknown as VoiceMemoryClient;
 }

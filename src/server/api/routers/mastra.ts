@@ -12,7 +12,8 @@ import { attachPositions } from "~/server/services/positions";
 import { after } from "next/server";
 import type OpenAI from "openai";
 import { getOpenAIClient } from "~/server/services/ai/clients";
-import { isAiConfigured } from "~/server/services/ai/requireAi";
+import { AiNotConfiguredError, isAiConfigured, requireAi } from "~/server/services/ai/requireAi";
+import { resolveMastraUrl } from "~/server/services/ai/capabilities";
 import { TRPCError } from "@trpc/server";
 // import { mastraClient } from "~/lib/mastra";
 import { PRIORITY_VALUES } from "~/types/priority";
@@ -69,11 +70,16 @@ function parseAgentDate(value: string | null | undefined, field: string): Date |
   return parsed;
 }
 
-// Mastra API URL. Defaults to a local Mastra, like the chat stream route and
-// the voice bridges. It used to throw at module load when unset, which took
-// down the whole tRPC router (this file is mounted in root.ts), so an install
-// without Mastra could not even sign in.
-const MASTRA_API_URL = process.env.MASTRA_API_URL ?? "http://localhost:4111";
+// Mastra API URL, read per call through the AI capability resolver: in
+// production an unset MASTRA_API_URL means no Assistant (a keyless self-host
+// install), so calls throw the typed "not configured" error instead of
+// dialling localhost; outside production it falls back to the local Mastra.
+// Never resolved at module load, which once took down the whole tRPC router.
+function mastraApiUrl(): string {
+  const url = resolveMastraUrl(process.env);
+  if (!url) throw new AiNotConfiguredError("assistant", "The Assistant");
+  return url;
+}
 
 // Server-to-server API key for authenticating with Mastra API.
 // Used for calls without a user-specific JWT (e.g., listing agents).
@@ -156,9 +162,10 @@ async function loadAgentEmbeddings(): Promise<AgentEmbedding[]> {
   if (agentEmbeddingsCache) return agentEmbeddingsCache;
 
   // Use direct fetch instead of mastraClient
+  const agentsUrl = `${mastraApiUrl()}/api/agents`;
   let data: Record<string, { instructions: unknown }>;
   try {
-    const response = await fetch(`${MASTRA_API_URL}/api/agents`, {
+    const response = await fetch(agentsUrl, {
       headers: mastraAuthHeaders(),
     });
     if (!response.ok) {
@@ -283,7 +290,7 @@ export const mastraRouter = createTRPCRouter({
       const expiresInMinutes = 30;
       return {
         token: generateAgentJWT(ctx.session.user, expiresInMinutes),
-        mastraUrl: MASTRA_API_URL,
+        mastraUrl: mastraApiUrl(),
         expiresInMinutes,
       };
     }),
@@ -291,7 +298,9 @@ export const mastraRouter = createTRPCRouter({
   getMastraAgents: protectedProcedure
     .output(MastraAgentsResponseSchema) // Output is still the validated array
     .query(async () => {
-      const mastraApiUrl = `${MASTRA_API_URL}/api/agents`; // Use environment variable
+      // No Assistant on this install: no agents to list.
+      if (!isAiConfigured("assistant")) return [];
+      const agentsUrl = `${mastraApiUrl()}/api/agents`;
       try {
         // Use mastraClient to fetch agents
         // const agentsData = await mastraClient.getAgents();
@@ -299,7 +308,7 @@ export const mastraRouter = createTRPCRouter({
 
         // console.log("Mastra API data from client:", agentsData);
         // Use direct fetch with server auth
-        const response = await fetch(mastraApiUrl, {
+        const response = await fetch(agentsUrl, {
           headers: mastraAuthHeaders(),
         });
 
@@ -351,6 +360,7 @@ export const mastraRouter = createTRPCRouter({
   chooseAgent: protectedProcedure
     .input(z.object({ message: z.string().max(10000) }))
     .mutation(async ({ input }) => {
+      requireAi("assistant", "Choosing an agent");
       // 1. load agent embeddings and ensure non-empty
       const embeddings = await loadAgentEmbeddings();
       if (embeddings.length === 0) {
@@ -412,6 +422,7 @@ export const mastraRouter = createTRPCRouter({
       })
     )
     .mutation(async ({ input, ctx }) => {
+      requireAi("assistant", "The Assistant");
       let { agentId } = input;
       // SECURITY: Strip client-supplied system messages to prevent prompt injection.
       // Client context is preserved but demoted with clear delimiters.
@@ -554,7 +565,7 @@ export const mastraRouter = createTRPCRouter({
 
       const startTime = Date.now();
       const res = await fetch(
-        `${MASTRA_API_URL}/api/agents/${agentId}/generate`,
+        `${mastraApiUrl()}/api/agents/${agentId}/generate`,
         {
           method: 'POST',
           headers: {

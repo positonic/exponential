@@ -20,6 +20,8 @@
  * actions conversationally via the guard below (the structured confirmation gate
  * stays on the dedicated complete_action coarse tool).
  */
+import { resolveMastraUrl } from "~/server/services/ai/capabilities";
+import { AiNotConfiguredError } from "~/server/services/ai/requireAi";
 import type { PrismaClient } from "@prisma/client";
 
 import { MastraClient } from "@mastra/client-js";
@@ -35,7 +37,12 @@ import { parseTimezone } from "~/server/services/voice/dailyContextSpeakable";
 import { userClockNote } from "~/server/services/voice/userClock";
 import { withTimeout } from "~/server/utils/withTimeout";
 
-const MASTRA_API_URL = process.env.MASTRA_API_URL ?? "http://localhost:4111";
+/** Where the Assistant lives; throws the typed "not configured" error when there is none. */
+function mastraApiUrl(): string {
+  const url = resolveMastraUrl(process.env);
+  if (!url) throw new AiNotConfiguredError("assistant", "Voice mode");
+  return url;
+}
 
 /**
  * Bound zoe's full agent run. The tRPC route this sits under is a 60s Vercel
@@ -100,7 +107,7 @@ export async function askExponential(
   const timezone = parseTimezone(options.timezone) ?? (await resolveUserTimezone(userId, db));
 
   const client = new MastraClient({
-    baseUrl: MASTRA_API_URL,
+    baseUrl: mastraApiUrl(),
     headers: { Authorization: `Bearer ${agentJWT}` },
   });
 
