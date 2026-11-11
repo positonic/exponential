@@ -1,7 +1,9 @@
 'use client';
 
 import { notifications } from '@mantine/notifications';
-import { api } from '~/trpc/react';
+import { api, type RouterOutputs } from '~/trpc/react';
+
+type QaTicketStatus = RouterOutputs['inbox']['waitingOnMe']['qaTickets'][number]['status'];
 
 /**
  * Sets the status of one or many tickets listed on the "Waiting on me" tab,
@@ -22,19 +24,38 @@ export function useSetTicketStatus(startOfToday: Date) {
     onMutate: async ({ ids, status }) => {
       await utils.inbox.waitingOnMe.cancel(input);
       const prev = utils.inbox.waitingOnMe.getData(input);
+      // Each moved row's status before this change, so a failure restores
+      // only what this change wrote.
+      const before = new Map<string, QaTicketStatus>();
       if (prev && status) {
         const moving = new Set(ids);
         utils.inbox.waitingOnMe.setData(input, {
           ...prev,
-          qaTickets: prev.qaTickets.map((t) =>
-            moving.has(t.id) ? { ...t, status } : t,
-          ),
+          qaTickets: prev.qaTickets.map((t) => {
+            if (!moving.has(t.id)) return t;
+            before.set(t.id, t.status);
+            return { ...t, status };
+          }),
         });
       }
-      return { prev };
+      return { before };
     },
-    onError: (_err, { ids }, ctx) => {
-      if (ctx?.prev) utils.inbox.waitingOnMe.setData(input, ctx.prev);
+    onError: (_err, { ids, status }, ctx) => {
+      // Per ticket, and only where the row still shows this change's status:
+      // a later change to the same row is its own to keep or roll back.
+      const cur = utils.inbox.waitingOnMe.getData(input);
+      if (cur && ctx?.before.size) {
+        utils.inbox.waitingOnMe.setData(input, {
+          ...cur,
+          qaTickets: cur.qaTickets.map((t) => {
+            const was = ctx.before.get(t.id);
+            return was !== undefined && t.status === status ? { ...t, status: was } : t;
+          }),
+        });
+      }
+      // Overlapping changes that fail out of order can still leave a row on
+      // an unsaved value; the refetch settles every row on the server's.
+      void utils.inbox.waitingOnMe.invalidate(input);
       notifications.show({
         title: 'Status not changed',
         message:
