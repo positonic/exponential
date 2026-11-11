@@ -184,6 +184,9 @@ export interface SeededFixture {
   /** A page with no database yet, for the database-block spec (ADR-0078). Reset on every seed. */
   databasePageId: string;
   databasePageUrl: string;
+  /** A prose-only page for the YouTube embed spec, kept apart from the database one. Reset on every seed. */
+  youtubePageId: string;
+  youtubePageUrl: string;
 }
 
 interface TicketSpec {
@@ -1146,10 +1149,37 @@ export async function seedDevFixture(db: PrismaClient): Promise<SeededFixture> {
       });
   await db.pageDatabase.deleteMany({ where: { pageId: databasePage.id } });
 
+  // The YouTube embed spec gets its own page: embeds it leaves behind would
+  // otherwise sit under the database-block spec's clicks (a player iframe
+  // takes focus), and the two specs run in parallel.
+  const youtubePageTitle = "YouTube embed fixture";
+  const youtubePageBody = "# YouTube embed fixture\n\nA page the e2e suite embeds videos in.";
+  const existingYoutubePage = await db.knowledgePage.findFirst({
+    where: { workspaceId: workspace.id, createdById: user.id, title: youtubePageTitle, databaseId: null },
+    select: { id: true },
+  });
+  const youtubePage = existingYoutubePage
+    ? await db.knowledgePage.update({
+        where: { id: existingYoutubePage.id },
+        data: { body: youtubePageBody, bodyDoc: Prisma.DbNull, docVersion: { increment: 1 } },
+        select: { id: true },
+      })
+    : await db.knowledgePage.create({
+        data: {
+          workspaceId: workspace.id,
+          createdById: user.id,
+          title: youtubePageTitle,
+          body: youtubePageBody,
+        },
+        select: { id: true },
+      });
+
   const base = `/w/${FIXTURE.workspaceSlug}/products/${FIXTURE.productSlug}`;
   return {
     databasePageId: databasePage.id,
     databasePageUrl: `/w/${FIXTURE.workspaceSlug}/pages/${databasePage.id}`,
+    youtubePageId: youtubePage.id,
+    youtubePageUrl: `/w/${FIXTURE.workspaceSlug}/pages/${youtubePage.id}`,
     tagId: tag.id,
     tagName: FIXTURE.tagName,
     assistantName: FIXTURE.assistantName,
