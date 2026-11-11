@@ -111,7 +111,16 @@ BEGIN
 
     SELECT ea."shadowUserId", a."name" INTO new_shadow, new_name
     FROM "Assistant" a JOIN "ExternalAgent" ea ON ea."id" = a."externalAgentId"
-    WHERE a."id" = r.survivor_id;
+    WHERE a."id" = r.survivor_id AND a."retiredAt" IS NULL;
+
+    -- The ranking is a snapshot and the app is live: if the person retired the
+    -- survivor meanwhile (assistant.delete), retire nothing into it. Should that
+    -- leave two active Assistants, the index below fails and the migration
+    -- stops, rather than guess a new survivor.
+    IF new_shadow IS NULL THEN
+      RAISE NOTICE 'Skipped Assistant %: its survivor % was retired meanwhile', r.retire_id, r.survivor_id;
+      CONTINUE;
+    END IF;
 
     UPDATE "Assistant" SET "retiredAt" = now(), "isDefault" = false WHERE "id" = r.retire_id;
 
@@ -169,12 +178,13 @@ BEGIN
       SELECT "id", "status" FROM "AgentRun"
       WHERE "agentId" = old_agent AND "status" IN ('QUEUED', 'RUNNING', 'WAITING_ON_OWNER')
     LOOP
-      -- Guarded on the status read, as `retireAssistant` is: a run that
-      -- finished meanwhile (the app is live during the migration) keeps its
-      -- result, and gets no event.
+      -- Guarded on the run still being stoppable, as `retireAssistant` is: a
+      -- run that finished meanwhile (the app is live during the migration)
+      -- keeps its result and gets no event; one the dispatcher moved
+      -- QUEUED → RUNNING meanwhile is still cancelled.
       UPDATE "AgentRun"
       SET "status" = 'CANCELLED', "finishedAt" = now(), "lastEventAt" = now()
-      WHERE "id" = run."id" AND "status" = run."status";
+      WHERE "id" = run."id" AND "status" IN ('QUEUED', 'RUNNING', 'WAITING_ON_OWNER');
       GET DIAGNOSTICS n = ROW_COUNT;
 
       IF n = 1 THEN

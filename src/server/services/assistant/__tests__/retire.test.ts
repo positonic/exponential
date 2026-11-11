@@ -121,6 +121,8 @@ describe("retireAssistant (ADR-0072)", () => {
       skipDuplicates: true,
     });
     expect(db.agentRun.create).not.toHaveBeenCalled();
+    // The survivor becomes the default the per-workspace readers resolve until V1b.
+    expect(db.assistant.update).toHaveBeenCalledWith({ where: { id: "asst-new" }, data: { isDefault: true } });
     expect(result).toMatchObject({ membershipsMoved: 1, positionsMoved: 1, assignmentsMoved: 1 });
   });
 
@@ -140,8 +142,9 @@ describe("retireAssistant (ADR-0072)", () => {
       where: { agentId: "agent-old", status: { in: ["QUEUED", "RUNNING", "WAITING_ON_OWNER"] } },
       select: { id: true, status: true },
     });
+    // Guarded on "still stoppable", so a run moved QUEUED → RUNNING meanwhile is still cancelled.
     expect(db.agentRun.updateMany).toHaveBeenCalledWith({
-      where: { id: "run-q", status: "QUEUED" },
+      where: { id: "run-q", status: { in: ["QUEUED", "RUNNING", "WAITING_ON_OWNER"] } },
       data: { status: "CANCELLED", finishedAt: NOW, lastEventAt: NOW },
     });
     expect(db.agentRunEvent.create.mock.calls.map((c) => c[0].data)).toEqual([

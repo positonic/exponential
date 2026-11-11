@@ -89,6 +89,11 @@ export async function retireAssistant(
       where: { id: retiring.id },
       data: { retiredAt: now, isDefault: false },
     });
+    // A person's only Assistant is their default: the per-workspace readers
+    // that still key on `isDefault` (until V1b) must keep resolving it.
+    if (input.survivorId) {
+      await tx.assistant.update({ where: { id: input.survivorId }, data: { isDefault: true } });
+    }
 
     const keys = await tx.externalAgentKey.deleteMany({ where: { agentId } });
 
@@ -148,7 +153,8 @@ export async function retireAssistant(
       where: { userId: shadowUserId, action: { status: { notIn: CLOSED_ACTION_STATUSES } } },
       select: { id: true, actionId: true },
     });
-    const assignmentsMoved = survivorShadowUserId
+    const assignmentsMoved =
+      survivorShadowUserId && openAssignments.length > 0
       ? (
           await tx.actionAssignee.createMany({
             data: openAssignments.map((a) => ({ actionId: a.actionId, userId: survivorShadowUserId })),
@@ -228,8 +234,10 @@ async function movePositionHoldings(
 
 /**
  * Cancel the retired agent's live and waiting runs. Each gets a `status` event
- * at the next `seq` of its log; the update is guarded on the status it read, so
- * a run that finished meanwhile is left as it finished.
+ * at the next `seq` of its log. The update is guarded on the run still being
+ * stoppable — not on the exact status read, so a run the dispatcher moved
+ * QUEUED → RUNNING meanwhile is still cancelled — and a run that finished
+ * meanwhile is left as it finished.
  */
 async function cancelRunsOfRetiredAgent(
   tx: Prisma.TransactionClient,
@@ -243,7 +251,7 @@ async function cancelRunsOfRetiredAgent(
   let cancelled = 0;
   for (const run of runs) {
     const updated = await tx.agentRun.updateMany({
-      where: { id: run.id, status: run.status },
+      where: { id: run.id, status: { in: [...STOPPABLE_RUN_STATUSES] } },
       data: { status: "CANCELLED", finishedAt: now, lastEventAt: now },
     });
     if (updated.count === 0) continue;
