@@ -22,6 +22,7 @@ import {
   finishArticle,
   formatTimestamp,
   MAX_TRANSCRIPT_CHARS,
+  transcriptCutoff,
   writeVideoArticle,
   type YouTubeSummaryDeps,
 } from "../youtubeSummary";
@@ -158,9 +159,59 @@ describe("finishArticle", () => {
     expect(finishArticle(`${"word ".repeat(400)}\n\n## One\nx`, WATCH)!.standfirst.length).toBeLessThan(620);
   });
 
+  it("keeps the model's on-screen note under the standfirst, moving it there if it came first", () => {
+    const note = "> **Shown on screen, not in this article:** the slides of benchmark results (12:30).";
+    const expected = `A standfirst.\n\n${note}\n\n## One\nx`;
+
+    expect(finishArticle(`A standfirst.\n\n${note}\n\n## One\nx`, WATCH)).toEqual({
+      article: expected,
+      standfirst: "A standfirst.",
+    });
+    expect(finishArticle(`${note}\n\nA standfirst.\n\n## One\nx`, WATCH)).toEqual({
+      article: expected,
+      standfirst: "A standfirst.",
+    });
+  });
+
+  it("adds a partial-article notice after any other note when the transcript was cut", () => {
+    const note = "> **Shown on screen, not in this article:** a demo.";
+    const { article, standfirst } = finishArticle(`A standfirst.\n\n${note}\n\n## One\nx`, WATCH, {
+      cutoff: "4:12:09",
+    })!;
+
+    expect(standfirst).toBe("A standfirst.");
+    expect(article).toBe(
+      `A standfirst.\n\n${note}\n\n> **Partial article:** the transcript stopped at about 4:12:09, so this covers the video only up to that point.\n\n## One\nx`,
+    );
+    expect(finishArticle("A standfirst.\n\n## One\nx", WATCH, { cutoff: "" })!.article).toContain(
+      "covers only the first part of the video",
+    );
+    expect(finishArticle("A standfirst.\n\n## One\nx", WATCH)!.article).not.toContain("Partial article");
+  });
+
+  it("leaves the body byte for byte, including indented code after a blank line", () => {
+    const body = "## Code\n\n```\nif x:\n\n    run()\n```\n\n  - nested item";
+
+    expect(finishArticle(`A standfirst.\n\n${body}`, WATCH)!.article).toBe(`A standfirst.\n\n${body}`);
+  });
+
   it("refuses an article with no opening paragraph", () => {
     expect(finishArticle("## Straight to a heading\nx", WATCH)).toBeNull();
     expect(finishArticle("   ", WATCH)).toBeNull();
+  });
+});
+
+describe("transcriptCutoff", () => {
+  it("is null when the transcript fits, else the last caption time before the cut", () => {
+    expect(transcriptCutoff("[0:00] short")).toBeNull();
+
+    const paragraph = (minute: number) => `[${formatTimestamp(minute * 60_000)}] ${"word ".repeat(200)}`;
+    const long = Array.from({ length: 600 }, (_, minute) => paragraph(minute)).join("\n\n");
+    const cut = transcriptCutoff(long)!;
+    const minutesKept = long.slice(0, MAX_TRANSCRIPT_CHARS).match(/^\[/gm)!.length;
+
+    expect(cut).toBe(formatTimestamp((minutesKept - 1) * 60_000));
+    expect(transcriptCutoff("word ".repeat(MAX_TRANSCRIPT_CHARS / 4))).toBe("");
   });
 });
 
@@ -350,6 +401,29 @@ describe("writeVideoArticle", () => {
     const prompt = (stream.mock.calls[0]![0] as { messages: Array<{ content: string }> }).messages[0]!.content;
     expect(prompt).toContain("only the first part");
     expect(prompt.length).toBeLessThan(MAX_TRANSCRIPT_CHARS + 500);
+  });
+
+  it("tells the reader where a cut transcript stopped", async () => {
+    // Ten-minute caption chunks with long text, so the transcript passes the cap.
+    const chunks = Array.from({ length: 60 }, (_, i) => ({ text: "word ".repeat(1_500), offset: i * 600_000 }));
+    const fetch = fakeFetch({ [METADATA]: metadataMissing, [SUPADATA]: json({ content: chunks }) });
+
+    const out = await writeVideoArticle(WATCH, "Stream", deps({ fetch }), deadline());
+
+    expect(out?.article).toMatch(/^A standfirst about the talk\.\n\n> \*\*Partial article:\*\* the transcript stopped at about \d+:\d{2}:\d{2}, so/);
+    expect(out?.standfirst).toBe("A standfirst about the talk.");
+  });
+
+  it("gives the writer the rules on speakers, on-screen material and cut transcripts", async () => {
+    const { stream, client } = anthropicReturning({});
+    const fetch = fakeFetch({ [METADATA]: metadataMissing, [SUPADATA]: json({ content: "hello" }) });
+
+    await writeVideoArticle(WATCH, "A talk", deps({ fetch, anthropic: client }), deadline());
+
+    const system = (stream.mock.calls[0]![0] as { system: string }).system;
+    expect(system).toContain("never guess");
+    expect(system).toContain("> **Shown on screen, not in this article:** ");
+    expect(system).toContain("don't write as if the video ends there");
   });
 });
 
