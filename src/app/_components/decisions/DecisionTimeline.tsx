@@ -1,7 +1,17 @@
 "use client";
 
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import {
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ComponentProps,
+  type FocusEvent,
+} from "react";
 import Link from "next/link";
+import type { PeekKey } from "~/lib/decision-log";
+import { usePeekLink } from "./DecisionPeek";
 import {
   IconArrowAutofitWidth,
   IconCode,
@@ -121,6 +131,29 @@ function edgePath(from: PlacedNode, to: PlacedNode): string {
 
 interface Props {
   graph: DecisionGraph;
+}
+
+/**
+ * A card's link. Inside a DecisionPeekProvider a plain click opens the
+ * decision in the peek drawer; modified and middle clicks still open the
+ * full page. Outside a provider it is a plain link.
+ */
+function PeekCardLink({
+  peekKey,
+  onFocus,
+  ...props
+}: ComponentProps<typeof Link> & { peekKey: PeekKey }) {
+  const { onFocus: peekFocus, ...peekLink } = usePeekLink(peekKey);
+  return (
+    <Link
+      {...props}
+      {...peekLink}
+      onFocus={(e: FocusEvent<HTMLAnchorElement>) => {
+        peekFocus();
+        onFocus?.(e);
+      }}
+    />
+  );
 }
 
 export function DecisionTimeline({ graph }: Props) {
@@ -345,8 +378,9 @@ export function DecisionTimeline({ graph }: Props) {
               const date = formatCardDate(p.node.decidedAt);
               const statusClass = STATUS_CLASS[p.node.status];
               return (
-                <Link
+                <PeekCardLink
                   key={p.node.id}
+                  peekKey={`${p.node.kind}-${p.node.id}`}
                   href={p.node.href}
                   className={`dtl__card dtl__card--${statusClass} dtl__card--${p.node.kind}${
                     p.dated ? "" : " dtl__card--undated"
@@ -368,7 +402,7 @@ export function DecisionTimeline({ graph }: Props) {
                     {date ? <span className="dtl__card-date">{date}</span> : null}
                   </span>
                   <span className="dtl__card-title">{p.node.title.replace(/`/g, "")}</span>
-                </Link>
+                </PeekCardLink>
               );
             })}
           </div>
