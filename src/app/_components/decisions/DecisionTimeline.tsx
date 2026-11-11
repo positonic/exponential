@@ -138,11 +138,19 @@ interface Props {
  * decision in the peek drawer; modified and middle clicks still open the
  * full page. Outside a provider it is a plain link.
  */
+/** Props `usePeekLink` sets; callers cannot pass them, so none is silently dropped. */
+type PeekOwnedProps =
+  | "prefetch"
+  | "onClick"
+  | "onPointerEnter"
+  | "onPointerLeave"
+  | "onPointerDown";
+
 function PeekCardLink({
   peekKey,
   onFocus,
   ...props
-}: ComponentProps<typeof Link> & { peekKey: PeekKey }) {
+}: Omit<ComponentProps<typeof Link>, PeekOwnedProps> & { peekKey: PeekKey }) {
   const { onFocus: peekFocus, ...peekLink } = usePeekLink(peekKey);
   return (
     <Link
