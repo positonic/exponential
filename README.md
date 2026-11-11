@@ -90,9 +90,11 @@ An open-source productivity and project management platform built with the T3 St
 
 ### Self-hosting
 
-A production install needs four variables (`DATABASE_URL` for a Postgres with
-pgvector, `AUTH_SECRET`, `DATABASE_ENCRYPTION_KEY`, `OPENAI_API_KEY`) and one
-way to sign in. No OAuth app or Postmark account is required. Start from
+A production install needs three variables (`DATABASE_URL` for a Postgres with
+pgvector, `AUTH_SECRET`, `DATABASE_ENCRYPTION_KEY`) and one way to sign in. No
+OAuth app, Postmark account or LLM key is required: AI is optional, and
+`OPENAI_API_KEY`, `ANTHROPIC_API_KEY` or `MASTRA_API_URL` (the Assistant) each
+turn on their features after a restart. Start from
 [.env.selfhost.example](.env.selfhost.example), which lists only what an
 install needs, then:
 
