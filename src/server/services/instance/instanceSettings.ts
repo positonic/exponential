@@ -101,6 +101,29 @@ export async function isSetupOpen(db: Db, now: Date = new Date()): Promise<boole
   return hasLiveToken && !(await hasInstanceAdmin(db));
 }
 
+function parseSignUpMode(value: string | null | undefined): SignUpMode {
+  return value === "invite-only" ? "invite-only" : "open";
+}
+
+/** The install's **Sign-up mode**. No row, or no value, means `open`. */
+export async function getSignUpMode(db: Db): Promise<SignUpMode> {
+  const settings = await db.instanceSettings.findUnique({
+    where: { id: INSTANCE_SETTINGS_ID },
+    select: { signUpMode: true },
+  });
+  return parseSignUpMode(settings?.signUpMode);
+}
+
+export async function setSignUpMode(db: Db, mode: SignUpMode): Promise<SignUpMode> {
+  const settings = await db.instanceSettings.upsert({
+    where: { id: INSTANCE_SETTINGS_ID },
+    create: { id: INSTANCE_SETTINGS_ID, signUpMode: mode },
+    update: { signUpMode: mode },
+    select: { signUpMode: true },
+  });
+  return parseSignUpMode(settings.signUpMode);
+}
+
 export type ClaimResult =
   | { ok: true; userId: string; created: boolean }
   | { ok: false; reason: "invalid-email" | "invalid-token" | "already-claimed" };

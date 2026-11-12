@@ -14,6 +14,7 @@ import {
   SIGN_IN_CALLBACK_KEY,
   SIGN_IN_EMAIL_KEY,
 } from "~/lib/signInCode";
+import { instanceSignInErrorMessage } from "~/lib/signInErrors";
 import "~/styles/auth-surface.css";
 
 /**
@@ -30,6 +31,8 @@ import "~/styles/auth-surface.css";
  * is caught at the call site instead, where we still know what happened.
  */
 function signInErrorMessage(error: string | null): string | null {
+  const instanceMessage = instanceSignInErrorMessage(error);
+  if (instanceMessage) return instanceMessage;
   switch (error) {
     case null:
       return null;
@@ -108,8 +111,11 @@ export function SignInLandingPage({ options }: { options: SignInOptions }) {
         });
         // Driving the navigation ourselves means we own the failure case too:
         // don't tell someone to check their inbox for an email that never left.
+        // A refusal from the signIn callback (invite-only install, or log
+        // delivery for admins only) arrives as our own code; say why. Anything
+        // else is a failed send.
         if (result?.error) {
-          setSendError(SEND_FAILED_MESSAGE);
+          setSendError(instanceSignInErrorMessage(result.error) ?? SEND_FAILED_MESSAGE);
           return;
         }
         // Only after the send actually succeeded, so a failed attempt can't

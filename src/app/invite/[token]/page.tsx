@@ -30,6 +30,7 @@ import {
   SIGN_IN_CALLBACK_KEY,
   SIGN_IN_EMAIL_KEY,
 } from "~/lib/signInCode";
+import { instanceSignInErrorMessage } from "~/lib/signInErrors";
 import Image from "next/image";
 import Link from "next/link";
 import "~/styles/auth-surface.css";
@@ -393,7 +394,9 @@ function InviteLandingPage({
         // Stay put and say so rather than sending someone to a "check your
         // email" page for a code that was never sent.
         if (result?.error) {
-          setSendError(SEND_FAILED_MESSAGE);
+          // A refusal (invite-only install, or log delivery for admins only)
+          // says why; anything else is a failed send.
+          setSendError(instanceSignInErrorMessage(result.error) ?? SEND_FAILED_MESSAGE);
           return;
         }
         // Only after the send succeeded, so a failed attempt leaves nothing

@@ -12,9 +12,14 @@ import { acceptPendingInvitationsForUser } from "~/server/auth/acceptPendingInvi
 import { onUserCreated } from "~/server/auth/onUserCreated";
 import { deliverSignInCode } from "~/server/auth/deliverSignInCode";
 import { authorizeSetupClaim } from "~/server/auth/setupClaim";
+import { mayCreateAccount } from "~/server/auth/signUpPolicy";
+import { SIGN_UP_CLOSED_ERROR } from "~/lib/signInErrors";
 import { resolveSignInMethods, signInMethodWarnings } from "~/server/auth/signInMethods";
 import { generateSignInCode, SIGN_IN_CODE_TTL_SECONDS } from "~/lib/signInCode";
 import { verifyAuthCode, verifyPkce } from "~/server/utils/native-auth";
+
+/** Where the signIn callback sends an account creation that Sign-up mode refuses. */
+const SIGN_UP_CLOSED_REDIRECT = `/signin?error=${SIGN_UP_CLOSED_ERROR}`;
 
 /** Which ways in this install has, resolved once at config load. */
 const signInMethods = resolveSignInMethods(process.env);
@@ -255,11 +260,27 @@ export const authConfig = {
       return token;
     },
     signIn: async ({ user, account }) => {
-      // Allow sign in if the user doesn't exist yet
+      // No email (some OAuth profiles): an existing account signs in; a new
+      // one is an account creation, so Sign-up mode decides.
       if (!user.email) {
-        return true;
+        // Credentials sign-ins (desktop bridge, /setup) only ever return a
+        // user their `authorize` already found or created.
+        if (account?.type === "credentials") return true;
+        const existingAccount = account
+          ? await db.account.findUnique({
+              where: {
+                provider_providerAccountId: {
+                  provider: account.provider,
+                  providerAccountId: account.providerAccountId,
+                },
+              },
+              select: { id: true },
+            })
+          : null;
+        if (existingAccount) return true;
+        return (await mayCreateAccount(db, null)) ? true : SIGN_UP_CLOSED_REDIRECT;
       }
-      
+
       // Check if a user exists with this email
       const existingUser = await db.user.findUnique({
         where: { email: user.email },
@@ -270,10 +291,12 @@ export const authConfig = {
         },
       });
 
-      // If no user exists, allow sign in. The Welcome email fires from
-      // events.createUser — once per user, on any provider — not from here.
+      // No user yet: this sign-in creates the account. Under invite-only
+      // Sign-up mode (ADR-0081) that needs a pending invitation; refused here,
+      // an email sign-in is refused before any code is sent. The Welcome email
+      // fires from events.createUser — once per user, on any provider.
       if (!existingUser) {
-        return true;
+        return (await mayCreateAccount(db, user.email)) ? true : SIGN_UP_CLOSED_REDIRECT;
       }
 
       // Update lastLogin timestamp for existing users

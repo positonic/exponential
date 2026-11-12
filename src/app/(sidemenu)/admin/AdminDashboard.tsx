@@ -8,6 +8,7 @@ import {
   IconClock,
 } from "@tabler/icons-react";
 import { api } from "~/trpc/react";
+import { SignUpModeCard } from "./SignUpModeCard";
 
 interface StatCardProps {
   title: string;
@@ -80,6 +81,8 @@ export function AdminDashboard() {
           isLoading={isLoading}
         />
       </SimpleGrid>
+
+      <SignUpModeCard />
     </div>
   );
 }

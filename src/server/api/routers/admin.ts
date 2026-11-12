@@ -11,6 +11,11 @@ import {
 } from "~/server/services/threadScoreAnalytics";
 import { computeCalibration, isCalibrated } from "~/server/services/calibrationGate";
 import { parseSetupState } from "./welcome";
+import {
+  getSignUpMode,
+  setSignUpMode,
+  SIGN_UP_MODES,
+} from "~/server/services/instance/instanceSettings";
 import { buildCalibrationPairs } from "~/server/services/calibrationGateService";
 import { JUDGE_VERSION } from "~/server/services/AgentEvalService";
 import {
@@ -60,6 +65,21 @@ const adminProcedure = protectedProcedure.use(async ({ ctx, next }) => {
 });
 
 export const adminRouter = createTRPCRouter({
+  /**
+   * The install's Sign-up mode (ADR-0081): `open`, or `invite-only` (only an
+   * address with a pending invitation can create an account). No setting
+   * reads as `open`.
+   */
+  getSignUpMode: adminProcedure.query(async ({ ctx }) => ({
+    mode: await getSignUpMode(ctx.db),
+  })),
+
+  setSignUpMode: adminProcedure
+    .input(z.object({ mode: z.enum(SIGN_UP_MODES) }))
+    .mutation(async ({ ctx, input }) => ({
+      mode: await setSignUpMode(ctx.db, input.mode),
+    })),
+
   /**
    * Get all AI interactions (admin only - no user filter)
    */
