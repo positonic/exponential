@@ -81,6 +81,9 @@ function mastraAuthHeaders(jwt?: string): Record<string, string> {
   return { Authorization: `Bearer ${token}` };
 }
 
+/** Where chat goes when semantic routing can't run (no OpenAI key for embeddings). */
+const DEFAULT_CHAT_AGENT_ID = 'zoeAgent';
+
 // Allowlist of valid agent IDs that clients can route to.
 const ALLOWED_AGENT_IDS = new Set([
   'projectManagerAgent',
@@ -350,6 +353,10 @@ export const mastraRouter = createTRPCRouter({
     .input(z.object({ message: z.string().max(10000) }))
     .mutation(async ({ input }) => {
       requireAi("assistant", "Choosing an agent");
+      // Semantic routing embeds with OpenAI. An install with Mastra but no
+      // OpenAI key still has a working Assistant, so route to Zoe, the chat
+      // UI's own default, instead of failing mid-conversation.
+      if (!isAiConfigured("openai")) return { agentId: DEFAULT_CHAT_AGENT_ID };
       // 1. load agent embeddings and ensure non-empty
       const embeddings = await loadAgentEmbeddings();
       if (embeddings.length === 0) {

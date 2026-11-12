@@ -1,6 +1,6 @@
 /**
- * `ai.getCapabilities`: the public query the UI reads to hide or explain AI
- * surfaces. Booleans only — never a key or URL.
+ * `ai.getCapabilities`: the signed-in query the UI reads to hide or explain AI
+ * surfaces. Booleans only — never a key or URL, and nothing for anonymous callers.
  *
  * The module graph is loaded with NO `OPENAI_API_KEY` and no `openai` mock:
  * the whole tRPC router (root.ts) must import cleanly on a keyless self-host
@@ -42,6 +42,14 @@ function anonymousCaller() {
   return createCaller({ db: mockDeep<PrismaClient>(), session: null, headers: new Headers() });
 }
 
+function signedInCaller() {
+  return createCaller({
+    db: mockDeep<PrismaClient>(),
+    session: { user: { id: "user-1", email: "user@test.com", name: "User", image: null, isAdmin: false }, expires: "2099-01-01T00:00:00.000Z" },
+    headers: new Headers(),
+  });
+}
+
 describe("ai.getCapabilities", () => {
   afterEach(() => {
     vi.unstubAllEnvs();
@@ -51,7 +59,7 @@ describe("ai.getCapabilities", () => {
     vi.stubEnv("NODE_ENV", "production");
     for (const name of AI_VARS) vi.stubEnv(name, "");
 
-    await expect(anonymousCaller().ai.getCapabilities()).resolves.toEqual({
+    await expect(signedInCaller().ai.getCapabilities()).resolves.toEqual({
       openai: false,
       anthropic: false,
       assistant: false,
@@ -66,7 +74,7 @@ describe("ai.getCapabilities", () => {
     vi.stubEnv("ANTHROPIC_API_KEY", "sk-ant-test");
     vi.stubEnv("MASTRA_API_URL", "https://mastra.example.test");
 
-    const capabilities = await anonymousCaller().ai.getCapabilities();
+    const capabilities = await signedInCaller().ai.getCapabilities();
 
     expect(capabilities).toEqual({
       openai: true,
@@ -112,5 +120,30 @@ describe("the Assistant on an install without Mastra", () => {
     await expect(
       signedInCaller().mastra.callAgent({ agentId: "zoeAgent", messages: [{ role: "user", content: "hi" }] }),
     ).rejects.toMatchObject({ code: "PRECONDITION_FAILED", message: expect.stringContaining("MASTRA_API_URL") as unknown });
+  });
+
+  it("refuses anonymous callers, so the server's AI configuration isn't public", async () => {
+    vi.stubEnv("OPENAI_API_KEY", "sk-test");
+
+    await expect(anonymousCaller().ai.getCapabilities()).rejects.toMatchObject({ code: "UNAUTHORIZED" });
+  });
+});
+
+describe("mastra.chooseAgent without an OpenAI key", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.restoreAllMocks();
+  });
+
+  it("with Mastra but no OpenAI key, routes to Zoe without embedding or fetching agents", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("OPENAI_API_KEY", "");
+    vi.stubEnv("MASTRA_API_URL", "https://mastra.example.test");
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+
+    await expect(signedInCaller().mastra.chooseAgent({ message: "plan my week" })).resolves.toEqual({
+      agentId: "zoeAgent",
+    });
+    expect(fetchSpy).not.toHaveBeenCalled();
   });
 });

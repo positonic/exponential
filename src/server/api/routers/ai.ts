@@ -1,4 +1,4 @@
-import { createTRPCRouter, publicProcedure } from "~/server/api/trpc";
+import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 import { resolveAiCapabilities } from "~/server/services/ai/capabilities";
 
 export const aiRouter = createTRPCRouter({
@@ -8,8 +8,10 @@ export const aiRouter = createTRPCRouter({
    * (`requireAi`) and the self-host preflight, so a surface shows exactly when
    * its procedure would run.
    *
-   * Public, like `auth.getConfiguredProviders`: booleans only, never a key or
-   * URL. Keep the shape additive.
+   * Signed-in callers only: every page that hides AI surfaces sits behind
+   * sign-in, and the (sidemenu) layout seeds the answer server-side anyway, so
+   * anonymous visitors have no reason to learn which AI the server has
+   * configured. Booleans only, never a key or URL. Keep the shape additive.
    */
-  getCapabilities: publicProcedure.query(() => resolveAiCapabilities(process.env)),
+  getCapabilities: protectedProcedure.query(() => resolveAiCapabilities(process.env)),
 });

@@ -10,8 +10,8 @@ import type { AiCapabilities } from "~/server/services/ai/capabilities";
  * The (sidemenu) layout resolves it on the server per request and seeds this
  * provider, so a keyless install never flashes an AI button and exponential.im
  * (every key set) renders exactly as before. Outside the provider the hook
- * falls back to the public `ai.getCapabilities` query, treating "still
- * loading" as off.
+ * falls back to the signed-in `ai.getCapabilities` query, treating "still
+ * loading" (or signed out) as off.
  */
 const AiCapabilitiesContext = createContext<AiCapabilities | null>(null);
 
