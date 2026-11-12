@@ -16,7 +16,11 @@
 #   NEXTAUTH_URL             the URL people use (default http://localhost:$APP_PORT)
 #   OPENAI_API_KEY           optional: the app's AI features (and Mastra's)
 #   ANTHROPIC_API_KEY        optional: Claude features; Mastra needs it
-#   AUTH_LOG_SIGN_IN_CODES   default true; ignored once SMTP or Postmark is set
+#   AUTH_LOG_SIGN_IN_CODES   default true; ignored once SMTP or Postmark is set.
+#                            SECURITY: anyone who can read the app's logs can
+#                            sign in as any user. Single-user installs only;
+#                            set up email or OAuth and set it to false otherwise
+#                            (README, "Docker Compose").
 #   SMTP_*, EMAIL_FROM, AUTH_POSTMARK_KEY, GOOGLE_*, AUTH_DISCORD_*: other ways in
 #   POSTGRES_PASSWORD        default "exponential"; letters and digits only
 #                            (it goes into a URL). Postgres is not published

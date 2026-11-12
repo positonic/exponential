@@ -115,7 +115,20 @@ docker compose logs app | grep "Sign-in code"     # your sign-in code, after you
 ```
 
 Open <http://localhost:3000>, enter your email, and read the sign-in code from
-the app's log. What starts:
+the app's log.
+
+> **Security: sign-in codes go to the log by default.** With no SMTP, Postmark
+> or OAuth configured, Compose sets `AUTH_LOG_SIGN_IN_CODES=true` so the first
+> person can get in without an email account. Anyone who can read the app's
+> container logs (`docker compose logs`, a shared Docker host, or a log
+> shipper that forwards container output) can then sign in as **any** user who
+> asks for a code. Use it only on a single-user install whose logs you alone
+> can read. For anything else, configure SMTP, Postmark or an OAuth provider
+> and set `AUTH_LOG_SIGN_IN_CODES=false` (codes are ignored anyway once an
+> email transport is set), and keep the install off the public internet until
+> you have.
+
+What starts:
 
 - **`postgres`**: `pgvector/pgvector:pg16` with its data in the `postgres`
   volume. Not published on the host.
@@ -138,7 +151,7 @@ or in your shell. None is required:
 | `APP_PORT` | `3000` | The host port the app is published on. |
 | `NEXTAUTH_URL` | `http://localhost:$APP_PORT` | The URL people use. Set it when the install is reached by another name. |
 | `OPENAI_API_KEY`, `ANTHROPIC_API_KEY` | unset | Turn on the AI features (see the table below). |
-| `AUTH_LOG_SIGN_IN_CODES` | `true` | Sign-in codes go to the app's log. Ignored once SMTP or Postmark is set; anyone who can read the log can sign in. |
+| `AUTH_LOG_SIGN_IN_CODES` | `true` | Sign-in codes go to the app's log. Ignored once SMTP or Postmark is set. **Anyone who can read the log can sign in as any user**; see the security note above. |
 | `SMTP_*`, `EMAIL_FROM`, `AUTH_POSTMARK_KEY`, `GOOGLE_CLIENT_*`, `AUTH_DISCORD_*` | unset | Other ways in, as in the table below. |
 | `POSTGRES_PASSWORD` | `exponential` | Letters and digits only. Set it before the first start: the database keeps the password it was created with. |
 | `MASTRA_BUILD_CONTEXT` | positonic/mastra `main` | Where the Assistant builds from. |
