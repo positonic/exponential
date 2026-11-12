@@ -20,7 +20,7 @@ interface SignInCodeRequest {
  * The channel comes from `resolveSignInMethods`:
  * - `postmark` / `smtp`: email it (`sendEmail` picks the transport).
  * - `log`: the operator set `AUTH_LOG_SIGN_IN_CODES` and has no transport, so
- *   the code goes to stdout. The line format is a contract — the self-host CI
+ *   the code goes to stdout — for an instance admin only; anyone else throws. The line format is a contract — the self-host CI
  *   job greps for it. It is the same Auth.js token either way: a delivery
  *   channel, not a parallel credential.
  * - `null`: throw. Callers already turn a failed send into `SEND_FAILED_MESSAGE`.
@@ -30,11 +30,23 @@ export async function deliverSignInCode({ identifier, token, expires }: SignInCo
 
   if (emailDelivery === null) {
     throw new Error(
-      "Sign-in code delivery is not configured. Set AUTH_POSTMARK_KEY, or SMTP_HOST and EMAIL_FROM, or AUTH_LOG_SIGN_IN_CODES=true for a single-user install."
+      "Sign-in code delivery is not configured. Set AUTH_POSTMARK_KEY, or SMTP_HOST and EMAIL_FROM, or AUTH_LOG_SIGN_IN_CODES=true to log codes for the instance admin."
     );
   }
 
   if (emailDelivery === "log") {
+    // Log delivery is for the instance admin only (ADR-0081): the signIn
+    // callback already refuses everyone else before a code exists, and this
+    // makes sure no other code ever reaches the log.
+    const recipient = await db.user.findUnique({
+      where: { email: identifier },
+      select: { isAdmin: true },
+    });
+    if (!recipient?.isAdmin) {
+      throw new Error(
+        "Sign-in codes are written to the server log only for an instance admin. Configure SMTP or Postmark for everyone else."
+      );
+    }
     console.log(
       `[auth] Sign-in code for ${identifier}: ${formatSignInCode(token)} (AUTH_LOG_SIGN_IN_CODES is on: anyone who can read this log can sign in)`
     );

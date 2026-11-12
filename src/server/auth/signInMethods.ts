@@ -29,7 +29,7 @@ export interface SignInMethods {
   microsoft: boolean;
   /**
    * How a Sign-in code reaches the person: an email transport, the server log
-   * (opt-in, single-user installs), or not at all.
+   * (opt-in, instance admins only), or not at all.
    */
   emailDelivery: EmailDelivery;
   /** Empty when at least one way in exists, otherwise the env var names an operator could set. */
@@ -53,7 +53,7 @@ export const SIGN_IN_SETUP_OPTIONS: ReadonlyArray<{ vars: readonly string[]; not
   { vars: ["AUTH_POSTMARK_KEY"], note: "Email sign-in codes over Postmark" },
   {
     vars: ["AUTH_LOG_SIGN_IN_CODES"],
-    note: "Set to true to write sign-in codes to the server log (single-user installs only)",
+    note: "Set to true to write the instance admin's sign-in codes to the server log (nobody else can sign in by email)",
   },
 ];
 
@@ -116,7 +116,7 @@ export function signInMethodWarnings(env: SignInEnv): string[] {
   const { emailDelivery } = resolveSignInMethods(env);
   if (emailDelivery === "log") {
     return [
-      "[auth] WARNING: AUTH_LOG_SIGN_IN_CODES is on. Sign-in codes are written to the server log, and anyone who can read this log can sign in as anyone. Use it only for a single-user install, and configure SMTP or Postmark as soon as you can.",
+      "[auth] WARNING: AUTH_LOG_SIGN_IN_CODES is on. The instance admin's sign-in codes are written to the server log, so anyone who can read this log can sign in as the admin. Nobody else can sign in by email until you configure SMTP or Postmark.",
     ];
   }
   if (isLogFlagOn(env) && emailDelivery !== null) {

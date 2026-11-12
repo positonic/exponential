@@ -1,6 +1,7 @@
 /**
  * Sign-in code delivery: email when a transport exists, the server log when the
- * operator opted in and none does, otherwise a failed send. Whatever the
+ * operator opted in and none does — for instance admins only — otherwise a
+ * failed send. Whatever the
  * channel, older codes are retired only after the delivery succeeded
  * (ADR-0056's one-live-code argument).
  */
@@ -66,7 +67,9 @@ const deliver = () => deliverSignInCode({ identifier: EMAIL, token: TOKEN, expir
 describe("log delivery", () => {
   beforeEach(() => vi.stubEnv("AUTH_LOG_SIGN_IN_CODES", "true"));
 
-  it("prints the contract line, then retires older codes", async () => {
+  it("prints the contract line for an instance admin, then retires older codes", async () => {
+    findUnique.mockResolvedValue({ isAdmin: true });
+
     await deliver();
 
     expect(logSpy).toHaveBeenCalledWith(CONTRACT_LINE);
@@ -74,6 +77,17 @@ describe("log delivery", () => {
     expect(logSpy.mock.invocationCallOrder[0]!).toBeLessThan(deleteMany.mock.invocationCallOrder[0]!);
     expect(sendSignInCodeEmail).not.toHaveBeenCalled();
     expect(sendWelcomeWithSignInCodeEmail).not.toHaveBeenCalled();
+  });
+
+  it("logs no code for anyone who isn't an instance admin, and fails the send", async () => {
+    findUnique.mockResolvedValue({ isAdmin: false });
+    await expect(deliver()).rejects.toThrow(/instance admin/i);
+
+    findUnique.mockResolvedValue(null); // a new address
+    await expect(deliver()).rejects.toThrow(/instance admin/i);
+
+    expect(logSpy.mock.calls.flat().join("\n")).not.toContain("ABCD-2345");
+    expect(deleteMany).not.toHaveBeenCalled();
   });
 
   it("logs no code when a transport is configured, even with the flag set", async () => {

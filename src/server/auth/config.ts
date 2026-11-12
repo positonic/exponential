@@ -13,13 +13,16 @@ import { onUserCreated } from "~/server/auth/onUserCreated";
 import { deliverSignInCode } from "~/server/auth/deliverSignInCode";
 import { authorizeSetupClaim } from "~/server/auth/setupClaim";
 import { mayCreateAccount } from "~/server/auth/signUpPolicy";
-import { SIGN_UP_CLOSED_ERROR } from "~/lib/signInErrors";
+import { EMAIL_SIGN_IN_UNAVAILABLE_ERROR, SIGN_UP_CLOSED_ERROR } from "~/lib/signInErrors";
 import { resolveSignInMethods, signInMethodWarnings } from "~/server/auth/signInMethods";
 import { generateSignInCode, SIGN_IN_CODE_TTL_SECONDS } from "~/lib/signInCode";
 import { verifyAuthCode, verifyPkce } from "~/server/utils/native-auth";
 
 /** Where the signIn callback sends an account creation that Sign-up mode refuses. */
 const SIGN_UP_CLOSED_REDIRECT = `/signin?error=${SIGN_UP_CLOSED_ERROR}`;
+
+/** Where a code request is sent when codes go to the log and the requester isn't an instance admin. */
+const EMAIL_SIGN_IN_UNAVAILABLE_REDIRECT = `/signin?error=${EMAIL_SIGN_IN_UNAVAILABLE_ERROR}`;
 
 /** Which ways in this install has, resolved once at config load. */
 const signInMethods = resolveSignInMethods(process.env);
@@ -259,7 +262,23 @@ export const authConfig = {
       }
       return token;
     },
-    signIn: async ({ user, account }) => {
+    signIn: async ({ user, account, email }) => {
+      // Log delivery (no email transport) is for the instance admin only
+      // (ADR-0081): anyone else asking for a Sign-in code is refused before a
+      // code exists, with copy saying email sign-in isn't set up. Read per
+      // request, like the verify page, rather than from the module-level
+      // `signInMethods`.
+      if (
+        email?.verificationRequest &&
+        account?.provider === "postmark" &&
+        resolveSignInMethods(process.env).emailDelivery === "log"
+      ) {
+        const requester = user.email
+          ? await db.user.findUnique({ where: { email: user.email }, select: { isAdmin: true } })
+          : null;
+        if (!requester?.isAdmin) return EMAIL_SIGN_IN_UNAVAILABLE_REDIRECT;
+      }
+
       // No email (some OAuth profiles): an existing account signs in; a new
       // one is an account creation, so Sign-up mode decides.
       if (!user.email) {

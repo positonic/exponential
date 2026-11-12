@@ -110,7 +110,7 @@ export function preflightEnv(env: SignInEnv): EnvPreflight {
     methods.microsoft && "Microsoft",
     methods.emailDelivery === "postmark" && "email codes (Postmark)",
     methods.emailDelivery === "smtp" && "email codes (SMTP)",
-    methods.emailDelivery === "log" && "sign-in codes in the server log",
+    methods.emailDelivery === "log" && "sign-in codes in the server log (instance admin only)",
   ].filter((method): method is string => typeof method === "string");
 
   const lines =
