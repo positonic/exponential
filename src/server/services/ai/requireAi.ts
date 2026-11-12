@@ -10,6 +10,7 @@ import { TRPCError } from "@trpc/server";
 import {
   aiNotConfiguredMessage,
   resolveAiCapabilities,
+  resolveMastraUrl,
   type AiEnv,
   type AiRequirement,
 } from "./capabilities";
@@ -37,6 +38,16 @@ export function isAiNotConfiguredError(error: unknown): error is AiNotConfigured
 
 export function isAiConfigured(requirement: AiRequirement, env: AiEnv = process.env): boolean {
   return resolveAiCapabilities(env)[requirement];
+}
+
+/**
+ * The Assistant's (Mastra's) base URL, read per call; throws
+ * `AiNotConfiguredError` when this install has no Assistant.
+ */
+export function requireMastraUrl(feature = "The Assistant", env: AiEnv = process.env): string {
+  const url = resolveMastraUrl(env);
+  if (!url) throw new AiNotConfiguredError("assistant", feature);
+  return url;
 }
 
 /** Throw `AiNotConfiguredError` unless `requirement` is configured. */

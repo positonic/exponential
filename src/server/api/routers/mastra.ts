@@ -12,8 +12,7 @@ import { attachPositions } from "~/server/services/positions";
 import { after } from "next/server";
 import type OpenAI from "openai";
 import { getOpenAIClient } from "~/server/services/ai/clients";
-import { AiNotConfiguredError, isAiConfigured, requireAi } from "~/server/services/ai/requireAi";
-import { resolveMastraUrl } from "~/server/services/ai/capabilities";
+import { isAiConfigured, requireAi, requireMastraUrl } from "~/server/services/ai/requireAi";
 import { TRPCError } from "@trpc/server";
 // import { mastraClient } from "~/lib/mastra";
 import { PRIORITY_VALUES } from "~/types/priority";
@@ -70,16 +69,6 @@ function parseAgentDate(value: string | null | undefined, field: string): Date |
   return parsed;
 }
 
-// Mastra API URL, read per call through the AI capability resolver: in
-// production an unset MASTRA_API_URL means no Assistant (a keyless self-host
-// install), so calls throw the typed "not configured" error instead of
-// dialling localhost; outside production it falls back to the local Mastra.
-// Never resolved at module load, which once took down the whole tRPC router.
-function mastraApiUrl(): string {
-  const url = resolveMastraUrl(process.env);
-  if (!url) throw new AiNotConfiguredError("assistant", "The Assistant");
-  return url;
-}
 
 // Server-to-server API key for authenticating with Mastra API.
 // Used for calls without a user-specific JWT (e.g., listing agents).
@@ -162,7 +151,7 @@ async function loadAgentEmbeddings(): Promise<AgentEmbedding[]> {
   if (agentEmbeddingsCache) return agentEmbeddingsCache;
 
   // Use direct fetch instead of mastraClient
-  const agentsUrl = `${mastraApiUrl()}/api/agents`;
+  const agentsUrl = `${requireMastraUrl("The Assistant")}/api/agents`;
   let data: Record<string, { instructions: unknown }>;
   try {
     const response = await fetch(agentsUrl, {
@@ -290,7 +279,7 @@ export const mastraRouter = createTRPCRouter({
       const expiresInMinutes = 30;
       return {
         token: generateAgentJWT(ctx.session.user, expiresInMinutes),
-        mastraUrl: mastraApiUrl(),
+        mastraUrl: requireMastraUrl("The Assistant"),
         expiresInMinutes,
       };
     }),
@@ -300,7 +289,7 @@ export const mastraRouter = createTRPCRouter({
     .query(async () => {
       // No Assistant on this install: no agents to list.
       if (!isAiConfigured("assistant")) return [];
-      const agentsUrl = `${mastraApiUrl()}/api/agents`;
+      const agentsUrl = `${requireMastraUrl("The Assistant")}/api/agents`;
       try {
         // Use mastraClient to fetch agents
         // const agentsData = await mastraClient.getAgents();
@@ -565,7 +554,7 @@ export const mastraRouter = createTRPCRouter({
 
       const startTime = Date.now();
       const res = await fetch(
-        `${mastraApiUrl()}/api/agents/${agentId}/generate`,
+        `${requireMastraUrl("The Assistant")}/api/agents/${agentId}/generate`,
         {
           method: 'POST',
           headers: {
