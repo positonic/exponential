@@ -122,3 +122,30 @@ export function preflightEnv(env: SignInEnv): EnvPreflight {
 
   return { error: null, lines: [...lines, ...signInMethodWarnings(env)] };
 }
+
+/**
+ * The boot-log block that hands the operator the one-time **Setup token**
+ * while the install has no instance admin. Every line carries the `[selfhost]`
+ * prefix so a platform log search finds the whole block.
+ */
+export function formatSetupTokenBanner(input: {
+  token: string;
+  expiresAt: Date;
+  /** The install's public URL (AUTH_URL / NEXTAUTH_URL), when the operator set one. */
+  baseUrl: string | undefined;
+}): string[] {
+  const where = input.baseUrl
+    ? `${input.baseUrl.replace(/\/+$/, "")}/setup`
+    : "/setup on this install";
+  return [
+    "[selfhost] ================================================================",
+    "[selfhost] This install has no admin yet. To claim it, open",
+    `[selfhost]   ${where}`,
+    "[selfhost] and enter your email address with this setup token:",
+    `[selfhost]   ${input.token}`,
+    `[selfhost] It works once, and only until ${input.expiresAt.toISOString()} or the next restart,`,
+    "[selfhost] whichever comes first. Whoever claims it becomes the instance admin and",
+    "[selfhost] sign-up becomes invite-only.",
+    "[selfhost] ================================================================",
+  ];
+}

@@ -9,10 +9,10 @@ import Postmark from "next-auth/providers/postmark";
 
 import { db } from "~/server/db";
 import { acceptPendingInvitationsForUser } from "~/server/auth/acceptPendingInvitations";
-import { sendFirstLoginWelcomeEmail } from "~/server/services/EmailService";
+import { onUserCreated } from "~/server/auth/onUserCreated";
 import { deliverSignInCode } from "~/server/auth/deliverSignInCode";
+import { authorizeSetupClaim } from "~/server/auth/setupClaim";
 import { resolveSignInMethods, signInMethodWarnings } from "~/server/auth/signInMethods";
-import { resolveWelcomeEmailContext, type WelcomeEmailContext } from "~/server/auth/welcomeEmailContext";
 import { generateSignInCode, SIGN_IN_CODE_TTL_SECONDS } from "~/lib/signInCode";
 import { verifyAuthCode, verifyPkce } from "~/server/utils/native-auth";
 
@@ -198,6 +198,22 @@ export const authConfig = {
         return { id: user.id, email: user.email, name: user.name, image: user.image };
       },
     }),
+    /**
+     * First-run claim of a self-host install (`/setup`, ADR-0081). Accepts an
+     * email and the one-time **Setup token** `start:selfhost` printed, creates
+     * or promotes that user as the instance admin and signs them in — no email
+     * transport needed. Registered everywhere, but `claimInstance` refuses
+     * once any instance admin exists, so on exponential.im it never succeeds.
+     */
+    CredentialsProvider({
+      id: "setup",
+      name: "Instance setup",
+      credentials: {
+        email: { label: "Email", type: "email" },
+        token: { label: "Setup token", type: "text" },
+      },
+      authorize: (credentials) => authorizeSetupClaim(credentials),
+    }),
   ],
   adapter: PrismaAdapter(db),
   session: {
@@ -309,95 +325,10 @@ export const authConfig = {
     },
   },
   events: {
+    // A new user's one-time setup (Personal workspace, invitations, Welcome
+    // email) lives in `onUserCreated`, which `/setup` also calls.
     createUser: async ({ user }) => {
-      // Set lastLogin for newly created users
-      await db.user.update({
-        where: { id: user.id },
-        data: { lastLogin: new Date() },
-      });
-
-      // Create personal workspace for new users
-      if (!user.id) return;
-
-      let personalWorkspaceId: string | null = null;
-
-      try {
-        const slug = `personal-${user.id}`;
-        const workspace = await db.workspace.create({
-          data: {
-            name: "Personal",
-            slug,
-            type: "personal",
-            ownerId: user.id,
-            members: {
-              create: {
-                userId: user.id,
-                role: "owner",
-              },
-            },
-          },
-        });
-
-        personalWorkspaceId = workspace.id;
-
-        // Set as default workspace
-        await db.user.update({
-          where: { id: user.id },
-          data: { defaultWorkspaceId: workspace.id },
-        });
-      } catch (error) {
-        // Log error but don't block user creation
-        console.error("[Auth] Failed to create personal workspace:", error);
-      }
-
-      if (!user.email) return;
-
-      // Prefer an invited workspace as the user's default so they land there
-      // instead of their empty Personal workspace after sign-up.
-      const firstAcceptedWorkspaceId = await acceptPendingInvitationsForUser(
-        db,
-        user.id,
-        user.email
-      );
-      if (firstAcceptedWorkspaceId && firstAcceptedWorkspaceId !== personalWorkspaceId) {
-        try {
-          await db.user.update({
-            where: { id: user.id },
-            data: { defaultWorkspaceId: firstAcceptedWorkspaceId },
-          });
-        } catch (error) {
-          // Best-effort: landing in Personal instead of the invited workspace
-          // must not cost the user their only Welcome email below.
-          console.error("[Auth] Failed to set invited workspace as default:", error);
-        }
-      }
-
-      // The Welcome email — the single onboarding email a user ever receives.
-      // Sent from here because this event fires exactly once per user, after
-      // the first successful sign-in on any provider; the sign-in code emails
-      // stay minimal by design (see CONTEXT.md, "Welcome email"). Invited
-      // users get a frame naming their first accepted workspace and inviter,
-      // and the task-layer bullet names the chat tool that workspace actually
-      // uses (resolved in `resolveWelcomeEmailContext`, which never throws).
-      //
-      // Awaited deliberately: this event runs inside the sign-in request on
-      // Vercel, and a detached promise races the lambda freeze — the send
-      // could silently never happen. The `.catch` still guarantees a failed
-      // send can't block account creation. Not routed through
-      // `reportHandledError` for the same Edge-bundle reason as in
-      // `sendVerificationRequest` above.
-      const context: WelcomeEmailContext = firstAcceptedWorkspaceId
-        ? await resolveWelcomeEmailContext(db, firstAcceptedWorkspaceId, user.email)
-        : {};
-
-      await sendFirstLoginWelcomeEmail({
-        to: user.email,
-        name: user.name,
-        invited: context.invited,
-        chatTools: context.chatTools,
-      }).catch((error) => {
-        console.error("[Auth] Failed to send welcome email:", error);
-      });
+      await onUserCreated(user);
     },
   },
 } satisfies NextAuthConfig;

@@ -49,8 +49,8 @@ afterEach(() => {
 });
 
 describe("authConfig.providers", () => {
-  it("with no OAuth keys, registers only the email provider and the desktop bridge", async () => {
-    expect((await providerIds({})).sort()).toEqual(["desktop", "postmark"]);
+  it("with no OAuth keys, registers only the email provider, the desktop bridge and first-run setup", async () => {
+    expect((await providerIds({})).sort()).toEqual(["desktop", "postmark", "setup"]);
   });
 
   it("a Google id and secret add Google", async () => {
