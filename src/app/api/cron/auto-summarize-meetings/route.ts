@@ -3,6 +3,7 @@ import { type NextRequest, NextResponse } from "next/server";
 import { headers } from "next/headers";
 import { aiConfiguredOrSkip } from "~/server/services/ai/requireAi";
 import { db } from "~/server/db";
+import { attachUnlinkedMeetings } from "~/server/services/ceremonies/autoAttach";
 import { runMeetingSummarySweep } from "~/server/services/meetings/meetingSummarySweep";
 
 /**
@@ -40,7 +41,10 @@ export async function GET(_request: NextRequest) {
     }
 
     if (!aiConfiguredOrSkip("summaries", "cron auto-summarize-meetings")) {
-      return NextResponse.json({ success: true, skipped: "ai-not-configured" });
+      // The ceremony catch-up at the start of the sweep needs no model and has
+      // no other scheduled caller, so keyless installs still get it.
+      const ceremonyCatchUp = await attachUnlinkedMeetings(db);
+      return NextResponse.json({ success: true, skipped: "ai-not-configured", ceremonyCatchUp });
     }
 
     const result = await runMeetingSummarySweep(db);

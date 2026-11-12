@@ -8,7 +8,7 @@
  * set, so everything resolves on there.
  *
  * Server code asks through `requireAi` / `isAiConfigured`
- * (`./requireAi.ts`); the UI reads the public `ai.getCapabilities` query; the
+ * (`./requireAi.ts`); the UI reads the signed-in `ai.getCapabilities` query; the
  * self-host preflight prints `aiCapabilityLines`. Same shape as
  * `src/server/auth/signInMethods.ts`.
  *

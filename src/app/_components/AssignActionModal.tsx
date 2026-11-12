@@ -184,12 +184,13 @@ export function AssignActionModal({
     },
   });
 
-  // No Assistant (Mastra) on this install: an Assistant could never run the
-  // action, so it isn't offered. Plain External agents stay — they pick work
-  // up themselves.
+  // No Assistant (Mastra) on this install: a Mastra-backed Assistant could
+  // never run the action, so it isn't offered. LOCAL_CLI Assistants run on
+  // their owner's machine and plain External agents pick work up themselves,
+  // so both stay.
   const { assistant: hasAssistant } = useAiCapabilities();
   const assignableUsers: AssignableUser[] = (assignableData?.assignableUsers ?? []).filter(
-    (user) => hasAssistant || !user.assistantOwner,
+    (user) => hasAssistant || !user.assistantOwner || user.assistantExecutor === "LOCAL_CLI",
   );
 
   // Filter users based on search term (an Assistant also matches its owner's
