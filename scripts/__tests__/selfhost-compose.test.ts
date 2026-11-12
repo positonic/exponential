@@ -230,3 +230,26 @@ describe("docker-compose.yml", () => {
     expect(service("postgres")).not.toMatch(/ports:/);
   });
 });
+
+describe("selfhost-smoke workflow", () => {
+  const workflow = readFileSync(path.join(ROOT, ".github/workflows/selfhost-smoke.yml"), "utf8");
+
+  it("uses no repository secret: the repo is public and the stack makes its own", () => {
+    expect(workflow).not.toMatch(/secrets\./);
+  });
+
+  it("boots with no LLM key, real or placeholder", () => {
+    expect(workflow).not.toMatch(/OPENAI_API_KEY|ANTHROPIC_API_KEY/);
+  });
+
+  it("runs the smoke script with the tsx version package-lock.json resolves", () => {
+    const lock = JSON.parse(readFileSync(path.join(ROOT, "package-lock.json"), "utf8")) as {
+      packages: Record<string, { version: string }>;
+    };
+    expect(workflow).toContain(`TSX_VERSION: "${lock.packages["node_modules/tsx"]!.version}"`);
+  });
+
+  it("never pushes an image anywhere", () => {
+    expect(workflow).not.toMatch(/docker (image )?push|docker\/login-action|docker\/build-push-action|ghcr\.io/);
+  });
+});
