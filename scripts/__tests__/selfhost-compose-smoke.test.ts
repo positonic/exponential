@@ -93,4 +93,9 @@ describe("CookieJar", () => {
     expect(jar.header()).toBe("b=2");
   });
 
+  it("round-trips through JSON, so a session survives between runs", () => {
+    const jar = new CookieJar();
+    jar.store(["authjs.session-token=xyz; Path=/; HttpOnly"]);
+    expect(CookieJar.fromJSON(JSON.parse(JSON.stringify(jar))).header()).toBe("authjs.session-token=xyz");
+  });
 });

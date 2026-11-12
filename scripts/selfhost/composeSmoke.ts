@@ -8,16 +8,23 @@
  *
  *   docker compose up -d --build
  *   npx tsx scripts/selfhost/composeSmoke.ts first-boot
+ *   docker compose down && docker compose up -d
+ *   npx tsx scripts/selfhost/composeSmoke.ts restart
  *
  * first-boot  wait for /api/health; sign in with a log-delivered sign-in code
  *             (GET /api/auth/csrf -> POST /api/auth/signin/postmark -> read
  *             the code from `docker compose logs app` -> GET the URL
  *             buildSignInCodeCallbackUrl builds -> GET /api/auth/session
  *             returns the email); then wait for the scheduler's
- *             `GET /api/cron/agent-runs → 200`.
+ *             `GET /api/cron/agent-runs → 200`. Saves the session cookie and
+ *             a digest of the generated secrets to SMOKE_STATE_DIR.
+ * restart     after `down` / `up` (volumes kept): secrets-init kept the
+ *             secrets, their digest is unchanged, and the saved session is
+ *             still signed in.
  *
  * Settings (all optional): SMOKE_BASE_URL (default http://localhost:$APP_PORT,
- * APP_PORT default 3000), SMOKE_EMAIL. `docker compose` picks up
+ * APP_PORT default 3000), SMOKE_EMAIL, SMOKE_STATE_DIR (default
+ * $TMPDIR/selfhost-smoke/$COMPOSE_PROJECT_NAME). `docker compose` picks up
  * COMPOSE_PROJECT_NAME, COMPOSE_FILE and COMPOSE_PROFILES from the environment
  * as usual.
  *
@@ -26,6 +33,8 @@
  */
 
 import { execFile } from "node:child_process";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { promisify } from "node:util";
@@ -70,6 +79,12 @@ export function sessionEmail(body: unknown): string | null {
 export class CookieJar {
   private readonly cookies = new Map<string, string>();
 
+  static fromJSON(entries: [string, string][]): CookieJar {
+    const jar = new CookieJar();
+    for (const [name, value] of entries) jar.cookies.set(name, value);
+    return jar;
+  }
+
   /** Apply a response's Set-Cookie headers. */
   store(setCookies: string[]): void {
     for (const setCookie of setCookies) {
@@ -91,6 +106,9 @@ export class CookieJar {
     return [...this.cookies].map(([name, value]) => `${name}=${value}`).join("; ");
   }
 
+  toJSON(): [string, string][] {
+    return [...this.cookies];
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -102,6 +120,7 @@ class SmokeFailure extends Error {}
 
 const execFileAsync = promisify(execFile);
 
+const SECRETS_FILE = "/selfhost-secrets/selfhost.env";
 const HEALTH_TIMEOUT_MS = 10 * 60_000; // first boot applies every migration
 const CODE_TIMEOUT_MS = 60_000;
 const TICK_TIMEOUT_MS = 2 * 60_000; // agent-runs fires every minute
@@ -113,6 +132,11 @@ async function composeLogs(service: string): Promise<string> {
   const { stdout } = await execFileAsync("docker", ["compose", "logs", "--no-color", service], {
     maxBuffer: 64 * 1024 * 1024,
   });
+  return stdout;
+}
+
+async function composeExec(service: string, command: string[]): Promise<string> {
+  const { stdout } = await execFileAsync("docker", ["compose", "exec", "-T", service, ...command]);
   return stdout;
 }
 
@@ -130,12 +154,16 @@ async function waitFor<T>(what: string, timeoutMs: number, check: () => Promise<
 interface Smoke {
   baseUrl: string;
   email: string;
+  stateDir: string;
 }
 
 function readSettings(env: NodeJS.ProcessEnv): Smoke {
   return {
     baseUrl: (env.SMOKE_BASE_URL ?? `http://localhost:${env.APP_PORT ?? "3000"}`).replace(/\/+$/, ""),
     email: normalizeSignInEmail(env.SMOKE_EMAIL ?? "selfhost-smoke@example.com"),
+    stateDir: path.resolve(
+      env.SMOKE_STATE_DIR ?? path.join(os.tmpdir(), "selfhost-smoke", env.COMPOSE_PROJECT_NAME ?? "default"),
+    ),
   };
 }
 
@@ -201,21 +229,59 @@ async function signIn(smoke: Smoke): Promise<CookieJar> {
   return jar;
 }
 
+async function secretsDigest(): Promise<string> {
+  const out = await composeExec("app", ["sha256sum", SECRETS_FILE]);
+  const digest = out.trim().split(/\s+/)[0];
+  if (!digest) throw new SmokeFailure(`could not read a digest of ${SECRETS_FILE} in the app container`);
+  return digest;
+}
+
 async function firstBoot(smoke: Smoke): Promise<void> {
   await waitForHealth(smoke);
-  await signIn(smoke);
+  const jar = await signIn(smoke);
 
   await waitFor("the scheduler's `GET /api/cron/agent-runs → 200`", TICK_TIMEOUT_MS, async () =>
     schedulerTicked(await composeLogs("scheduler"), "/api/cron/agent-runs") ? true : null,
   );
   log("scheduler ticked: GET /api/cron/agent-runs → 200");
+
+  mkdirSync(smoke.stateDir, { recursive: true });
+  writeFileSync(
+    path.join(smoke.stateDir, "state.json"),
+    JSON.stringify({ email: smoke.email, cookies: jar, secretsDigest: await secretsDigest() }, null, 2),
+  );
+  log(`saved the session and secrets digest to ${smoke.stateDir}`);
+}
+
+async function restart(smoke: Smoke): Promise<void> {
+  const state = JSON.parse(readFileSync(path.join(smoke.stateDir, "state.json"), "utf8")) as {
+    email: string;
+    cookies: [string, string][];
+    secretsDigest: string;
+  };
+  await waitForHealth(smoke);
+
+  if (!(await composeLogs("secrets-init")).includes("Keeping the existing secrets")) {
+    throw new SmokeFailure("secrets-init did not report keeping the existing secrets on restart");
+  }
+  if ((await secretsDigest()) !== state.secretsDigest) {
+    throw new SmokeFailure("the generated secrets changed across down/up");
+  }
+  log("secrets kept across down/up");
+
+  const email = await currentSessionEmail(smoke, CookieJar.fromJSON(state.cookies));
+  if (email !== state.email) {
+    throw new SmokeFailure(`the session from before the restart is gone (session email ${JSON.stringify(email)})`);
+  }
+  log(`the session from before the restart is still signed in as ${email}`);
 }
 
 export async function main(argv: string[]): Promise<void> {
   const phase = argv[0] ?? "first-boot";
   const smoke = readSettings(process.env);
   if (phase === "first-boot") await firstBoot(smoke);
-  else throw new SmokeFailure(`unknown phase ${JSON.stringify(phase)}: use first-boot`);
+  else if (phase === "restart") await restart(smoke);
+  else throw new SmokeFailure(`unknown phase ${JSON.stringify(phase)}: use first-boot or restart`);
   log(`${phase}: passed`);
 }
 

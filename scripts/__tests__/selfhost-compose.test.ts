@@ -14,7 +14,7 @@
  */
 
 import { execFileSync, spawnSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync, statSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -84,7 +84,31 @@ describe("secrets-init.sh", () => {
     expect(statSync(secretsFile).mode & 0o777).toBe(0o400);
   });
 
+  it("never overwrites existing secrets on a later run", () => {
+    runSecretsInit();
+    const first = readFileSync(secretsFile, "utf8");
+
+    const output = runSecretsInit();
+
+    expect(readFileSync(secretsFile, "utf8")).toBe(first);
+    expect(output).toContain("Keeping the existing secrets");
+  });
+
+  it("adds only the keys that are missing, keeping the ones already there", () => {
+    const dirOfFile = path.dirname(secretsFile);
+    execFileSync("mkdir", ["-p", dirOfFile]);
+    writeFileSync(secretsFile, "export AUTH_SECRET='kept-from-an-earlier-version'\n");
+
+    const output = runSecretsInit();
+
+    const secrets = parseSecrets(readFileSync(secretsFile, "utf8"));
+    expect(secrets.AUTH_SECRET).toBe("kept-from-an-earlier-version");
+    expect(Object.keys(secrets).sort()).toEqual(["AUTH_SECRET", "CRON_SECRET", "DATABASE_ENCRYPTION_KEY"]);
+    expect(output).toContain("Generated DATABASE_ENCRYPTION_KEY CRON_SECRET");
+  });
+
   it("leaves no temp file behind", () => {
+    runSecretsInit();
     runSecretsInit();
     const leftovers = execFileSync("ls", ["-A", path.dirname(secretsFile)], { encoding: "utf8" }).trim();
     expect(leftovers).toBe("selfhost.env");
