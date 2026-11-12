@@ -235,7 +235,7 @@ describe("selfhost-smoke workflow", () => {
   const workflow = readFileSync(path.join(ROOT, ".github/workflows/selfhost-smoke.yml"), "utf8");
 
   it("uses no repository secret: the repo is public and the stack makes its own", () => {
-    expect(workflow).not.toMatch(/secrets\./);
+    expect(workflow).not.toMatch(/\$\{\{\s*secrets\./);
   });
 
   it("boots with no LLM key, real or placeholder", () => {

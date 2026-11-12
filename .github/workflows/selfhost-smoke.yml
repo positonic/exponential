@@ -20,7 +20,9 @@
 # NEVER A REQUIRED CHECK. It is path-filtered on pull requests, and a
 # path-filtered required check that is skipped stays "pending" forever and
 # blocks the merge (see the migration-apply comment in test.yml). It exists to
-# catch the self-host path regressing, not to gate merges.
+# catch the self-host path regressing, not to gate merges: a failed nightly
+# run opens (or comments on) a GitHub issue instead, and the next passing
+# nightly run closes it.
 #
 # No secret appears here and none is needed: the repo is public, the stack
 # generates its own secrets, and no LLM key is set (AI features switch off).
@@ -59,6 +61,8 @@ concurrency:
 
 permissions:
   contents: read
+  # Only the nightly run uses it: to open or close the failure issue.
+  issues: write
 
 env:
   COMPOSE_PROJECT_NAME: selfhost-smoke
@@ -67,6 +71,10 @@ env:
   # tsx at the version package-lock.json resolves; the smoke script needs no
   # npm install (it imports only Node builtins and src/lib/signInCode.ts).
   TSX_VERSION: "4.21.0"
+  ISSUE_TITLE: "Nightly self-host smoke test is failing"
+  # gh needs the repository for issue calls; set it explicitly rather than
+  # relying on the checkout's git remote.
+  GH_REPO: ${{ github.repository }}
 
 jobs:
   smoke:
@@ -108,6 +116,57 @@ jobs:
       - name: Stack logs
         if: failure()
         run: docker compose logs --no-color --tail 300
+
+      # A failed nightly run opens one issue and comments on it after that, the
+      # way exponential-auth-canary.yml does: a new issue every night would be
+      # ignored. Pull requests show their failure on the PR instead.
+      - name: Raise the alarm
+        if: failure() && github.event_name == 'schedule'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          EXISTING=$(gh issue list --state open --limit 50 \
+            --json number,title \
+            --jq 'map(select(.title == env.ISSUE_TITLE)) | .[0].number // empty')
+
+          BODY=$(cat <<EOF
+          The nightly self-host smoke test failed: \`docker compose up\` with no
+          settings, then sign-in with a log-delivered code, the scheduler's
+          agent-runs tick, and a restart that must keep the generated secrets.
+
+          Self-host installs (Docker Compose, and the Railway template, which
+          builds the same images) may be broken on \`main\`. The failing step
+          and the stack's logs are in the run.
+
+          Reproduce locally with the commands in the header of
+          \`scripts/selfhost/composeSmoke.ts\`.
+
+          [Smoke run log]($RUN_URL)
+          EOF
+          )
+
+          if [ -n "$EXISTING" ]; then
+            gh issue comment "$EXISTING" --body "$BODY"
+            echo "Commented on existing issue $EXISTING"
+          else
+            gh issue create --title "$ISSUE_TITLE" --body "$BODY"
+          fi
+
+      # Close the alarm once a nightly run passes again.
+      - name: Stand down
+        if: success() && github.event_name == 'schedule'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          EXISTING=$(gh issue list --state open --limit 50 \
+            --json number,title \
+            --jq 'map(select(.title == env.ISSUE_TITLE)) | .[0].number // empty')
+          if [ -n "$EXISTING" ]; then
+            gh issue close "$EXISTING" --comment "The nightly self-host smoke test passes again."
+          fi
 
       - name: Tear down
         if: always()
