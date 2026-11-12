@@ -70,7 +70,7 @@ An open-source productivity and project management platform built with the T3 St
    | `DATABASE_URL` | PostgreSQL connection string |
    | `AUTH_SECRET` | Generate with `npx auth secret` |
    | `DATABASE_ENCRYPTION_KEY` | Generate with `openssl rand -base64 32` (required in production) |
-   | A way to sign in | An OAuth pair (Google or Discord), SMTP or Postmark for emailed sign-in codes, or `AUTH_LOG_SIGN_IN_CODES=true` to print codes to the server log |
+   | A way to sign in | An OAuth pair (Google or Discord), SMTP or Postmark for emailed sign-in codes, or `AUTH_LOG_SIGN_IN_CODES=true` to print the instance admin's codes to the server log |
 
    See [.env.example](.env.example) for all available configuration options.
 
@@ -140,7 +140,7 @@ private network; only the app needs a public address.
 | `MASTRA_API_URL` | app | required for agents | The Mastra service's private address, e.g. `http://mastra:4111`. Default: `http://localhost:4111`. |
 | `TODO_APP_BASE_URL` | mastra | required for agents | The app's private address, e.g. `http://app:3000`. Mastra's tools call back into the app here. |
 | `PORT` | app, mastra | optional | The port to listen on. Default: 3000 for the app; Mastra uses 4111. |
-| `AUTH_LOG_SIGN_IN_CODES` | app | one way in | `true` writes each sign-in code to the app's log instead of emailing it. Single-user installs only: anyone who can read the log can sign in. |
+| `AUTH_LOG_SIGN_IN_CODES` | app | one way in | `true` writes the instance admin's sign-in codes to the app's log instead of emailing them. Nobody else gets a code, and anyone who can read the log can sign in as the admin. |
 | `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_SECURE`, `EMAIL_FROM` | app | one way in | Email sign-in codes over any SMTP server. `SMTP_HOST` counts only together with a sender (`EMAIL_FROM`). |
 | `AUTH_POSTMARK_KEY` | app | one way in | Email sign-in codes over Postmark (wins over SMTP). |
 | `SCHEDULER_TIMEOUT_MS` | scheduler | optional | How long one cron call may run. Default 300000 (5 minutes), minimum 270000. |
@@ -152,9 +152,36 @@ one turns on, is in [.env.selfhost.example](.env.selfhost.example). Variables
 starting `NEXT_PUBLIC_` (Sentry, web push, the support address) are fixed when
 the image is built, so a prebuilt image goes without them.
 
-Sign-up is open: anyone who can reach the install and complete a sign-in gets
-an account, as on exponential.im. There is no allowlist yet, so keep a private
-install off the public internet or choose a way in that strangers can't use.
+#### First run: claim the install
+
+A new install has no admin, and its URL may be public the moment it deploys,
+so it isn't "first visitor wins". While no instance admin exists, every start
+of `start:selfhost` prints a one-time **setup token** in the app's log:
+
+```
+[selfhost] This install has no admin yet. To claim it, open
+[selfhost]   https://exponential.example.com/setup
+[selfhost] and enter your email address with this setup token:
+[selfhost]   ABCDE-FGHJK-MNPQR-STVWX
+```
+
+Open `/setup` (`/signin` sends you there until the install is claimed), enter
+your email and the token, and you are signed in as the **instance admin**, with
+no email delivery needed. The token works once, expires after 24 hours, and
+each restart replaces it. Once claimed, `/setup` is a 404 and no token is
+printed again.
+
+To sign back in later without an email service, set `AUTH_LOG_SIGN_IN_CODES=true`:
+codes for the instance admin go to the log, and nobody else gets one. Configure
+SMTP, Postmark or an OAuth provider before inviting anyone.
+
+#### Sign-up is invite-only after the claim
+
+Claiming sets the install's **sign-up mode** to invite-only: an address with no
+account can sign in only if it has a pending workspace or team invitation, and
+anyone else is told the install is invite-only. Existing users and invitees are
+unaffected. The instance admin can switch sign-up back to open on the `/admin`
+dashboard. exponential.im is unaffected: with no setting, sign-up is open.
 
 ## Scripts
 
