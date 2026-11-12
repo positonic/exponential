@@ -107,6 +107,17 @@ describe("secrets-init.sh", () => {
     expect(output).toContain("Generated DATABASE_ENCRYPTION_KEY CRON_SECRET");
   });
 
+  it("can add a missing key to a file it already locked down (0400)", () => {
+    execFileSync("mkdir", ["-p", path.dirname(secretsFile)]);
+    writeFileSync(secretsFile, "export AUTH_SECRET='kept'\n", { mode: 0o400 });
+
+    runSecretsInit();
+
+    const secrets = parseSecrets(readFileSync(secretsFile, "utf8"));
+    expect(secrets.AUTH_SECRET).toBe("kept");
+    expect(secrets.CRON_SECRET).toBeDefined();
+  });
+
   it("leaves no temp file behind", () => {
     runSecretsInit();
     runSecretsInit();

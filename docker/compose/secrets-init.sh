@@ -38,7 +38,9 @@ tmp="$SECRETS_FILE.tmp.$$"
 trap 'rm -f "$tmp"' EXIT
 
 if [ -f "$SECRETS_FILE" ]; then
-  cp "$SECRETS_FILE" "$tmp"
+  # Not cp: that would copy the 0400 mode, and a non-root run could then not
+  # append to the copy.
+  cat "$SECRETS_FILE" > "$tmp"
 else
   : > "$tmp"
 fi

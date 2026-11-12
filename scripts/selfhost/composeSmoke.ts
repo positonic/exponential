@@ -143,10 +143,17 @@ async function composeExec(service: string, command: string[]): Promise<string> 
 /** Poll `check` every `everyMs` until it returns a value, or fail after `timeoutMs`. */
 async function waitFor<T>(what: string, timeoutMs: number, check: () => Promise<T | null>, everyMs = 3_000): Promise<T> {
   const deadline = Date.now() + timeoutMs;
+  let lastError = "";
   for (;;) {
-    const value = await check().catch(() => null);
+    const value = await check().catch((error: unknown) => {
+      lastError = error instanceof Error ? error.message : String(error);
+      return null;
+    });
     if (value !== null) return value;
-    if (Date.now() > deadline) throw new SmokeFailure(`timed out after ${Math.round(timeoutMs / 1000)}s waiting for ${what}`);
+    if (Date.now() > deadline) {
+      const cause = lastError ? ` (last error: ${lastError.trim().split("\n")[0]})` : "";
+      throw new SmokeFailure(`timed out after ${Math.round(timeoutMs / 1000)}s waiting for ${what}${cause}`);
+    }
     await sleep(everyMs);
   }
 }
