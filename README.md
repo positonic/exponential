@@ -104,6 +104,56 @@ npm run start:selfhost      # checks env and pgvector, applies migrations, serve
 npm run scheduler:selfhost  # in a second process: runs the scheduled jobs (reads the same .env)
 ```
 
+#### Container images
+
+Two images, both built from the repo root. Neither bakes in any
+configuration: every variable is read when the container starts.
+
+```bash
+docker build -t exponential-app .                                          # the app
+docker build -f docker/scheduler.Dockerfile -t exponential-scheduler .      # the scheduler
+```
+
+- **App** (`Dockerfile`): starts with `npm run start:selfhost`, so the
+  container checks its environment and pgvector, applies pending migrations,
+  then serves on port 3000. Health check: `GET /api/health`. The build needs
+  a builder with **at least 10 GB of memory**: measured in a container, its
+  working set peaks at about 9.2 GB, it completes under a 10 GB limit, and it
+  is killed for running out of memory under 8 GB (with 4 CPUs or 14).
+- **Scheduler** (`docker/scheduler.Dockerfile`): a small Node image with no
+  Next build. It calls the app's cron routes on `vercel.json`'s schedule, so
+  point `SCHEDULER_TARGET_URL` at the app's address on the network they share.
+
+A full install is four services: Postgres with pgvector, the app, the
+scheduler, and the [Mastra agent service](https://github.com/positonic/mastra)
+(agent runs and chat; optional, like every AI key). The scheduler and Mastra reach the app over the
+private network; only the app needs a public address.
+
+| Variable | Service | Needed | Value |
+|---|---|---|---|
+| `DATABASE_URL` | app, mastra | required | Postgres 16 with pgvector 0.5.0+, e.g. the `pgvector/pgvector:pg16` image. Mastra shares the database (it keeps its tables in schema `mastra`). |
+| `AUTH_SECRET` | app, mastra | required | `openssl rand -base64 32`. The same value on both: Mastra verifies the app's tokens with it. |
+| `DATABASE_ENCRYPTION_KEY` | app | required | 32 bytes, raw or base64: `openssl rand -base64 32`. |
+| `OPENAI_API_KEY` | app, mastra | optional (AI) | Turns on meeting summaries, extraction, semantic search and indexing, digests, AI workflow steps and size suggestions. Without it those features are off and say how to turn them on. |
+| `ANTHROPIC_API_KEY` | app, mastra | optional (AI) | On the app: Claude-written summaries and workspace updates, YouTube articles. Mastra needs it for agent runs and chat. |
+| `NEXTAUTH_URL` | app | recommended | The public URL, no trailing slash, e.g. `https://exponential.example.com`. Links in email and callbacks are built from it. Default: `http://localhost:${PORT}`. |
+| `CRON_SECRET` | app, scheduler | required for scheduled jobs | `openssl rand -base64 32`. The same value on both: the cron routes reject calls without it. |
+| `SCHEDULER_TARGET_URL` | scheduler | required in a container | The app's private address, e.g. `http://app:3000`. Default: `http://localhost:3000`. |
+| `MASTRA_API_URL` | app | optional (Assistant) | The Mastra service's private address, e.g. `http://mastra:4111`. Unset means no Assistant: chat, Assign to Assistant and voice are hidden. |
+| `TODO_APP_BASE_URL` | mastra | required for agents | The app's private address, e.g. `http://app:3000`. Mastra's tools call back into the app here. |
+| `PORT` | app, mastra | optional | The port to listen on. Default: 3000 for the app; Mastra uses 4111. |
+| `AUTH_LOG_SIGN_IN_CODES` | app | one way in | `true` writes each sign-in code to the app's log instead of emailing it. Single-user installs only: anyone who can read the log can sign in. |
+| `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_SECURE`, `EMAIL_FROM` | app | one way in | Email sign-in codes over any SMTP server. `SMTP_HOST` counts only together with a sender (`EMAIL_FROM`). |
+| `AUTH_POSTMARK_KEY` | app | one way in | Email sign-in codes over Postmark (wins over SMTP). |
+| `SCHEDULER_TIMEOUT_MS` | scheduler | optional | How long one cron call may run. Default 300000 (5 minutes), minimum 270000. |
+
+A way in means at least one of: log delivery, SMTP, Postmark, or an OAuth
+provider (Google, Discord, Notion). With none, `/signin` shows a setup error
+naming these variables. Every other optional variable, and the feature each
+one turns on, is in [.env.selfhost.example](.env.selfhost.example). Variables
+starting `NEXT_PUBLIC_` (Sentry, web push, the support address) are fixed when
+the image is built, so a prebuilt image goes without them.
+
 Sign-up is open: anyone who can reach the install and complete a sign-in gets
 an account, as on exponential.im. There is no allowlist yet, so keep a private
 install off the public internet or choose a way in that strangers can't use.
