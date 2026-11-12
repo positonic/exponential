@@ -117,7 +117,7 @@ export function preflightEnv(env: SignInEnv): EnvPreflight {
     active.length > 0
       ? [`[selfhost] Sign-in methods: ${active.join(", ")}`]
       : [
-          `[selfhost] WARNING: no sign-in method is configured, so nobody can sign in. /signin will show a setup error. Set one of: ${methods.missing.join(", ")}.`,
+          `[selfhost] WARNING: no sign-in method is configured. An unclaimed install can still be claimed once at /setup with the setup token, but once that admin signs out nobody can sign in, and /signin shows a setup error. Set one of: ${methods.missing.join(", ")}.`,
         ];
 
   return { error: null, lines: [...lines, ...signInMethodWarnings(env)] };
