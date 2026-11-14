@@ -16,6 +16,7 @@ import { after } from "next/server";
 import { enqueueAgentRunsForAssignees, cancelQueuedRunsForUnassigned } from "~/server/services/agentRuns/enqueue";
 import { triggerDispatch } from "~/server/services/agentRuns/dispatch";
 import { activeRunInclude, withActiveRun } from "~/server/services/agentRuns/include";
+import { RUN_ELIGIBLE_AGENT_WHERE } from "~/server/services/agentRuns/constants";
 import { getActionAccess, canViewAction, canEditAction, getProjectAccess, hasProjectAccess, isProjectInsider, canEditProject, buildActionAccessWhere, buildActionEditWhere, buildActionDeleteWhere, requireProjectAccess } from "~/server/services/access";
 import { apiKeyMiddleware } from "~/server/api/middleware/apiKeyAuth";
 import { uploadToBlob } from "~/lib/blob";
@@ -1759,7 +1760,7 @@ export const actionRouter = createTRPCRouter({
       // per action, coalesced against live runs (ADR-0067). One principal
       // lookup up front so a human-only bulk assign costs nothing extra.
       const agentAssignees = await ctx.db.externalAgent.count({
-        where: { shadowUserId: { in: input.userIds }, assistant: { isNot: null } },
+        where: { shadowUserId: { in: input.userIds }, ...RUN_ELIGIBLE_AGENT_WHERE },
       });
       if (agentAssignees > 0) {
         let kick = false;

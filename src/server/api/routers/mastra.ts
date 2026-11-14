@@ -447,7 +447,8 @@ export const mastraRouter = createTRPCRouter({
       // else simply doesn't resolve, and the request falls through to `agentId`.
       if (input.assistantId) {
         const assistant = await ctx.db.assistant.findFirst({
-          where: { id: input.assistantId, createdById: ctx.session.user.id },
+          // A retired Assistant (ADR-0072) never lends its persona, as in the stream route.
+          where: { id: input.assistantId, createdById: ctx.session.user.id, retiredAt: null },
         });
 
         if (assistant) {
