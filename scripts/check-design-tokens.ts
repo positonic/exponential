@@ -12,7 +12,11 @@
  * Three checks:
  *
  * 1. Undefined custom properties (hard fail). `var(--x)` where `--x` is
- *    declared nowhere under src/. An undefined variable makes the declaration
+ *    declared nowhere under src/. References are read from src/ AND from
+ *    tailwind.config.ts: a utility mapped to an undeclared variable
+ *    (`bg-warning-bg` -> `var(--color-warning-bg)`) compiles to a declaration
+ *    that paints nothing, and no file under src/ contains the `var()` text.
+ *    An undefined variable makes the declaration
  *    invalid at computed-value time, so `border-radius: var(--radius-md)`
  *    silently renders 0 and `font-family: var(--font-sans)` silently
  *    inherits. This is exactly how the meeting detail page shipped with square
@@ -66,11 +70,15 @@ export type Baseline = Record<string, number>;
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(HERE, "..");
-const SRC = path.join(ROOT, "src");
 const BASELINE_PATH = path.join(HERE, "design-tokens-baseline.json");
 
 const SCAN_EXT = new Set([".css", ".ts", ".tsx"]);
 const SKIP_DIRS = new Set(["node_modules", ".next", "__tests__", "test"]);
+
+// Files outside src/ that turn a class name into a `var()` reference. The
+// Tailwind theme is where `bg-error-bg` becomes `var(--color-error-bg)`, so a
+// token it names must be declared just like one a stylesheet names.
+export const ROOT_CONFIG_FILES = ["tailwind.config.ts"];
 
 // Files allowed to hold raw colour values for the colour hook (see
 // .husky/pre-commit). They may paint a shadow with a literal because that is
@@ -90,6 +98,10 @@ const PRIMITIVES_DIR = "src/app/_components/ui/";
 // component-scoped vars (`--tab-border-color`, `--button-bg`, ...) carry no
 // prefix, so those are collected from its stylesheets below instead.
 const EXTERNAL_VAR_PREFIXES = ["--mantine-", "--tw-", "--xy-", "--rf-"];
+// Declared by a package at build time, with no stylesheet to read: the `geist`
+// font package emits `--font-geist-sans` on the class every root layout puts
+// on <html> (`GeistSans.variable`).
+const EXTERNAL_VARS = new Set(["--font-geist-sans"]);
 const VENDOR_STYLESHEETS = [
   "node_modules/@mantine/core/styles.css",
   "node_modules/@mantine/dates/styles.css",
@@ -127,7 +139,9 @@ export function stripComments(text: string): string {
 /**
  * Every custom property the source declares. CSS (`--x: 1px;`), style-object
  * keys (`'--x': 1`), and `setProperty('--x', …)` all count: a property set
- * from JS at runtime is as defined as one in a stylesheet.
+ * from JS at runtime is as defined as one in a stylesheet. So does the
+ * `variable: '--font-x'` option of a next/font loader (src/lib/fonts.ts), which
+ * emits a class declaring that property.
  *
  * Only real declaration positions count: a CSS declaration starts a
  * statement (after `{`, `;` or a line start) and a JS key follows `{`, `,` or
@@ -139,11 +153,13 @@ export function collectDefinitions(sources: Map<string, string>): Set<string> {
   const cssDecl = /(?:^|[{;])\s*(--[A-Za-z0-9_-]+)\s*:/gm;
   const jsKey = /(?:^|[{,])\s*['"](--[A-Za-z0-9_-]+)['"]\s*:/gm;
   const setProp = /setProperty\(\s*['"](--[A-Za-z0-9_-]+)['"]/g;
+  const fontVariable = /(?:^|[{,])\s*variable\s*:\s*['"](--font-[A-Za-z0-9_-]+)['"]/gm;
   for (const raw of sources.values()) {
     const text = stripComments(raw);
     for (const m of text.matchAll(cssDecl)) defs.add(m[1]!);
     for (const m of text.matchAll(jsKey)) defs.add(m[1]!);
     for (const m of text.matchAll(setProp)) defs.add(m[1]!);
+    for (const m of text.matchAll(fontVariable)) defs.add(m[1]!);
   }
   return defs;
 }
@@ -213,6 +229,7 @@ export function findUndefinedVars(
   for (const m of text.matchAll(ref)) {
     const name = m[1]!;
     if (EXTERNAL_VAR_PREFIXES.some((p) => name.startsWith(p))) continue;
+    if (EXTERNAL_VARS.has(name)) continue;
     if (defs.has(name)) continue;
     out.push({
       file,
@@ -379,12 +396,24 @@ export function buildReport(findings: Finding[], baseline: Baseline): Report {
   return { hard, ratcheted, counts, regressions, improvements };
 }
 
-export function run(opts: { updateBaseline: boolean }): number {
-  const files = walk(SRC);
+/**
+ * Everything the checks read, keyed by repo-relative path: every scannable
+ * file under src/, plus the root config files that reference tokens.
+ */
+export function loadSources(root: string = ROOT): Map<string, string> {
   const sources = new Map<string, string>();
-  for (const abs of files) {
-    sources.set(path.relative(ROOT, abs), fs.readFileSync(abs, "utf8"));
+  for (const abs of walk(path.join(root, "src"))) {
+    sources.set(path.relative(root, abs), fs.readFileSync(abs, "utf8"));
   }
+  for (const rel of ROOT_CONFIG_FILES) {
+    const abs = path.join(root, rel);
+    if (fs.existsSync(abs)) sources.set(rel, fs.readFileSync(abs, "utf8"));
+  }
+  return sources;
+}
+
+export function run(opts: { updateBaseline: boolean }): number {
+  const sources = loadSources();
   const vendor = new Map<string, string>();
   for (const rel of VENDOR_STYLESHEETS) {
     const abs = path.join(ROOT, rel);
@@ -394,6 +423,9 @@ export function run(opts: { updateBaseline: boolean }): number {
   const findings: Finding[] = [];
   for (const [file, text] of sources) {
     findings.push(...findUndefinedVars(file, text, defs));
+    // A config file is read for the variables it references. The shape checks
+    // below are about how src/ draws boxes and do not apply to it.
+    if (ROOT_CONFIG_FILES.includes(file)) continue;
     if (file.endsWith(".css")) findings.push(...findScopedShapeTokens(file, text));
     findings.push(...findRawValues(file, text));
   }
