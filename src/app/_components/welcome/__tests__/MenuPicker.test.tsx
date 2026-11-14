@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, cleanup, fireEvent, waitFor, within } from '~/test/test-utils';
 import '@testing-library/jest-dom/vitest';
+import { applyNavVisibility, parseNavLayout } from '~/lib/navLayout';
 import { MenuPicker } from '../MenuPicker';
 
 const {
@@ -11,6 +12,7 @@ const {
   mockSetVisibleItems,
   mockSetUseCase,
   mockSetPreferencesData,
+  mockInvalidate,
 } = vi.hoisted(() => ({
   mockGetPreferences: vi.fn(() => ({ data: { navLayout: null as unknown }, isLoading: false })),
   mockGetWorkspaceLayout: vi.fn(() => ({ data: { navLayout: null as unknown }, isLoading: false })),
@@ -18,7 +20,10 @@ const {
   mockGetSetup: vi.fn(() => ({ data: { state: { useCase: null as string | null } } })),
   mockSetVisibleItems: vi.fn((_input: { visibleItemIds: string[] }) => Promise.resolve({ navLayout: [] })),
   mockSetUseCase: vi.fn(),
-  mockSetPreferencesData: vi.fn(),
+  mockSetPreferencesData: vi.fn(
+    (_input: undefined, _updater: (old: { navLayout: unknown }) => { navLayout: unknown }) => undefined,
+  ),
+  mockInvalidate: vi.fn(() => Promise.resolve()),
 }));
 
 vi.mock('~/providers/WorkspaceProvider', () => ({
@@ -31,7 +36,7 @@ vi.mock('~/trpc/react', () => ({
   api: {
     useUtils: () => ({
       navigationPreference: {
-        invalidate: vi.fn(),
+        invalidate: mockInvalidate,
         getPreferences: { cancel: vi.fn(), setData: mockSetPreferencesData },
         getWorkspaceLayout: { cancel: vi.fn(), invalidate: vi.fn(), setData: vi.fn() },
       },
@@ -62,14 +67,35 @@ const sw = (name: string) => screen.getByRole('switch', { name });
 const lastSaved = () => mockSetVisibleItems.mock.calls.at(-1)?.[0]?.visibleItemIds;
 
 describe('MenuPicker', () => {
+  // A stand-in for the user-wide layout query and the server behind it: the
+  // optimistic write lands in `cached`, a successful save in `stored`, and a
+  // refetch copies `stored` over `cached`. Enough to watch the picker after
+  // it has let go of its draft.
+  let stored: unknown = null;
+  let cached: unknown = null;
+
   beforeEach(() => {
-    mockGetPreferences.mockReturnValue({ data: { navLayout: null }, isLoading: false });
+    stored = null;
+    cached = null;
+    mockGetPreferences.mockImplementation(() => ({ data: { navLayout: cached }, isLoading: false }));
+    mockSetPreferencesData.mockReset();
+    mockSetPreferencesData.mockImplementation((_input, updater) => {
+      cached = updater({ navLayout: cached }).navLayout;
+    });
+    mockSetVisibleItems.mockReset();
+    mockSetVisibleItems.mockImplementation(({ visibleItemIds }) => {
+      stored = applyNavVisibility(parseNavLayout(stored), visibleItemIds);
+      return Promise.resolve({ navLayout: [] });
+    });
+    mockInvalidate.mockReset();
+    mockInvalidate.mockImplementation(() => {
+      cached = stored;
+      return Promise.resolve();
+    });
     mockGetWorkspaceLayout.mockReturnValue({ data: { navLayout: null }, isLoading: false });
     mockEnabledPlugins.mockReturnValue({ data: [], isLoading: false });
     mockGetSetup.mockReturnValue({ data: { state: { useCase: null } } });
-    mockSetVisibleItems.mockClear();
     mockSetUseCase.mockClear();
-    mockSetPreferencesData.mockClear();
   });
 
   afterEach(() => {
@@ -132,6 +158,7 @@ describe('MenuPicker', () => {
     await waitFor(() => expect(lastSaved()).toEqual(['goals', 'actions', 'projects']));
     // The sidebar's own query is rewritten at once, so the real menu follows.
     expect(mockSetPreferencesData).toHaveBeenCalled();
+    expect(mockInvalidate).toHaveBeenCalled();
     await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('3 of 10 switched on'));
     await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('Saved'));
   });
@@ -158,7 +185,63 @@ describe('MenuPicker', () => {
     render(<MenuPicker />);
     fireEvent.click(sw('CRM'));
     await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('Not saved'));
-    expect(sw('CRM')).not.toBeChecked();
+    await waitFor(() => expect(sw('CRM')).not.toBeChecked());
+  });
+
+  it('carries on from a failed save when a later choice went through', async () => {
+    // Every save sends the whole menu, so the later one includes the earlier change.
+    mockSetVisibleItems.mockRejectedValueOnce(new Error('offline'));
+    render(<MenuPicker />);
+    fireEvent.click(sw('CRM'));
+    fireEvent.click(sw('Agents'));
+    await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('Saved'));
+    expect(lastSaved()).toEqual(expect.arrayContaining(['crm', 'agents']));
+    expect(sw('CRM')).toBeChecked();
+    expect(sw('Agents')).toBeChecked();
+    expect(screen.getByRole('status')).not.toHaveTextContent('Not saved');
+  });
+
+  it('follows the sidebar again once a save has landed, and does not undo edits made there', async () => {
+    const { rerender } = render(<MenuPicker />);
+    fireEvent.click(sw('CRM'));
+    await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('Saved'));
+    await waitFor(() => expect(mockInvalidate).toHaveBeenCalled());
+
+    // The customiser, open beside the picker, hides Goals in this workspace.
+    mockGetWorkspaceLayout.mockReturnValue({
+      isLoading: false,
+      data: { navLayout: applyNavVisibility(parseNavLayout(cached), ['decisions', 'projects', 'pages', 'meetings', 'crm']) },
+    });
+    rerender(<MenuPicker />);
+    await waitFor(() => expect(sw('Goals')).not.toBeChecked());
+    expect(sw('CRM')).toBeChecked();
+
+    // The next switch builds on that edit instead of sending a stale menu over it.
+    fireEvent.click(sw('Agents'));
+    await waitFor(() => expect(lastSaved()).toContain('agents'));
+    expect(lastSaved()).not.toContain('goals');
+    expect(lastSaved()).toContain('crm');
+  });
+
+  it('keeps a choice in place while its save is still on the way', async () => {
+    let release: () => void = () => undefined;
+    mockSetVisibleItems.mockImplementationOnce(
+      () => new Promise((resolve) => { release = () => resolve({ navLayout: [] }); }),
+    );
+    const { rerender } = render(<MenuPicker />);
+    fireEvent.click(sw('CRM'));
+    await waitFor(() => expect(mockSetVisibleItems).toHaveBeenCalled());
+
+    // A refetch lands mid-save with what the server still holds: CRM off.
+    cached = null;
+    rerender(<MenuPicker />);
+    expect(sw('CRM')).toBeChecked();
+    expect(screen.getByRole('status')).toHaveTextContent('Saving');
+
+    stored = applyNavVisibility(parseNavLayout(null), ['goals', 'decisions', 'projects', 'products', 'pages', 'meetings', 'crm']);
+    release();
+    await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('Saved'));
+    expect(sw('CRM')).toBeChecked();
   });
 
   it('shows the answer given on an earlier visit, and none for someone who skipped', () => {
@@ -189,7 +272,7 @@ describe('MenuPicker', () => {
   });
 
   it('holds the choices back until the saved menu has loaded', () => {
-    mockGetPreferences.mockReturnValue({ data: undefined as never, isLoading: true });
+    mockGetPreferences.mockImplementation(() => ({ data: undefined as never, isLoading: true }));
     render(<MenuPicker />);
     expect(screen.getByText('Loading your menu…')).toBeInTheDocument();
     expect(screen.queryByRole('switch')).not.toBeInTheDocument();
