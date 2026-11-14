@@ -94,6 +94,15 @@ export interface PersonSummary {
     image: string | null;
     isAgent: boolean;
   };
+  /** The person who owns the agent; `null` for a human subject. */
+  owner: { id: string; name: string | null; image: string | null } | null;
+  /**
+   * Workspaces the viewer and the subject both belong to today. The header
+   * lists them and the feed's workspace filter is built from them.
+   */
+  sharedWorkspaces: PersonWorkspaceRef[];
+  /** Positions the subject holds, in `sharedWorkspaces` only. */
+  positions: Array<{ workspaceId: string; positionId: string; title: string }>;
   isSelf: boolean;
 }
 
@@ -108,13 +117,54 @@ export async function getPersonSummary(
   subjectId: string,
 ): Promise<PersonSummary> {
   const scope = await resolvePersonScope(db, viewerId, subjectId);
+  const sharedIds = scope.sharedWorkspaces.map((workspace) => workspace.id);
 
-  const user = await db.user.findUnique({
-    where: { id: subjectId },
-    select: { id: true, name: true, image: true, isAgent: true },
-  });
+  const [user, holdings] = await Promise.all([
+    db.user.findUnique({
+      where: { id: subjectId },
+      select: { id: true, name: true, image: true, isAgent: true },
+    }),
+    // A holder is a `WorkspaceUser` row (ADR-0068), so a subject who reaches a
+    // workspace only through a team holds no Position there. That is correct.
+    sharedIds.length > 0
+      ? db.positionHolder.findMany({
+          where: {
+            workspaceUser: {
+              userId: subjectId,
+              workspaceId: { in: sharedIds },
+            },
+          },
+          select: {
+            position: {
+              select: { id: true, title: true, workspaceId: true },
+            },
+          },
+          orderBy: { position: { title: "asc" } },
+        })
+      : [],
+  ]);
   // Deleted between the scope check and here: same answer as never existing.
   if (!user) throw personNotFound();
 
-  return { user, isSelf: scope.isSelf };
+  // Every agent shadow user belongs to exactly one ExternalAgent, whose owner
+  // is required. An Assistant's principal is such an agent too (ADR-0067), so
+  // this is its owner as well — not `Assistant.createdById`.
+  const agent = user.isAgent
+    ? await db.externalAgent.findUnique({
+        where: { shadowUserId: subjectId },
+        select: { owner: { select: { id: true, name: true, image: true } } },
+      })
+    : null;
+
+  return {
+    user,
+    owner: agent?.owner ?? null,
+    sharedWorkspaces: scope.sharedWorkspaces,
+    positions: holdings.map(({ position }) => ({
+      workspaceId: position.workspaceId,
+      positionId: position.id,
+      title: position.title,
+    })),
+    isSelf: scope.isSelf,
+  };
 }

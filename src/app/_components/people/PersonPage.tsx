@@ -1,13 +1,20 @@
 'use client';
 
-import { Container, Skeleton, Stack, Text, Title } from '@mantine/core';
+import { Container, Skeleton, Stack } from '@mantine/core';
 import { IconClipboardList } from '@tabler/icons-react';
-import { notFound } from 'next/navigation';
+import {
+  notFound,
+  usePathname,
+  useRouter,
+  useSearchParams,
+} from 'next/navigation';
 import { api } from '~/trpc/react';
 import {
   ActivityRow,
   type FeedRowEvent,
 } from '~/app/_components/home/activity/activityRow';
+
+import { PersonHeader } from './PersonHeader';
 
 import '~/app/_components/home/activity/activity-home.css';
 
@@ -18,23 +25,47 @@ interface PersonPageProps {
 }
 
 /**
- * The Person page. Read-only: a header naming the subject and the feed of
- * their activity events. Both queries apply the same server-side rule, so a
+ * The Person page. Read-only: a header saying who the subject is and the feed
+ * of their activity events. Both queries apply the same server-side rule, so a
  * subject the viewer cannot see is the app's ordinary 404 — never a page that
  * confirms the account exists.
+ *
+ * The workspace filter lives in the URL as `?workspace=<id>`.
  */
 export function PersonPage({ userId }: PersonPageProps) {
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+
   const person = api.person.get.useQuery({ userId }, { retry: false });
+
+  // Only a shared workspace is a valid filter; anything else in the URL (a
+  // stale or hand-typed id) falls back to every workspace.
+  const requestedWorkspace = searchParams.get('workspace');
+  const workspaceId =
+    person.data?.sharedWorkspaces.find(
+      (workspace) => workspace.id === requestedWorkspace,
+    )?.id ?? null;
+
   const feed = api.person.getFeed.useQuery(
-    { userId, limit: PAGE_SIZE },
+    { userId, limit: PAGE_SIZE, workspaceId: workspaceId ?? undefined },
     { retry: false, enabled: person.isSuccess },
   );
+
+  // Each filter lives in the URL; its default value is left out of it.
+  function setParam(key: string, next: string | null) {
+    const params = new URLSearchParams(searchParams.toString());
+    if (next === null) params.delete(key);
+    else params.set(key, next);
+    const qs = params.toString();
+    router.replace(qs ? `${pathname}?${qs}` : pathname);
+  }
 
   if (person.error?.data?.code === 'NOT_FOUND') notFound();
 
   if (person.isLoading || !person.data) {
     return (
-      <Container size="md" className="py-8">
+      <Container size="md" className="w-full py-8">
         <Stack gap="md">
           <Skeleton height={32} width="40%" />
           <Skeleton height={220} />
@@ -51,21 +82,13 @@ export function PersonPage({ userId }: PersonPageProps) {
   }));
 
   return (
-    <Container size="md" className="py-8">
+    <Container size="md" className="w-full py-8">
       <Stack gap="lg">
-        <div>
-          <Text
-            size="xs"
-            tt="uppercase"
-            className="text-text-muted"
-            style={{ letterSpacing: '0.08em' }}
-          >
-            Person
-          </Text>
-          <Title order={1} className="text-text-primary" mt={4}>
-            {name}
-          </Title>
-        </div>
+        <PersonHeader
+          person={person.data}
+          workspaceId={workspaceId}
+          onWorkspaceChange={(next) => setParam('workspace', next)}
+        />
 
         <section className="wsa-card" aria-label={`${name}'s activity`}>
           <div className="wsa-card__head">
@@ -83,7 +106,8 @@ export function PersonPage({ userId }: PersonPageProps) {
             </Stack>
           ) : events.length === 0 ? (
             <p className="wsa-feed__empty">
-              Nothing from {name} yet in the workspaces you share.
+              Nothing from {name} yet
+              {workspaceId ? ' in this workspace' : ' in your workspaces'}.
             </p>
           ) : (
             events.map((event) => (

@@ -111,6 +111,10 @@ interface World {
   workspaces: WorkspaceFixture[];
   events: EventFixture[];
   users: Array<{ id: string; name: string; image: string | null; isAgent: boolean }>;
+  /** `ExternalAgent` rows: shadow user → owner. */
+  agents: Array<{ shadowUserId: string; ownerId: string }>;
+  /** Positions held, each through a `WorkspaceUser` row of that workspace. */
+  positions: Array<{ id: string; title: string; workspaceId: string; holderId: string }>;
 }
 
 function workspace(
@@ -240,6 +244,32 @@ function installWorld(dbMock: DeepMockProxy<PrismaClient>, world: World) {
     Promise.resolve(
       world.users.find((u) => u.id === args.where.id) ?? null,
     )) as never);
+
+  dbMock.externalAgent.findUnique.mockImplementation(((args: {
+    where: { shadowUserId?: string };
+  }) => {
+    const agent = world.agents.find(
+      (a) => a.shadowUserId === args.where.shadowUserId,
+    );
+    const owner = world.users.find((u) => u.id === agent?.ownerId);
+    return Promise.resolve(
+      owner ? { owner: { id: owner.id, name: owner.name, image: owner.image } } : null,
+    );
+  }) as never);
+
+  dbMock.positionHolder.findMany.mockImplementation(((args: {
+    where: { workspaceUser: { userId: string; workspaceId: { in: string[] } } };
+  }) => {
+    const { userId, workspaceId } = args.where.workspaceUser;
+    return Promise.resolve(
+      world.positions
+        .filter((p) => p.holderId === userId && workspaceId.in.includes(p.workspaceId))
+        .sort((a, b) => a.title.localeCompare(b.title))
+        .map((p) => ({
+          position: { id: p.id, title: p.title, workspaceId: p.workspaceId },
+        })),
+    );
+  }) as never);
 }
 
 function baseWorld(): World {
@@ -264,6 +294,8 @@ function baseWorld(): World {
       { id: SUBJECT, name: "Sam Subject", image: null, isAgent: false },
       { id: STRANGER, name: "Stan Stranger", image: null, isAgent: false },
     ],
+    agents: [],
+    positions: [],
   };
 }
 
@@ -392,6 +424,57 @@ describe("person router", () => {
       const result = await asViewer().person.get({ userId: SUBJECT });
 
       expect(result.user.id).toBe(SUBJECT);
+      expect(result.sharedWorkspaces).toEqual([]);
+    });
+
+    it("lists only the workspaces the viewer and the subject both belong to today", async () => {
+      const result = await asViewer().person.get({ userId: SUBJECT });
+
+      // Not beta (the subject left) and not gamma (the viewer is not in it).
+      expect(result.sharedWorkspaces).toEqual([
+        { id: "alpha", name: "ALPHA", slug: "alpha" },
+      ]);
+    });
+
+    it("lists every workspace of the viewer's on their own page", async () => {
+      const result = await asViewer().person.get({ userId: VIEWER });
+
+      expect(result.sharedWorkspaces.map((w) => w.id)).toEqual(["alpha", "beta"]);
+    });
+
+    it("returns an agent's flag and the person who owns it", async () => {
+      const AGENT = "user-agent-shadow";
+      world.users.push({ id: AGENT, name: "Aria", image: null, isAgent: true });
+      world.agents.push({ shadowUserId: AGENT, ownerId: SUBJECT });
+      world.workspaces[0]!.members.push(AGENT);
+
+      const result = await asViewer().person.get({ userId: AGENT });
+
+      expect(result.user.isAgent).toBe(true);
+      expect(result.owner).toEqual({ id: SUBJECT, name: "Sam Subject", image: null });
+    });
+
+    it("has no owner for a human, and never looks one up", async () => {
+      const result = await asViewer().person.get({ userId: SUBJECT });
+
+      expect(result.owner).toBeNull();
+      expect(dbMock.externalAgent.findUnique).not.toHaveBeenCalled();
+    });
+
+    it("limits positions to shared workspaces", async () => {
+      world.positions.push(
+        { id: "pos-1", title: "Technical Director", workspaceId: "alpha", holderId: SUBJECT },
+        // Held in a workspace the viewer is not in: must not be revealed.
+        { id: "pos-2", title: "Secret Role", workspaceId: "gamma", holderId: SUBJECT },
+        // Someone else's position in the shared workspace.
+        { id: "pos-3", title: "Designer", workspaceId: "alpha", holderId: VIEWER },
+      );
+
+      const result = await asViewer().person.get({ userId: SUBJECT });
+
+      expect(result.positions).toEqual([
+        { workspaceId: "alpha", positionId: "pos-1", title: "Technical Director" },
+      ]);
     });
   });
 
