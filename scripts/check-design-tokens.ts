@@ -423,8 +423,16 @@ export function run(opts: { updateBaseline: boolean }): number {
   const findings: Finding[] = [];
   for (const [file, text] of sources) {
     findings.push(...findUndefinedVars(file, text, defs));
-    // A config file is read for the variables it references. The shape checks
-    // below are about how src/ draws boxes and do not apply to it.
+    // A config file is read only for the variables it references. Skipping
+    // the rest is deliberate, and it exempts the file from no colour rule:
+    // - findRawValues is shape-only and keys off what src/ writes: className
+    //   strings, `borderRadius:` / `boxShadow:` style keys, CSS declarations.
+    //   A Tailwind theme has none of those, so all it reports here is the
+    //   `rounded-[10px]` example in the config's own comment.
+    // - A hex literal in the config is still rejected by the colour grep in
+    //   .husky/pre-commit, which reads every staged .ts file.
+    // Known gap, covered by neither: a raw rgba() shadow written into the
+    // theme's `boxShadow` map. Every entry there is a var(--shadow-*) today.
     if (ROOT_CONFIG_FILES.includes(file)) continue;
     if (file.endsWith(".css")) findings.push(...findScopedShapeTokens(file, text));
     findings.push(...findRawValues(file, text));
