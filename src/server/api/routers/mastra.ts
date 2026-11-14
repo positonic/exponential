@@ -20,6 +20,7 @@ import { getKnowledgeService } from "~/server/services/KnowledgeService";
 import { generateAgentJWT, generateJWT } from "~/server/utils/jwt";
 import { capToolCallsForTurn, redactToolArgs } from "~/server/utils/redactToolArgs";
 import { resolveAgentActionSource } from "~/server/utils/actionSource";
+import { resolvePrincipal } from "~/server/services/access/principal";
 import { actionWriteDeps, applyActionUpdate, createAction } from "~/server/services/actions";
 import jwt from "jsonwebtoken";
 import crypto from "crypto";
@@ -1395,7 +1396,7 @@ export const mastraRouter = createTRPCRouter({
         dueDate: parseAgentDate(input.dueDate, "dueDate") ?? undefined,
         scheduledStart: parseAgentDate(input.scheduledStart, "scheduledStart") ?? undefined,
         projectId: input.projectId,
-        source: resolveAgentActionSource(ctx.tokenType),
+        source: resolveAgentActionSource(await resolvePrincipal(ctx), ctx.tokenType),
       });
 
       console.log(`✅ [tRPC createAction] CREATED: id=${action.id}, name="${action.name}", projectId=${action.projectId}`);
@@ -1486,7 +1487,7 @@ export const mastraRouter = createTRPCRouter({
         status: "ACTIVE",
         scheduledStart: scheduledStart ?? undefined,
         dueDate: dueDate ?? undefined,
-        source: resolveAgentActionSource(ctx.tokenType),
+        source: resolveAgentActionSource(await resolvePrincipal(ctx), ctx.tokenType),
       });
       const action = {
         ...created,

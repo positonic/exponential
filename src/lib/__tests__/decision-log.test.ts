@@ -7,6 +7,7 @@
 import { describe, it, expect } from "vitest";
 import {
   adrToLogRow,
+  agentDecisionAuthor,
   decisionGroup,
   decisionSourceFacet,
   decisionToLogRow,
@@ -198,5 +199,21 @@ describe("parsePeekKey", () => {
     expect(parsePeekKey("ticket-cmtufthy50016xs0cfrubhq5r")).toBeNull();
     expect(parsePeekKey("adr-")).toBeNull();
     expect(parsePeekKey("adr")).toBeNull();
+  });
+});
+
+describe("agentDecisionAuthor: who an AGENT decision says logged it", () => {
+  it("names the External agent or Assistant when its own shadow user logged it", () => {
+    expect(agentDecisionAuthor({ source: "AGENT", createdBy: { name: "Claude Code", isAgent: true } })).toBe("Claude Code");
+    expect(agentDecisionAuthor({ source: "AGENT", createdBy: { name: null, isAgent: true } })).toBe("an agent");
+  });
+
+  it("is Zoe when a person is the creator (Zoe logs under their identity)", () => {
+    expect(agentDecisionAuthor({ source: "AGENT", createdBy: { name: "James", isAgent: false } })).toBe("Zoe");
+  });
+
+  it("is nobody for a decision a person logged by hand or from a meeting", () => {
+    expect(agentDecisionAuthor({ source: "MANUAL", createdBy: { name: "James", isAgent: false } })).toBeNull();
+    expect(agentDecisionAuthor({ source: "MEETING", createdBy: null })).toBeNull();
   });
 });

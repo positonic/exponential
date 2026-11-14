@@ -25,6 +25,11 @@ agent logged directly skipped that step.
   Its reviewer finds it under the Inbox's "Draft decisions to review": the owner of the agent that
   logged it, or the person Zoe was acting for.
 - An `OPEN` question gets no default decider, and an agent is never defaulted in as one.
+- *Sharpened 2026-10-11 (record integrity, ADR-0071):* "agent principal" is the verified answer of
+  `resolvePrincipal`, so Zoe, the chat gateways and voice acting for a person are drafted by their
+  credential, not by the `source` label, and every agent's decision is labelled `AGENT`. Agent
+  principals also cannot move a confirmed decision's status (`setStatus`) or rewrite its statement,
+  body or decided date (`update`); they propose the change as a new draft instead.
 
 ## Rejected
 
