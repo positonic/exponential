@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { parseTranscript } from "../registry";
 import type { TranscriptInput } from "../types";
-import { FIREFLIES_BLOB, FIREFLIES_SENTENCES, MELISSA_PLAIN_TEXT } from "./fixtures";
+import { FIREFLIES_BLOB, FIREFLIES_SENTENCES, GRANOLA_TIMESTAMPED, MELISSA_PLAIN_TEXT } from "./fixtures";
 
 function input(partial: Partial<TranscriptInput>): TranscriptInput {
   return { transcription: null, sentencesJson: null, participants: [], ...partial };
@@ -18,6 +18,12 @@ describe("parseTranscript — dispatch", () => {
     const turns = parseTranscript(input({ transcription: MELISSA_PLAIN_TEXT }));
     expect(turns.map((t) => t.flavor)).toEqual(["me", "them", "me", "them"]);
     expect(turns.every((t) => t.startTime === null)).toBe(true);
+  });
+
+  it("routes a Granola timestamped transcript to labelled-turns, not the raw fallback", () => {
+    const turns = parseTranscript(input({ transcription: GRANOLA_TIMESTAMPED }));
+    expect(turns).toHaveLength(4);
+    expect(turns.every((t) => t.speaker !== null && t.startTime !== null)).toBe(true);
   });
 
   it("never lets a Fireflies blob fall through to labelled-turns", () => {

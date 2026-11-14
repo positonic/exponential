@@ -28,3 +28,14 @@ export const FIREFLIES_SENTENCES = [
 
 /** The same Fireflies data as a `{ sentences: [...] }` JSON blob. */
 export const FIREFLIES_BLOB = JSON.stringify({ sentences: FIREFLIES_SENTENCES });
+
+/**
+ * A Granola transcript: every block is `[m:ss] Source: text`, blocks separated
+ * by a blank line, the source being the audio channel rather than a person.
+ */
+export const GRANOLA_TIMESTAMPED = [
+  "[0:00] Microphone: Hello, can everyone hear me?",
+  "[0:04] System audio: Yes, loud and clear.",
+  "[1:15] Microphone: Good. Decision: we ship the importer on Friday.",
+  "[62:30] System audio: Agreed, Friday it is.",
+].join("\n\n");

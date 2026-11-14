@@ -24,7 +24,9 @@ import {
   chunkText,
   chunkTurns,
   extractNotesDecisionItems,
+  MAX_PASSAGE_CHARS,
   MAX_TRANSCRIPT_CHUNKS,
+  toPassages,
   filterNearDuplicateCandidates,
   filterNearDuplicateDecisions,
   findSupportingTurns,
@@ -38,6 +40,9 @@ const turn = (speaker: string, text: string, startTime: number | null = null): T
   flavor: "them",
   startTime,
 });
+
+/** What the raw fallback parser returns: the whole transcript, no speaker. */
+const rawTurn = (text: string): TranscriptTurn => ({ speaker: null, text, flavor: null, startTime: null });
 
 const TURNS: TranscriptTurn[] = [
   turn("Dev Fixture", "Morning. Blockers first - anything stuck?", 0),
@@ -228,6 +233,54 @@ describe("DecisionExtractionService.extractFromTranscript", () => {
     expect(run.chunksSkipped).toBe(total - MAX_TRANSCRIPT_CHUNKS);
   });
 
+  it("reads all of a transcript that parsed as one turn, and quotes the passage, not the meeting", async () => {
+    // What the raw fallback returns for a transcript the parser cannot split:
+    // the whole meeting in turn 0. The decision sits far past the first chunk.
+    const sentences = Array.from({ length: 300 }, (_, i) => `Sentence ${i} is ordinary filler about the weather.`);
+    sentences[250] = "Decision: the importer ships on Friday.";
+    const whole = [rawTurn(sentences.join(" "))];
+    const passages = toPassages(whole);
+    const cited = passages.findIndex((p) => p.text.includes("the importer ships on Friday"));
+    const chunks = chunkTurns(whole);
+    expect(chunks.length).toBeGreaterThan(1);
+    const citedChunk = chunks.findIndex((c) => c.indices.has(cited));
+    expect(citedChunk).toBeGreaterThan(0);
+
+    invokeMock.mockResolvedValue({ content: JSON.stringify({ decisions: [] }) });
+    for (let i = 0; i < citedChunk; i++) invokeMock.mockResolvedValueOnce({ content: JSON.stringify({ decisions: [] }) });
+    invokeMock.mockResolvedValueOnce({
+      content: JSON.stringify({ decisions: [{ statement: "The importer ships on Friday", evidenceTurnIndices: [cited] }] }),
+    });
+
+    const run = await DecisionExtractionService.extractFromTranscript(whole);
+
+    // Every chunk went to the model: nothing was cut off uncounted.
+    expect(run.chunksTotal).toBe(chunks.length);
+    expect(run.chunksSkipped).toBe(0);
+    expect(invokeMock).toHaveBeenCalledTimes(chunks.length);
+    const sent = invokeMock.mock.calls.map((call) => String((call[0] as Array<{ content: string }>)[1]!.content)).join("\n");
+    expect(sent).toContain("Sentence 0 is");
+    expect(sent).toContain("Sentence 299 is");
+
+    expect(run.candidates).toHaveLength(1);
+    const [evidence] = run.candidates[0]!.evidence;
+    expect(evidence!.turnIndex).toBe(0);
+    expect(evidence!.text).toContain("the importer ships on Friday");
+    expect(evidence!.text.length).toBeLessThanOrEqual(MAX_PASSAGE_CHARS);
+  });
+
+  it("counts the unread part of a one-turn transcript that is longer than the cap", async () => {
+    const whole = [rawTurn("Filler sentence about nothing in particular. ".repeat(2000))];
+    const total = chunkTurns(whole).length;
+    expect(total).toBeGreaterThan(MAX_TRANSCRIPT_CHUNKS);
+    invokeMock.mockResolvedValue({ content: JSON.stringify({ decisions: [] }) });
+
+    const run = await DecisionExtractionService.extractFromTranscript(whole);
+
+    expect(invokeMock).toHaveBeenCalledTimes(MAX_TRANSCRIPT_CHUNKS);
+    expect(run.chunksSkipped).toBe(total - MAX_TRANSCRIPT_CHUNKS);
+  });
+
   it("returns action items apart from decisions, each backed by a real turn", async () => {
     modelReturns({
       decisions: [
@@ -368,7 +421,41 @@ describe("chunkText", () => {
   });
 });
 
+describe("toPassages", () => {
+  it("leaves ordinary turns alone, one passage per turn at the same index", () => {
+    const passages = toPassages(TURNS);
+    expect(passages.map((p) => p.turnIndex)).toEqual(TURNS.map((_, i) => i));
+    expect(passages.map((p) => p.text)).toEqual(TURNS.map((t) => t.text));
+  });
+
+  it("cuts a long turn at sentence ends, losing no words and keeping its index", () => {
+    const text = Array.from({ length: 200 }, (_, i) => `This is sentence number ${i}.`).join(" ");
+    const passages = toPassages([turn("A", "short"), turn("B", text, 90)]);
+
+    expect(passages[0]).toMatchObject({ turnIndex: 0, text: "short" });
+    const long = passages.slice(1);
+    expect(long.length).toBeGreaterThan(1);
+    expect(long.every((p) => p.turnIndex === 1 && p.speaker === "B" && p.startTime === 90)).toBe(true);
+    expect(long.every((p) => p.text.length <= MAX_PASSAGE_CHARS && p.text.endsWith("."))).toBe(true);
+    expect(long.map((p) => p.text).join(" ")).toBe(text);
+  });
+
+  it("hard-cuts text with nowhere to break", () => {
+    const passages = toPassages([turn("A", "x".repeat(25))], 10);
+    expect(passages.map((p) => p.text.length)).toEqual([10, 10, 5]);
+  });
+});
+
 describe("chunkTurns", () => {
+  it("spreads a turn longer than a chunk over several chunks instead of truncating it", () => {
+    const text = Array.from({ length: 2000 }, (_, i) => `word${i}`).join(" ");
+    const chunks = chunkTurns([turn("S", text)]);
+    expect(chunks.length).toBeGreaterThan(1);
+    const sent = chunks.map((c) => c.text).join("\n");
+    expect(sent).toContain("word0 ");
+    expect(sent).toContain("word1999");
+  });
+
   it("never splits inside a turn and keeps absolute indices per chunk", () => {
     const turns = Array.from({ length: 10 }, (_, i) => turn("S", `turn ${i} ${"x".repeat(50)}`));
     const chunks = chunkTurns(turns, 200);
@@ -506,6 +593,21 @@ describe("findSupportingTurns", () => {
     expect(evidence.some((e) => e.turnIndex === 4)).toBe(true);
 
     expect(findSupportingTurns("Migrate the billing service to Kubernetes", TURNS)).toEqual([]);
+  });
+
+  it("scores a one-turn transcript by passage and quotes only the supporting passage", () => {
+    const sentences = Array.from({ length: 300 }, (_, i) => `Sentence ${i} is ordinary filler about the weather.`);
+    sentences[120] = "We agreed the billing service migrates to Kubernetes next quarter.";
+    const whole = [rawTurn(sentences.join(" "))];
+
+    const evidence = findSupportingTurns("Migrate the billing service to Kubernetes", whole);
+    expect(evidence).toHaveLength(1);
+    expect(evidence[0]!.turnIndex).toBe(0);
+    expect(evidence[0]!.text).toContain("billing service migrates to Kubernetes");
+    expect(evidence[0]!.text.length).toBeLessThanOrEqual(MAX_PASSAGE_CHARS);
+
+    // A whole meeting in one turn used to overlap with any statement at all.
+    expect(findSupportingTurns("Hire a designer for the onboarding flow", whole)).toEqual([]);
   });
 });
 

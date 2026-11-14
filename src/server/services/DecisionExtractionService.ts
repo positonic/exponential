@@ -33,7 +33,6 @@ import { ChatOpenAI } from "@langchain/openai";
 import { HumanMessage, SystemMessage } from "@langchain/core/messages";
 import type { TranscriptTurn } from "~/lib/transcript";
 import type { DecisionEvidenceTurn } from "~/lib/decision-evidence";
-import { turnToEvidence } from "~/lib/decision-evidence";
 
 /** One extracted decision, before anyone has confirmed it. */
 export interface DecisionCandidate {
@@ -116,6 +115,16 @@ const MAX_CHARS_PER_CHUNK = 6000;
 export const MAX_TRANSCRIPT_CHUNKS = 6;
 /** The same bound for notes, which are far shorter in practice. */
 export const MAX_NOTES_CHUNKS = 4;
+/**
+ * Longest stretch of one turn the extractor reads, cites and quotes as a unit.
+ * A turn is normally a few sentences, but a transcript the parser could not
+ * split arrives as ONE turn holding the whole meeting. Longer turns are cut
+ * into passages of this size, so the model reads all of the turn and a draft
+ * quotes the part that supports it, not the meeting.
+ */
+export const MAX_PASSAGE_CHARS = 1500;
+/** Passages of one turn a single evidence row may quote. */
+const MAX_PASSAGES_PER_EVIDENCE_TURN = 3;
 
 /**
  * Split prose on paragraph boundaries, falling back to a hard cut for a
@@ -399,12 +408,84 @@ export function extractNotesDecisionItems(notesText: string): DecisionCandidate[
   }));
 }
 
+/** A turn, or one stretch of a turn longer than {@link MAX_PASSAGE_CHARS}. */
+export interface TranscriptPassage {
+  /** Canonical index of the turn this passage belongs to. */
+  turnIndex: number;
+  speaker: string | null;
+  startTime: number | null;
+  text: string;
+}
+
+/** Cut text into pieces of at most `maxChars`, at a line, sentence or word end. */
+function splitLongText(text: string, maxChars: number): string[] {
+  const pieces: string[] = [];
+  // A break in the first half of the window would make a needlessly short piece.
+  const floor = Math.max(1, Math.floor(maxChars / 2));
+  let rest = text.trim();
+  while (rest.length > maxChars) {
+    const window = rest.slice(0, maxChars);
+    let cut = window.lastIndexOf("\n");
+    if (cut < floor) cut = Math.max(window.lastIndexOf(". "), window.lastIndexOf("? "), window.lastIndexOf("! ")) + 1;
+    if (cut < floor) cut = window.lastIndexOf(" ");
+    if (cut < floor) cut = maxChars;
+    pieces.push(rest.slice(0, cut).trim());
+    rest = rest.slice(cut).trim();
+  }
+  if (rest.length > 0) pieces.push(rest);
+  return pieces;
+}
+
+/**
+ * The units the extractor works in. A turn within the budget is one passage,
+ * so for an ordinary transcript passage `n` is turn `n`. A longer turn becomes
+ * several passages that all keep its `turnIndex`.
+ */
+export function toPassages(turns: TranscriptTurn[], maxChars: number = MAX_PASSAGE_CHARS): TranscriptPassage[] {
+  return turns.flatMap((turn, turnIndex) => {
+    const pieces = splitLongText(turn.text, maxChars);
+    // An empty turn still takes its slot, or every later index would shift.
+    return (pieces.length > 0 ? pieces : [""]).map((text) => ({
+      turnIndex,
+      speaker: turn.speaker,
+      startTime: turn.startTime,
+      text,
+    }));
+  });
+}
+
+/**
+ * Evidence rows for the cited passages: one row per turn, in transcript order.
+ * A turn cited whole quotes its full text. A turn cited by passage quotes those
+ * passages only (the first few), with a gap marked where they are not adjacent.
+ */
+function passagesToEvidence(passages: TranscriptPassage[], passageIndices: number[]): DecisionEvidenceTurn[] {
+  const byTurn = new Map<number, number[]>();
+  for (const index of [...new Set(passageIndices)].sort((a, b) => a - b)) {
+    const passage = passages[index];
+    if (!passage) continue;
+    const cited = byTurn.get(passage.turnIndex) ?? [];
+    if (cited.length < MAX_PASSAGES_PER_EVIDENCE_TURN) cited.push(index);
+    byTurn.set(passage.turnIndex, cited);
+  }
+  return Array.from(byTurn, ([turnIndex, cited]) => {
+    const first = passages[cited[0]!]!;
+    const text = cited
+      .map((index, i) => `${i > 0 ? (index === cited[i - 1]! + 1 ? " " : " … ") : ""}${passages[index]!.text}`)
+      .join("");
+    return { turnIndex, speaker: first.speaker, startTime: first.startTime, text };
+  });
+}
+
 /**
  * Find the transcript turns that support a notes-derived statement, so a
  * notes candidate carries evidence like a transcript one. Deterministic
  * token overlap; the strongest one to three turns above the threshold, in
  * transcript order. Empty when nothing supports it — the caller discards
  * the candidate (ADR-0060: no evidence, no draft).
+ *
+ * Scored per passage: against a turn that holds the whole meeting, every
+ * statement would overlap and the "quote" would be the transcript.
  */
 export function findSupportingTurns(
   statement: string,
@@ -413,32 +494,37 @@ export function findSupportingTurns(
 ): DecisionEvidenceTurn[] {
   const threshold = opts.threshold ?? 0.4;
   const maxTurns = opts.maxTurns ?? 3;
-  const scored = turns
-    .map((turn, index) => ({ index, turn, score: statementSimilarity(statement, turn.text) }))
+  const passages = toPassages(turns);
+  const scored = passages
+    .map((passage, index) => ({ index, turnIndex: passage.turnIndex, score: statementSimilarity(statement, passage.text) }))
     .filter((entry) => entry.score >= threshold)
-    .sort((a, b) => b.score - a.score || a.index - b.index)
-    .slice(0, maxTurns)
-    .sort((a, b) => a.index - b.index);
-  return scored.map((entry) => turnToEvidence(entry.turn, entry.index));
+    .sort((a, b) => b.score - a.score || a.index - b.index);
+  // The best passage of each turn, for the strongest `maxTurns` turns.
+  const best = new Map<number, number>();
+  for (const entry of scored) {
+    if (best.size >= maxTurns) break;
+    if (!best.has(entry.turnIndex)) best.set(entry.turnIndex, entry.index);
+  }
+  return passagesToEvidence(passages, Array.from(best.values()));
 }
 
 export interface TurnChunk {
   text: string;
-  /** Absolute transcript indices of the turns in this chunk. */
+  /** Indices, into the passage list, of the passages in this chunk. */
   indices: Set<number>;
 }
 
-function formatTurnLine(turn: TranscriptTurn, index: number): string {
-  const speaker = turn.speaker ?? "Unknown";
-  return `[${index}] ${speaker}: ${turn.text.replace(/\s+/g, " ").trim()}`;
+function formatPassageLine(passage: TranscriptPassage, index: number): string {
+  const speaker = passage.speaker ?? "Unknown";
+  return `[${index}] ${speaker}: ${passage.text.replace(/\s+/g, " ").trim()}`;
 }
 
 /**
- * Chunk by transcript turns, never by characters inside a turn, so the
- * `[index]` a chunk shows the model is always a real, whole turn. A single
- * turn longer than the budget is truncated in the prompt but keeps its index.
+ * Chunk whole passages, never characters inside one, so the `[index]` a chunk
+ * shows the model always names text the model was shown in full. Nothing is
+ * cut off: a passage that is alone over the budget gets a chunk to itself.
  */
-export function chunkTurns(turns: TranscriptTurn[], maxChars: number = MAX_CHARS_PER_CHUNK): TurnChunk[] {
+export function chunkPassages(passages: TranscriptPassage[], maxChars: number = MAX_CHARS_PER_CHUNK): TurnChunk[] {
   const chunks: TurnChunk[] = [];
   let lines: string[] = [];
   let indices = new Set<number>();
@@ -453,9 +539,8 @@ export function chunkTurns(turns: TranscriptTurn[], maxChars: number = MAX_CHARS
     length = 0;
   };
 
-  turns.forEach((turn, index) => {
-    let line = formatTurnLine(turn, index);
-    if (line.length > maxChars) line = line.slice(0, maxChars);
+  passages.forEach((passage, index) => {
+    const line = formatPassageLine(passage, index);
     if (length + line.length + 1 > maxChars && lines.length > 0) flush();
     lines.push(line);
     indices.add(index);
@@ -463,6 +548,11 @@ export function chunkTurns(turns: TranscriptTurn[], maxChars: number = MAX_CHARS
   });
   flush();
   return chunks;
+}
+
+/** The chunks a transcript is read in: its turns as passages, then {@link chunkPassages}. */
+export function chunkTurns(turns: TranscriptTurn[], maxChars: number = MAX_CHARS_PER_CHUNK): TurnChunk[] {
+  return chunkPassages(toPassages(turns, Math.min(MAX_PASSAGE_CHARS, maxChars)), maxChars);
 }
 
 function parseJsonFromModelOutput(output: string): unknown {
@@ -659,21 +749,24 @@ export class DecisionExtractionService {
       ...existingQuestions.map((s) => candidateKey(s, true)),
     ]);
     const resolvedIds = new Set<string>();
-    const allChunks = chunkTurns(turns);
+    // Passages, not turns: a turn too long to read in one piece is read in
+    // several, so no part of the transcript is dropped without being counted.
+    const passages = toPassages(turns);
+    const allChunks = chunkPassages(passages);
     const chunks = allChunks.slice(0, MAX_TRANSCRIPT_CHUNKS);
     const chunksSkipped = allChunks.length - chunks.length;
     let chunksFailed = 0;
     console.log(
-      `[DecisionExtraction] model=${modelName}, turns=${turns.length}, chunks=${chunks.length}/${allChunks.length}, existing=${existingStatements.length}+${existingQuestions.length}q, open=${openDecisions.length}`,
+      `[DecisionExtraction] model=${modelName}, turns=${turns.length}, passages=${passages.length}, chunks=${chunks.length}/${allChunks.length}, existing=${existingStatements.length}+${existingQuestions.length}q, open=${openDecisions.length}`,
     );
 
     const results: DecisionCandidate[] = [];
     const actionItems: ActionCandidate[] = [];
     const actionDedupe = new Set<string>();
-    /** Indices from the model that resolve to turns this chunk showed it. */
+    /** Indices from the model that resolve to passages this chunk showed it. */
     const resolveEvidence = (chunk: TurnChunk, indices: number[]) =>
       Array.from(new Set(indices))
-        .filter((index) => chunk.indices.has(index) && turns[index] !== undefined)
+        .filter((index) => chunk.indices.has(index) && passages[index] !== undefined)
         .sort((a, b) => a - b);
 
     for (let i = 0; i < chunks.length; i++) {
@@ -720,7 +813,7 @@ export class DecisionExtractionService {
           text,
           assigneeName: optionalText(item.assigneeName),
           dueDateText: optionalText(item.dueDateText),
-          evidence: evidenceIndices.map((index) => turnToEvidence(turns[index]!, index)),
+          evidence: passagesToEvidence(passages, evidenceIndices),
         });
       }
 
@@ -760,7 +853,7 @@ export class DecisionExtractionService {
           alternatives: cleanBullets(candidate.alternatives),
           consequences: cleanBullets(candidate.consequences),
           deciderNames: cleanNames(candidate.deciderNames),
-          evidence: evidenceIndices.map((index) => turnToEvidence(turns[index]!, index)),
+          evidence: passagesToEvidence(passages, evidenceIndices),
           resolvesDecisionId,
           origin: "transcript",
         });
