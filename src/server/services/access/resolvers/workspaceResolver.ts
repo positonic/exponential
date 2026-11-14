@@ -71,6 +71,34 @@ export async function getWorkspaceMembership(
 }
 
 /**
+ * Batch form of {@link getWorkspaceMembership}'s role: each of `userIds` who
+ * belongs to the workspace, with their role. A direct `WorkspaceUser` row
+ * wins; otherwise a team linked to the workspace makes them a "member".
+ * People outside the workspace are absent from the map.
+ */
+export async function getWorkspaceRoles(
+  db: PrismaClient,
+  workspaceId: string,
+  userIds: string[],
+): Promise<Map<string, WorkspaceRole>> {
+  const roles = new Map<string, WorkspaceRole>();
+  if (userIds.length === 0) return roles;
+  const [direct, viaTeam] = await Promise.all([
+    db.workspaceUser.findMany({
+      where: { workspaceId, userId: { in: userIds } },
+      select: { userId: true, role: true },
+    }),
+    db.teamUser.findMany({
+      where: { team: { workspaceId }, userId: { in: userIds } },
+      select: { userId: true },
+    }),
+  ]);
+  for (const { userId } of viaTeam) roles.set(userId, "member");
+  for (const { userId, role } of direct) roles.set(userId, role as WorkspaceRole);
+  return roles;
+}
+
+/**
  * Batch form of {@link getWorkspaceMembership}'s yes/no: which of `userIds`
  * belong to the workspace, directly or via a team linked to it.
  */

@@ -48,6 +48,7 @@ export function usePageProjectPlacement(pageId: string, workspaceId: string) {
     onSuccess: () => {
       void utils.page.get.invalidate({ id: pageId });
       void utils.page.audience.invalidate({ id: pageId });
+      void utils.page.sharing.invalidate({ id: pageId });
       void utils.page.list.invalidate();
       void utils.page.tree.invalidate();
     },

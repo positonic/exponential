@@ -38,7 +38,8 @@ export async function filterRecipientsByAccess(
   if (recipientIds.length === 0) return recipientIds;
 
   // Pages aren't an AccessControlService resource type — gate them through
-  // the page resolver directly (invite-only pages admit invitees only).
+  // the page resolver directly (grants admit in every mode; a restricted page
+  // admits grantees only).
   if (input.category === NOTIFICATION_CATEGORIES.PAGE_SHARED) {
     const page = await input.db.knowledgePage.findUnique({
       where: { id: input.subject.pageId },

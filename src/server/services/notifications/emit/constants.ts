@@ -19,7 +19,7 @@ export const NOTIFICATION_CATEGORIES = {
   AGENDA_READY: "agenda_ready",
   /** A Workspace update draft (or a quiet-week notice) awaits its reviewers. */
   UPDATE_REVIEW: "update_review",
-  /** Someone invited you to an invite-only Page (ADR-0069). */
+  /** Someone shared a Page with you by name (ADR-0069, ADR-0080). */
   PAGE_SHARED: "page_shared",
   /** An Agent run finished or stopped on an action you handed to an Assistant (ADR-0067). */
   AGENT_RUN: "agent_run",

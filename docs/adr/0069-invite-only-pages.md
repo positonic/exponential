@@ -5,6 +5,10 @@
 Accepted — 2026-10-09. Supersedes the "No separate private/personal-page concept in v1" line of
 [ADR-0033](0033-knowledge-pages.md). Its other visibility rules are unchanged.
 
+Partly superseded by [ADR-0080](0080-page-grants-are-additive.md) (2026-11-09): invitees are now
+grants that count in every mode, and anyone who can edit a page may share it. The lines marked
+below no longer hold; the rest stands.
+
 ## Context
 
 A Page's visibility followed its placement: a project-linked Page took its Project's rules, and a
@@ -18,7 +22,8 @@ publishing it to the web.
 
 A Page can be **invite-only** (`KnowledgePage.isInviteOnly`). An invite-only Page is visible to its
 owner and to the people invited to it (`KnowledgePageMember`, role `viewer` or `editor`). Nobody else
-can see it.
+can see it. *(ADR-0080: those rows are now grants on any page; invite-only only drops the
+inherited audience.)*
 
 - **No admin escape hatch.** Workspace owners and admins can't see an invite-only Page they weren't
   invited to. "Private" means private.
@@ -27,7 +32,8 @@ can see it.
 - **Workspace members only.** Invitees must belong to the Page's workspace when invited, and access
   ends when they leave it. The invite row stays, but it no longer grants anything. There are no
   outside guests.
-- **The owner manages sharing.** Only the owner switches invite-only on or off, invites or removes
+- ~~**The owner manages sharing.**~~ *Superseded by ADR-0080: editors share; the owner alone
+  restricts, publishes a restricted page, and changes other people's grants.* Only the owner switches invite-only on or off, invites or removes
   people, and publishes an invite-only Page to the web. An invited editor can edit the content, but
   can never make the page more visible than the owner chose.
 - **Sub-pages keep their own access.** Nothing is inherited through `pageLink`s. A page can have
