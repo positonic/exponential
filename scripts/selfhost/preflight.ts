@@ -80,6 +80,33 @@ export function explainMigrationFailure(output: string): string | null {
   return null;
 }
 
+/**
+ * The public URL (AUTH_URL, else NEXTAUTH_URL) must be an http(s) URL with a
+ * host when it is set. A template that builds it from a platform variable,
+ * like Railway's `https://${{RAILWAY_PUBLIC_DOMAIN}}`, gets a bare `https://`
+ * when the service has no public domain yet; the app would start, then every
+ * sign-in page would fail with "Invalid URL". Unset is fine: the app falls
+ * back to localhost.
+ */
+export function checkPublicUrl(env: SignInEnv): string | null {
+  for (const name of ["AUTH_URL", "NEXTAUTH_URL"] as const) {
+    const value = env[name]?.trim();
+    if (!value) continue;
+    let parsed: URL | null = null;
+    try {
+      parsed = new URL(value);
+    } catch {
+      parsed = null;
+    }
+    if (!parsed || !/^https?:$/.test(parsed.protocol) || parsed.hostname === "") {
+      return `${name} is ${JSON.stringify(value)}, which is not a URL with a host. Set it to the address people use to reach this install, e.g. https://exponential.example.com. On Railway, generate a public domain for the app service, then redeploy it.`;
+    }
+    // AUTH_URL wins when both are set, so NEXTAUTH_URL doesn't matter then.
+    return null;
+  }
+  return null;
+}
+
 export interface EnvPreflight {
   /** Set when startup must stop. */
   error: string | null;
@@ -97,6 +124,9 @@ export interface EnvPreflight {
  */
 export function preflightEnv(env: SignInEnv): EnvPreflight {
   const has = (name: string) => (env[name] ?? "").length > 0;
+
+  const publicUrlError = checkPublicUrl(env);
+  if (publicUrlError) return { error: publicUrlError, lines: [] };
 
   if (has("SMTP_HOST") && !has("EMAIL_FROM") && !has("AUTH_POSTMARK_FROM")) {
     return {

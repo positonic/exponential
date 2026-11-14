@@ -37,9 +37,13 @@ on:
     tags: ["v*.*.*"]
   workflow_dispatch:
 
+# One build per ref at a time, and a running build is never cancelled: it
+# publishes its `sha-` tag, and `latest` only ever moves forward. While one
+# runs, GitHub keeps just the newest waiting run, so a commit pushed between
+# two others can get no `sha-` tag. Pin a tag the package page lists.
 concurrency:
   group: selfhost-images-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 permissions:
   contents: read
