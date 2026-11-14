@@ -278,6 +278,24 @@ export async function kickOutboundPosts(
   await Promise.allSettled(postIds.map((id) => deliverOutboundPost(db, id, deps)));
 }
 
+/**
+ * Deliver whatever is pending for one subject. What a router hands to `after()` once
+ * the producing request has returned: the service emitted the rows, and this picks
+ * them up by subject rather than by id, so a previous kick that crashed is retried
+ * too and the service's return shape stays untouched.
+ */
+export async function kickOutboundPostsForSubject(
+  db: PrismaClient,
+  { kind, subjectId }: { kind: OutboundKind; subjectId: string },
+  deps: DeliverDeps = {},
+): Promise<void> {
+  const rows = await db.outboundPost.findMany({
+    where: { kind, subjectId, status: OUTBOUND_POST_STATUS.PENDING },
+    select: { id: true },
+  });
+  await kickOutboundPosts(db, rows.map((r) => r.id), deps);
+}
+
 /** Each cause needs a different fix, so each gets its own sentence. */
 function describeSendFailure(error: unknown): string {
   if (error instanceof MatrixEncryptedRoomError) return error.message;
