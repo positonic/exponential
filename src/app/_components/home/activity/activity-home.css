@@ -936,11 +936,9 @@
   font-family: var(--font-mono, ui-monospace, monospace);
 }
 
-/* OKR rows deep-link to the goals-page drawer; the whole sentence is the
-   click target. Inherits the sentence styling — hover underlines the entity
-   name to reveal the affordance without restyling the row. */
 /* The actor's name and avatar link to their Person page. Quiet until hovered,
-   like the entity links, so a feed is not a wall of underlines. */
+   like the entity links (an OKR row's entity opens its goals-page drawer), so
+   a feed is not a wall of underlines. */
 .wsa-feed__actor-link {
   color: inherit;
   text-decoration: none;
