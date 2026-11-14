@@ -10,7 +10,7 @@
 const DEFAULT_PRODUCT_NAME = 'Exponential';
 const DEFAULT_PRODUCT_SHORT_NAME = 'Exponential';
 const DEFAULT_PRODUCT_TAGLINE =
-  'An open-source operating workspace for organizations, where people and AI agents work from the same goals, projects and decisions.';
+  'The open-source operating system for startups run by people and AI agents: goals, projects, meetings and decisions in one place.';
 
 export const PRODUCT_NAME: string =
   process.env.NEXT_PUBLIC_PRODUCT_NAME ?? DEFAULT_PRODUCT_NAME;
@@ -26,10 +26,10 @@ export const PRODUCT_TAGLINE: string =
  * people search for ("open-source project management", "AI agents") rather
  * than the wording of the hero.
  */
-export const PRODUCT_SEO_TITLE = `Open-Source Project Management for Humans & AI Agents | ${PRODUCT_NAME}`;
+export const PRODUCT_SEO_TITLE = `Open-Source Project Management for Startups & AI Agents | ${PRODUCT_NAME}`;
 
 export const PRODUCT_SEO_DESCRIPTION =
-  'Plan goals, OKRs and projects, then run them with your team and AI agents in one place. Open source (AGPL), self-hostable, with an MCP server and CLI. Free to start.';
+  'Run your startup\'s goals, OKRs and projects with your team and AI agents in one place. Open source (AGPL), self-hostable, with an MCP server and CLI. Free to start.';
 
 /**
  * Official social profiles. The footer links to them and the Organization

@@ -54,9 +54,9 @@ export function FooterSection({ id }: FooterSectionProps) {
           <div className="col-span-2">
             <LogoDisplay theme={theme} href="/" className="text-xl mb-4" />
             <p className="text-text-muted text-sm max-w-xs leading-relaxed">
-              An open-source operating workspace for organizations, where
-              people and AI agents work from the same goals, projects and
-              decisions.
+              The open-source operating system for startups run by people
+              and AI agents: goals, projects, meetings and decisions in one
+              place.
             </p>
           </div>
 

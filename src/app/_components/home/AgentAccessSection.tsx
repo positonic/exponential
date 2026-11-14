@@ -1,7 +1,5 @@
-import { Container } from "@mantine/core";
-import Link from "next/link";
-import { IconArrowRight } from "@tabler/icons-react";
 import { Panel } from "~/app/_components/ui";
+import { CTAButton } from "./shared/CTAButton";
 
 interface AgentAccessSectionProps {
   id?: string;
@@ -19,52 +17,41 @@ const terminalLines = [
   { kind: "command", text: "npx exponential-mcp init" },
 ] as const;
 
+/** Developers: the CLI, SDK and MCP server, in one terminal. */
 export function AgentAccessSection({ id }: AgentAccessSectionProps) {
   return (
-    <section id={id} className="bg-surface-secondary py-20 md:py-28 scroll-mt-20">
-      <Container size="lg">
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-10 lg:gap-16 items-center">
+    <section id={id} className="mkt-section border-t border-border-primary">
+      <div className="mkt-container mkt-reveal">
+        <div className="grid grid-cols-1 items-center gap-12 lg:grid-cols-2 lg:gap-16">
           <div>
-            <p className="text-accent-indigo uppercase tracking-wider text-sm font-semibold mb-4">
-              Bring your own agent
-            </p>
-            <h2 className="text-2xl md:text-3xl font-bold text-text-primary mb-4 font-inter leading-tight">
-              Works with the agents you already use
-            </h2>
-            <p className="text-lg text-text-secondary leading-relaxed mb-6">
+            <p className="mkt-eyebrow mb-4">Developers</p>
+            <h2 className="mkt-h2 mb-4">Works with the agents you already use</h2>
+            <p className="mkt-body mb-8 max-w-lg">
               A command-line tool, a TypeScript SDK and an MCP server give
               coding agents and chat clients the same goals, projects and
               actions your team sees. Each agent signs in with its own key,
               so its work is attributed to it and you can switch it off.
             </p>
-            <div className="flex flex-wrap gap-x-6 gap-y-3">
-              <Link
-                href="/docs"
-                className="inline-flex items-center gap-1.5 text-accent-indigo font-semibold hover:underline"
-              >
+            <div className="flex flex-wrap gap-x-8 gap-y-4">
+              <CTAButton href="/docs" variant="text">
                 Read the docs
-                <IconArrowRight size={18} stroke={2} />
-              </Link>
-              <Link
-                href="/features/integrations/claude"
-                className="inline-flex items-center gap-1.5 text-accent-indigo font-semibold hover:underline"
-              >
+              </CTAButton>
+              <CTAButton href="/features/integrations/claude" variant="text">
                 Set up with Claude
-                <IconArrowRight size={18} stroke={2} />
-              </Link>
+              </CTAButton>
             </div>
           </div>
 
-          <Panel variant="elevated" radius="xl" padding="none" className="overflow-hidden">
-            <div className="px-4 py-2.5 border-b border-border-primary text-xs text-text-muted font-medium">
+          <Panel radius="xl" padding="none" className="overflow-hidden">
+            <div className="border-b border-border-primary px-4 py-2.5 text-xs font-medium text-text-muted">
               Terminal
             </div>
-            <pre className="p-5 text-sm leading-7 overflow-x-auto font-mono">
+            <pre className="overflow-x-auto p-5 font-mono text-sm leading-7">
               {terminalLines.map((line, index) => (
                 <div key={index}>
                   {line.kind === "command" ? (
                     <>
-                      <span className="text-text-muted select-none">$ </span>
+                      <span className="select-none text-text-muted">$ </span>
                       <span className="text-text-primary">{line.text}</span>
                     </>
                   ) : (
@@ -75,7 +62,7 @@ export function AgentAccessSection({ id }: AgentAccessSectionProps) {
             </pre>
           </Panel>
         </div>
-      </Container>
+      </div>
     </section>
   );
 }
