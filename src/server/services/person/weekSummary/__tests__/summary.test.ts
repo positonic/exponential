@@ -12,6 +12,7 @@ import type { PrismaClient } from "@prisma/client";
 import {
   getPersonWeekSummary,
   isStoredSummaryServable,
+  MODEL_WRITES_PER_VIEWER_PER_HOUR,
   PersonSummaryRateLimitError,
 } from "../summary";
 
@@ -79,6 +80,7 @@ function install(rows: unknown[], opts: { openPages?: string[]; shared?: boolean
   db.user.findUnique.mockResolvedValue({ name: "Sam Subject", isAgent: false } as never);
   // Nothing stored unless a test stores something; a write echoes its row.
   db.personWeekSummary.findUnique.mockResolvedValue(null);
+  db.personWeekSummary.count.mockResolvedValue(0);
   db.personWeekSummary.upsert.mockImplementation(((args: { create: Record<string, unknown> }) =>
     Promise.resolve({ ...args.create, generatedAt: NOW })) as never);
 }
@@ -222,7 +224,9 @@ describe("getPersonWeekSummary", () => {
     });
 
     expect(out).toMatchObject({ eventCount: 0, highlights: [] });
-    expect(out.narrative).toBe("No activity from Sam Subject that you can see in this week.");
+    // Stored and shown for whichever week the pager is on, so it names none.
+    expect(out.narrative).toBe("Sam Subject has no activity you can see in the selected week.");
+    expect(out.narrative).not.toMatch(/this week|that week/i);
     // Stored, so an empty week is not looked at by a model on every page load.
     expect(db.personWeekSummary.upsert).toHaveBeenCalledWith(
       expect.objectContaining({ create: expect.objectContaining({ model: "canned", eventIds: [] }) }),
@@ -382,7 +386,7 @@ describe("getPersonWeekSummary — stored summaries", () => {
 
   it("rewrites at once when it was stored for an empty week and something has since happened", async () => {
     install([row("action", "created", "First thing this week")]);
-    stored([], 60_000, { narrative: "No activity from Sam Subject that you can see in this week." });
+    stored([], 60_000, { narrative: "Sam Subject has no activity you can see in the selected week." });
     const { client, create } = openaiReplying({ narrative: "Now there is.", highlights: [] });
 
     const out = await call(client);
@@ -435,6 +439,65 @@ describe("getPersonWeekSummary — stored summaries", () => {
 
     expect(out).toMatchObject({ cached: false, narrative: "Again." });
     expect(create).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("getPersonWeekSummary — the viewer's hourly budget", () => {
+  const call = (client: unknown, extra: Record<string, unknown> = {}) =>
+    getPersonWeekSummary(db, {
+      viewerId: VIEWER,
+      subjectId: SUBJECT,
+      now: NOW,
+      openai: client as never,
+      ...extra,
+    });
+
+  it("refuses a model call once the viewer has had its hourly share written", async () => {
+    install([row("action", "created", "A")]);
+    db.personWeekSummary.count.mockResolvedValue(MODEL_WRITES_PER_VIEWER_PER_HOUR);
+    const { client, create } = openaiNeverCalled();
+
+    await expect(call(client)).rejects.toBeInstanceOf(PersonSummaryRateLimitError);
+
+    expect(create).not.toHaveBeenCalled();
+    // Counted for this viewer, across every subject and week, model-written
+    // rows only, over the last hour.
+    expect(db.personWeekSummary.count).toHaveBeenCalledWith({
+      where: {
+        viewerId: VIEWER,
+        model: { not: "canned" },
+        generatedAt: { gte: new Date(NOW.getTime() - 60 * 60 * 1000) },
+      },
+    });
+  });
+
+  it("still serves a stored summary when the budget is spent", async () => {
+    const rows = [row("action", "created", "A")];
+    install(rows);
+    stored([rows[0]!.id], 60_000);
+    db.personWeekSummary.count.mockResolvedValue(MODEL_WRITES_PER_VIEWER_PER_HOUR);
+    const { client } = openaiNeverCalled();
+
+    await expect(call(client)).resolves.toMatchObject({ cached: true });
+  });
+
+  it("does not show a summary it may no longer show just because the budget is spent", async () => {
+    const pageEdit = row("page", "updated", "Reorg plan", { entityId: "page-private" });
+    install([pageEdit, row("action", "created", "Book the venue")], { openPages: [] });
+    stored([pageEdit.id], 60_000);
+    db.personWeekSummary.count.mockResolvedValue(MODEL_WRITES_PER_VIEWER_PER_HOUR);
+    const { client } = openaiNeverCalled();
+
+    await expect(call(client)).rejects.toBeInstanceOf(PersonSummaryRateLimitError);
+  });
+
+  it("answers an empty week for free, whatever the budget", async () => {
+    install([]);
+    db.personWeekSummary.count.mockResolvedValue(MODEL_WRITES_PER_VIEWER_PER_HOUR);
+    const { client } = openaiNeverCalled();
+
+    await expect(call(client)).resolves.toMatchObject({ eventCount: 0 });
+    expect(db.personWeekSummary.count).not.toHaveBeenCalled();
   });
 });
 

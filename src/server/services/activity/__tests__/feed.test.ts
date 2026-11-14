@@ -588,3 +588,32 @@ describe("page rows — read-time access filter", () => {
     expect(db.workspaceActivityEvent.findMany).toHaveBeenCalledTimes(1);
   });
 });
+
+describe("time window", () => {
+  it("keeps the window on every page: the cursor narrows it, it never replaces it", async () => {
+    const db = mockDeep<PrismaClient>();
+    db.workspaceActivityEvent.findMany.mockResolvedValue([] as never);
+    const from = new Date("2026-11-09T00:00:00.000Z");
+    const to = new Date("2026-11-15T23:59:59.999Z");
+    const cursor = Buffer.from(
+      JSON.stringify({ createdAt: "2026-11-12T10:00:00.000Z", id: "evt-5" }),
+      "utf8",
+    ).toString("base64url");
+
+    await getAggregatedActivityFeed(db, {
+      viewerId: VIEWER_ID,
+      workspaceIds: [WORKSPACE_ID],
+      window: { from, to },
+      cursor,
+    });
+
+    const where = db.workspaceActivityEvent.findMany.mock.calls[0]![0]!.where as {
+      createdAt: unknown;
+      OR: unknown[];
+    };
+    // Two separate keys, so Prisma ANDs them: inside the week AND older than
+    // the cursor. The cursor clause lives under `OR`, not `createdAt`.
+    expect(where.createdAt).toEqual({ gte: from, lte: to });
+    expect(where.OR).toHaveLength(2);
+  });
+});

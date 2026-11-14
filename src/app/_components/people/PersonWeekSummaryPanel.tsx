@@ -45,9 +45,13 @@ function PersonWeekSummary({ userId, name }: PersonWeekSummaryPanelProps) {
   const queryInput = { userId, ...pager.weekInput };
 
   const summaryQ = api.person.getWeekSummary.useQuery(queryInput, {
-    // The server re-checks a stored summary on every read; this only dampens
-    // refetch churn while the page is open.
-    staleTime: 30 * 60 * 1000,
+    // The server re-checks a stored summary against what the viewer can see on
+    // every read, and that check is the point: a summary must not outlive the
+    // visibility of what it describes. So the client keeps nothing of its own —
+    // no freshness window, and no cached copy to show when coming back to the
+    // page. A read that finds the stored summary still good costs no model call.
+    staleTime: 0,
+    gcTime: 0,
     retry: false,
   });
 

@@ -104,7 +104,7 @@ export const personRouter = createTRPCRouter({
         if (err instanceof PersonSummaryRateLimitError) {
           throw new TRPCError({
             code: "TOO_MANY_REQUESTS",
-            message: "The summary was regenerated recently — try again shortly.",
+            message: "Too many summaries were written recently — try again shortly.",
           });
         }
         throw err;

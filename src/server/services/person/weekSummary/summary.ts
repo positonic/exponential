@@ -15,6 +15,16 @@ import { synthesizeSummary, type SummaryOpenAIClient } from "./synthesize";
 
 const STALE_AFTER_MS = 6 * 60 * 60 * 1000; // 6h — only the active week goes stale
 const REGENERATE_COOLDOWN_MS = 5 * 60 * 1000; // 5min
+/**
+ * Most summaries one viewer can have a model write in an hour, across every
+ * person and week. The cooldown above is per summary, so on its own it would
+ * let someone page through many people and weeks, or regenerate many rows at
+ * once, and run up model spend without limit.
+ */
+export const MODEL_WRITES_PER_VIEWER_PER_HOUR = 30;
+const BUDGET_WINDOW_MS = 60 * 60 * 1000;
+/** `model` value of a row written without a model: a week with nothing visible. */
+const CANNED_MODEL = "canned";
 
 /**
  * Person week summary: an AI-written summary of one week of someone else's
@@ -40,13 +50,39 @@ export interface PersonWeekSummary {
   cached: boolean;
 }
 
-/** Force-regenerate inside the cooldown window. The router maps it to TOO_MANY_REQUESTS. */
+/**
+ * A model write was refused: a regenerate inside the cooldown, or the viewer's
+ * hourly budget is spent. The router maps it to TOO_MANY_REQUESTS.
+ */
 export class PersonSummaryRateLimitError extends Error {
   readonly retryAfterMs: number;
   constructor(retryAfterMs: number) {
-    super(`Summary regenerated recently; retry in ${Math.round(retryAfterMs / 1000)}s`);
+    super(`Too many summaries written recently; retry in ${Math.round(retryAfterMs / 1000)}s`);
     this.name = "PersonSummaryRateLimitError";
     this.retryAfterMs = retryAfterMs;
+  }
+}
+
+/**
+ * Refuse a model call once the viewer has had {@link MODEL_WRITES_PER_VIEWER_PER_HOUR}
+ * summaries written in the last hour. Counted from the stored rows, so it holds
+ * across server instances. A canned (empty-week) row costs nothing and is not
+ * counted. Concurrent requests can overshoot by a few; it is a budget, not a lock.
+ */
+async function assertModelBudget(
+  db: PrismaClient,
+  viewerId: string,
+  now: Date,
+): Promise<void> {
+  const written = await db.personWeekSummary.count({
+    where: {
+      viewerId,
+      model: { not: CANNED_MODEL },
+      generatedAt: { gte: new Date(now.getTime() - BUDGET_WINDOW_MS) },
+    },
+  });
+  if (written >= MODEL_WRITES_PER_VIEWER_PER_HOUR) {
+    throw new PersonSummaryRateLimitError(BUDGET_WINDOW_MS);
   }
 }
 
@@ -225,6 +261,7 @@ export async function getPersonWeekSummary(
       key,
       subject: { name, isAgent: subject.isAgent },
       week,
+      now,
       openai: args.openai,
     }).finally(() => {
       // Only clear our own entry: a later request may have replaced it.
@@ -241,28 +278,32 @@ async function writeAndStore(
     key: { viewerId: string; subjectId: string; isoYear: number; isoWeek: number };
     subject: { name: string; isAgent: boolean };
     week: VisibleWeek;
+    now: Date;
     openai?: SummaryOpenAIClient;
   },
 ): Promise<PersonWeekSummary> {
   const eventIds = args.week.events.map((event) => event.id);
+  const isEmptyWeek = args.week.events.length === 0;
+  // Only a model call spends the budget; the canned line below is free.
+  if (!isEmptyWeek) await assertModelBudget(db, args.key.viewerId, args.now);
 
   // Nothing visible: say so without a model call. Stored under the canned
   // model flag so an empty week is not regenerated on every page load.
-  const written =
-    args.week.events.length === 0
-      ? {
-          // Stored and shown later too, so it does not say "this week".
-          narrative: `No activity from ${args.subject.name} that you can see in this week.`,
-          highlights: [],
-          model: "canned",
-          tokensIn: null,
-          tokensOut: null,
-        }
-      : await synthesizeSummary(args.subject, args.week.events, {
-          nonce: randomBytes(8).toString("hex"),
-          truncated: args.week.truncated,
-          openai: args.openai,
-        });
+  const written = isEmptyWeek
+    ? {
+        // Stored and shown again later, for whichever week the pager is on, so
+        // it names no week of its own ("this week", "that week").
+        narrative: `${args.subject.name} has no activity you can see in the selected week.`,
+        highlights: [],
+        model: CANNED_MODEL,
+        tokensIn: null,
+        tokensOut: null,
+      }
+    : await synthesizeSummary(args.subject, args.week.events, {
+        nonce: randomBytes(8).toString("hex"),
+        truncated: args.week.truncated,
+        openai: args.openai,
+      });
 
   const data = {
     narrative: written.narrative,
