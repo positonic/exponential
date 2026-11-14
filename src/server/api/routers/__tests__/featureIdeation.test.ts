@@ -292,7 +292,7 @@ describe("transcription router — feature ideation (mocked Prisma)", () => {
   });
 
   // ── Guard rail 3: no API key degrades, doesn't fail ────────────────
-  it("succeeds with zero drafts when OPENAI_API_KEY is unset", async () => {
+  it("says ideation is not configured (and writes nothing) when OPENAI_API_KEY is unset", async () => {
     const savedKey = process.env.OPENAI_API_KEY;
     delete process.env.OPENAI_API_KEY;
 
@@ -300,17 +300,12 @@ describe("transcription router — feature ideation (mocked Prisma)", () => {
       stubOwnedSession(dbMock);
       dbMock.meetingFeatureDraft.count.mockResolvedValue(0);
 
-      const result = await caller.transcription.generateDraftFeatures({
-        transcriptionId,
+      await expect(
+        caller.transcription.generateDraftFeatures({ transcriptionId }),
+      ).rejects.toMatchObject({
+        code: "PRECONDITION_FAILED",
+        message: expect.stringContaining("OPENAI_API_KEY") as unknown,
       });
-
-      expect(result).toMatchObject({
-        success: true,
-        featuresCreated: 0,
-        draftCount: 0,
-        alreadyDrafted: false,
-      });
-      expect(result.errors).toEqual([]);
       expect(dbMock.meetingFeatureDraft.createMany).not.toHaveBeenCalled();
     } finally {
       if (savedKey === undefined) {

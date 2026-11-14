@@ -21,7 +21,8 @@ import type { PeekPreview } from "./DetailPreview";
 
 /**
  * The Decision Log's peek drawer (?peek=adr-<id> | decision-<id>): detail
- * over the list, the list never unmounts. Built to feel instant:
+ * over the list, the list never unmounts. The decision graph (timeline and
+ * network views) uses the same drawer over its canvas. Built to feel instant:
  *
  * - The URL moves with `history.pushState`, not `router.push`. A pushed
  *   search param is a navigation, and a navigation is an RSC round trip to
@@ -155,6 +156,15 @@ export function usePeekLink(key: PeekKey) {
     },
     onFocus: () => store?.prefetch(key),
   };
+}
+
+/**
+ * Opens a peek imperatively, for surfaces with no link to attach
+ * usePeekLink to (the React Flow network canvas). Null outside a provider.
+ */
+export function usePeekOpen(): ((key: PeekKey) => void) | null {
+  const store = useContext(PeekContext);
+  return store ? store.open : null;
 }
 
 export function DecisionPeekDrawer({

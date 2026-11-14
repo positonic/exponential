@@ -45,8 +45,9 @@ import {
   sonnetVariantOf,
 } from "~/server/services/ai/pickModelTier";
 import { PRODUCT_NAME } from "~/lib/brand";
+import { resolveMastraUrl } from "~/server/services/ai/capabilities";
+import { aiNotConfiguredMessage } from "~/server/services/ai/requireAi";
 
-const MASTRA_API_URL = process.env.MASTRA_API_URL ?? "http://localhost:4111";
 
 // Extend Vercel function timeout for streaming AI responses (default is 10s hobby / 60s pro)
 export const maxDuration = 300;
@@ -115,6 +116,16 @@ export async function POST(req: Request) {
         status: 401,
         headers: { "Content-Type": "application/json" },
       });
+    }
+
+    // No Assistant on this install (MASTRA_API_URL unset in production): say
+    // so plainly rather than dialling localhost and failing mid-stream.
+    const mastraUrl = resolveMastraUrl(process.env);
+    if (!mastraUrl) {
+      return new Response(
+        JSON.stringify({ error: aiNotConfiguredMessage("assistant", "The Assistant"), code: "AI_NOT_CONFIGURED" }),
+        { status: 503, headers: { "Content-Type": "application/json" } },
+      );
     }
 
     // Rate limits on the LLM-spend path (this route had none — a single
@@ -250,7 +261,7 @@ export async function POST(req: Request) {
     });
 
     const client = new MastraClient({
-      baseUrl: MASTRA_API_URL,
+      baseUrl: mastraUrl,
       headers: {
         Authorization: `Bearer ${agentJWT}`,
       },

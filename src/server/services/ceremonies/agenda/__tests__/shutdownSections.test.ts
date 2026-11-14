@@ -109,6 +109,22 @@ describe("activity_today section", () => {
   });
 });
 
+describe("activity_today section — pages", () => {
+  it("leaves page events out: an agenda is read by every participant and a page may be private", async () => {
+    const db = setup();
+    db.workspaceActivityEvent.findMany.mockResolvedValue([
+      { entityType: "page", entityId: "p-1", action: "created", metadata: { title: "Reorg plan (private)" }, workspace: { name: "Acme" } },
+      { entityType: "page", entityId: "p-1", action: "updated", metadata: { title: "Reorg plan (private)" }, workspace: { name: "Acme" } },
+      { entityType: "decision", entityId: "d-1", action: "accepted", metadata: { title: "Use Postgres" }, workspace: { name: "Acme" } },
+    ] as never);
+
+    const items = await activityTodaySection.run(ctx(db), { key: "moved", type: "activity_today", title: "What moved" });
+
+    expect(items.map((i) => i.title)).toEqual(["Accepted decision: Use Postgres"]);
+    expect(JSON.stringify(items)).not.toContain("Reorg plan");
+  });
+});
+
 describe("time_today section", () => {
   it("reads the day report across workspaces and lists total, products, proposed and forgotten timers", async () => {
     const db = setup();

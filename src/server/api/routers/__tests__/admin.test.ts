@@ -166,3 +166,43 @@ describe("admin.getAllUsers status derivation", () => {
     expect(statuses["u-both"]).toBe("active");
   });
 });
+
+describe("admin sign-up mode (ADR-0081)", () => {
+  let db: DeepMockProxy<PrismaClient>;
+
+  beforeEach(() => {
+    db = getDbMock();
+    mockReset(db);
+  });
+
+  it("reads open when no setting exists (exponential.im)", async () => {
+    db.instanceSettings.findUnique.mockResolvedValue(null);
+    const caller = createMockCaller({ userId: ADMIN_ID, db, isAdmin: true });
+    expect(await caller.admin.getSignUpMode()).toEqual({ mode: "open" });
+  });
+
+  it("lets an instance admin switch to invite-only and back", async () => {
+    const caller = createMockCaller({ userId: ADMIN_ID, db, isAdmin: true });
+    db.instanceSettings.upsert.mockResolvedValueOnce({ signUpMode: "invite-only" } as never);
+    expect(await caller.admin.setSignUpMode({ mode: "invite-only" })).toEqual({ mode: "invite-only" });
+    expect(db.instanceSettings.upsert.mock.calls[0]![0]).toMatchObject({
+      where: { id: "instance" },
+      update: { signUpMode: "invite-only" },
+    });
+
+    db.instanceSettings.upsert.mockResolvedValueOnce({ signUpMode: "open" } as never);
+    expect(await caller.admin.setSignUpMode({ mode: "open" })).toEqual({ mode: "open" });
+  });
+
+  it("refuses everyone else", async () => {
+    const caller = createMockCaller({ userId: "user-1", db, isAdmin: false });
+    await expect(caller.admin.getSignUpMode()).rejects.toThrow(/Admin access required/);
+    await expect(caller.admin.setSignUpMode({ mode: "open" })).rejects.toThrow(/Admin access required/);
+    expect(db.instanceSettings.upsert).not.toHaveBeenCalled();
+  });
+
+  it("rejects an unknown mode", async () => {
+    const caller = createMockCaller({ userId: ADMIN_ID, db, isAdmin: true });
+    await expect(caller.admin.setSignUpMode({ mode: "closed" as never })).rejects.toThrow();
+  });
+});

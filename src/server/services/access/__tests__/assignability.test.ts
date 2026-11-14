@@ -16,6 +16,7 @@ import type { PrismaClient } from "@prisma/client";
 import {
   assertAssignableUser,
   canAssignToUnscopedAction,
+  toAssignableUser,
 } from "../assignability";
 
 const CALLER_ID = "user-caller";
@@ -164,5 +165,29 @@ describe("canAssignToUnscopedAction", () => {
     await expect(
       canAssignToUnscopedAction(db, CALLER_ID, WORKSPACE_ID, OUTSIDER_ID),
     ).resolves.toBe(false);
+  });
+});
+
+describe("toAssignableUser: assistantExecutor", () => {
+  const base = { id: "u", name: "Ada", email: null, image: null };
+  const assistant = { emoji: null, createdBy: { id: "owner", name: "Owner" } };
+
+  it("is null for a human", () => {
+    expect(toAssignableUser({ ...base, isAgent: false, externalAgentShadow: null }).assistantExecutor).toBeNull();
+  });
+
+  it("is null for a plain External agent (not an Assistant)", () => {
+    const row = { ...base, isAgent: true, externalAgentShadow: { description: null, executor: "MASTRA" as const, assistant: null } };
+    expect(toAssignableUser(row).assistantExecutor).toBeNull();
+  });
+
+  it("carries LOCAL_CLI so pickers keep local Assistants without Mastra", () => {
+    const row = { ...base, isAgent: true, externalAgentShadow: { description: null, executor: "LOCAL_CLI" as const, assistant } };
+    expect(toAssignableUser(row).assistantExecutor).toBe("LOCAL_CLI");
+  });
+
+  it("defaults an Assistant to MASTRA when the executor wasn't selected", () => {
+    const row = { ...base, isAgent: true, externalAgentShadow: { description: null, assistant } };
+    expect(toAssignableUser(row).assistantExecutor).toBe("MASTRA");
   });
 });

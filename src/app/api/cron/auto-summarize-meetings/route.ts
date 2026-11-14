@@ -1,7 +1,9 @@
 import { timingSafeEqual } from "node:crypto";
 import { type NextRequest, NextResponse } from "next/server";
 import { headers } from "next/headers";
+import { aiConfiguredOrSkip } from "~/server/services/ai/requireAi";
 import { db } from "~/server/db";
+import { attachUnlinkedMeetings } from "~/server/services/ceremonies/autoAttach";
 import { runMeetingSummarySweep } from "~/server/services/meetings/meetingSummarySweep";
 
 /**
@@ -38,13 +40,14 @@ export async function GET(_request: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const result = await runMeetingSummarySweep(db);
-
-    if (result.notConfigured) {
-      console.warn(
-        "[Cron] auto-summarize-meetings: summarization not configured (missing OPENAI_API_KEY)",
-      );
+    if (!aiConfiguredOrSkip("summaries", "cron auto-summarize-meetings")) {
+      // The ceremony catch-up at the start of the sweep needs no model and has
+      // no other scheduled caller, so keyless installs still get it.
+      const ceremonyCatchUp = await attachUnlinkedMeetings(db);
+      return NextResponse.json({ success: true, skipped: "ai-not-configured", ceremonyCatchUp });
     }
+
+    const result = await runMeetingSummarySweep(db);
 
     return NextResponse.json({ success: true, ...result });
   } catch (error) {

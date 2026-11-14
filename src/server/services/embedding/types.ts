@@ -77,6 +77,12 @@ export interface EmbeddingResult {
   chunkCount: number;
   error?: string;
   processingTimeMs?: number;
+  /**
+   * Set when nothing was attempted because no embeddings provider
+   * (OPENAI_API_KEY) is configured. Not a failure: the source's existing
+   * chunks are left exactly as they were, and nothing is written.
+   */
+  skipped?: "ai-not-configured";
 }
 
 /**

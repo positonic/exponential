@@ -479,3 +479,96 @@ describe("epic router role gating (mocked)", () => {
     expect(dbMock.epic.delete).toHaveBeenCalled();
   });
 });
+
+describe("epic activity (mocked)", () => {
+  let dbMock: DeepMockProxy<PrismaClient>;
+
+  beforeEach(() => {
+    dbMock = getDbMock();
+    mockReset(dbMock);
+    mockMembership(dbMock, "direct");
+    dbMock.product.findUnique.mockResolvedValue({ workspaceId: WORKSPACE_ID } as never);
+    dbMock.workspaceActivityEvent.create.mockResolvedValue({} as never);
+  });
+
+  /** The events written, as the feed will read them. */
+  const recorded = () =>
+    dbMock.workspaceActivityEvent.create.mock.calls.map((call) => call[0].data);
+
+  it("creating an epic records one event naming it", async () => {
+    dbMock.epic.create.mockResolvedValue(EPIC as never);
+
+    const caller = createMockCaller({ userId: USER_ID, db: dbMock });
+    await caller.epic.create({ workspaceId: WORKSPACE_ID, productId: PRODUCT_ID, name: "Payments" });
+
+    expect(recorded()).toEqual([
+      {
+        workspaceId: WORKSPACE_ID,
+        userId: USER_ID,
+        entityType: "epic",
+        entityId: EPIC.id,
+        action: "created",
+        metadata: { title: "Payments" },
+      },
+    ]);
+  });
+
+  it("updating an epic records one event with its name after the change", async () => {
+    dbMock.epic.findUnique.mockResolvedValue({ ...EPIC, ownerId: USER_ID } as never);
+    dbMock.epic.update.mockResolvedValue({ ...EPIC, name: "Payments v2" } as never);
+
+    const caller = createMockCaller({ userId: USER_ID, db: dbMock });
+    await caller.epic.update({ id: EPIC.id, name: "Payments v2" });
+
+    expect(recorded()).toEqual([
+      expect.objectContaining({
+        entityType: "epic",
+        entityId: EPIC.id,
+        action: "updated",
+        metadata: { title: "Payments v2" },
+      }),
+    ]);
+  });
+
+  it("deleting an epic records one event that still names it", async () => {
+    dbMock.epic.findUnique.mockResolvedValue({ ...EPIC, ownerId: USER_ID } as never);
+    dbMock.epic.delete.mockResolvedValue(EPIC as never);
+
+    const caller = createMockCaller({ userId: USER_ID, db: dbMock });
+    await caller.epic.delete({ id: EPIC.id });
+
+    expect(recorded()).toEqual([
+      expect.objectContaining({
+        workspaceId: WORKSPACE_ID,
+        userId: USER_ID,
+        entityType: "epic",
+        action: "deleted",
+        metadata: { title: "Payments" },
+      }),
+    ]);
+  });
+
+  it("records nothing for a refused mutation", async () => {
+    mockMembership(dbMock, "none");
+
+    const caller = createMockCaller({ userId: USER_ID, db: dbMock });
+    await expect(
+      caller.epic.create({ workspaceId: WORKSPACE_ID, productId: PRODUCT_ID, name: "Payments" }),
+    ).rejects.toBeDefined();
+
+    expect(dbMock.workspaceActivityEvent.create).not.toHaveBeenCalled();
+  });
+
+  it("never fails the mutation when recording the event fails", async () => {
+    dbMock.epic.create.mockResolvedValue(EPIC as never);
+    dbMock.workspaceActivityEvent.create.mockRejectedValue(new Error("db down"));
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    const caller = createMockCaller({ userId: USER_ID, db: dbMock });
+    await expect(
+      caller.epic.create({ workspaceId: WORKSPACE_ID, productId: PRODUCT_ID, name: "Payments" }),
+    ).resolves.toMatchObject({ id: EPIC.id });
+
+    errorSpy.mockRestore();
+  });
+});

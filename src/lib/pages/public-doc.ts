@@ -1,5 +1,7 @@
 import type { JSONContent } from "@tiptap/core";
 
+import { youTubeVideoFromAttrs } from "~/lib/prd/youtube";
+
 /**
  * Sanitize a canonical ProseMirror `bodyDoc` for the unauthenticated public
  * render (ADR-0038). The schema already constrains what `generateHTML` can
@@ -7,6 +9,7 @@ import type { JSONContent } from "@tiptap/core";
  *
  *  - `link` marks keep only http(s)/mailto hrefs (drops `javascript:` etc.)
  *  - `image` nodes keep only http(s) srcs (drops `data:`/`javascript:`)
+ *  - `youtube` nodes keep only a valid video id and start second
  *  - `comment` marks are internal collaboration artifacts and are stripped,
  *    matching the Markdown projection, which also drops them (ADR-0024)
  *  - `pageLink` nodes resolve through the caller-supplied map of **published**
@@ -130,6 +133,15 @@ function sanitizeNode(
       type: "pageLink",
       attrs: { title: typeof title === "string" && title ? title : "Untitled" },
     };
+  }
+
+  if (node.type === "youtube") {
+    // The iframe src is rebuilt from the id at render time; keep only a valid
+    // id and start so nothing else rides along into the public HTML.
+    const video = youTubeVideoFromAttrs(node.attrs);
+    return video
+      ? { type: "youtube", attrs: { videoId: video.videoId, start: video.start ?? null } }
+      : null;
   }
 
   if (node.type === "image") {

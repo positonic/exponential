@@ -10,7 +10,9 @@ import { assertAssignableUsers } from "~/server/services/actions/containment";
 import { ASSIGNABLE_USER_SELECT } from "~/server/services/access/assignability";
 import { attachPositions } from "~/server/services/positions";
 import { after } from "next/server";
-import OpenAI from "openai";
+import type OpenAI from "openai";
+import { getOpenAIClient } from "~/server/services/ai/clients";
+import { isAiConfigured, requireAi, requireMastraUrl } from "~/server/services/ai/requireAi";
 import { TRPCError } from "@trpc/server";
 // import { mastraClient } from "~/lib/mastra";
 import { PRIORITY_VALUES } from "~/types/priority";
@@ -52,9 +54,6 @@ import {
   attachTicketTags,
 } from "~/server/services/notionTicketImport";
 
-// OpenAI client for embeddings
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-
 // Parse an ISO date string supplied by an agent tool into a Date. Empty/nullish
 // values clear the field (return null); a malformed string throws BAD_REQUEST
 // rather than silently persisting an `Invalid Date` to the DB.
@@ -70,12 +69,6 @@ function parseAgentDate(value: string | null | undefined, field: string): Date |
   return parsed;
 }
 
-// Get Mastra API URL from environment variable
-const MASTRA_API_URL = process.env.MASTRA_API_URL;
-
-if (!MASTRA_API_URL) {
-  throw new Error("MASTRA_API_URL environment variable is not set");
-}
 
 // Server-to-server API key for authenticating with Mastra API.
 // Used for calls without a user-specific JWT (e.g., listing agents).
@@ -87,6 +80,9 @@ function mastraAuthHeaders(jwt?: string): Record<string, string> {
   if (!token) return {};
   return { Authorization: `Bearer ${token}` };
 }
+
+/** Where chat goes when semantic routing can't run (no OpenAI key for embeddings). */
+const DEFAULT_CHAT_AGENT_ID = 'zoeAgent';
 
 // Allowlist of valid agent IDs that clients can route to.
 const ALLOWED_AGENT_IDS = new Set([
@@ -158,9 +154,10 @@ async function loadAgentEmbeddings(): Promise<AgentEmbedding[]> {
   if (agentEmbeddingsCache) return agentEmbeddingsCache;
 
   // Use direct fetch instead of mastraClient
+  const agentsUrl = `${requireMastraUrl("The Assistant")}/api/agents`;
   let data: Record<string, { instructions: unknown }>;
   try {
-    const response = await fetch(`${MASTRA_API_URL}/api/agents`, {
+    const response = await fetch(agentsUrl, {
       headers: mastraAuthHeaders(),
     });
     if (!response.ok) {
@@ -199,7 +196,7 @@ async function loadAgentEmbeddings(): Promise<AgentEmbedding[]> {
   }
 
   try {
-    const embedRes = await openai.embeddings.create({
+    const embedRes = await getOpenAIClient("Choosing an agent").embeddings.create({
       model: 'text-embedding-3-small',
       input: valid.map(v => v.instructions),
     });
@@ -275,12 +272,6 @@ export const mastraRouter = createTRPCRouter({
       }),
     )
     .mutation(({ ctx }) => {
-      if (!MASTRA_API_URL) {
-        throw new TRPCError({
-          code: "PRECONDITION_FAILED",
-          message: "MASTRA_API_URL is not configured",
-        });
-      }
       // A wiki turn is not one request: each client-tool round re-POSTs the
       // whole turn, and the agent is allowed up to twenty steps. If the token
       // expires partway through, the next round 401s and the user loses the
@@ -291,7 +282,7 @@ export const mastraRouter = createTRPCRouter({
       const expiresInMinutes = 30;
       return {
         token: generateAgentJWT(ctx.session.user, expiresInMinutes),
-        mastraUrl: MASTRA_API_URL,
+        mastraUrl: requireMastraUrl("The Assistant"),
         expiresInMinutes,
       };
     }),
@@ -299,7 +290,9 @@ export const mastraRouter = createTRPCRouter({
   getMastraAgents: protectedProcedure
     .output(MastraAgentsResponseSchema) // Output is still the validated array
     .query(async () => {
-      const mastraApiUrl = `${MASTRA_API_URL}/api/agents`; // Use environment variable
+      // No Assistant on this install: no agents to list.
+      if (!isAiConfigured("assistant")) return [];
+      const agentsUrl = `${requireMastraUrl("The Assistant")}/api/agents`;
       try {
         // Use mastraClient to fetch agents
         // const agentsData = await mastraClient.getAgents();
@@ -307,7 +300,7 @@ export const mastraRouter = createTRPCRouter({
 
         // console.log("Mastra API data from client:", agentsData);
         // Use direct fetch with server auth
-        const response = await fetch(mastraApiUrl, {
+        const response = await fetch(agentsUrl, {
           headers: mastraAuthHeaders(),
         });
 
@@ -359,6 +352,11 @@ export const mastraRouter = createTRPCRouter({
   chooseAgent: protectedProcedure
     .input(z.object({ message: z.string().max(10000) }))
     .mutation(async ({ input }) => {
+      requireAi("assistant", "Choosing an agent");
+      // Semantic routing embeds with OpenAI. An install with Mastra but no
+      // OpenAI key still has a working Assistant, so route to Zoe, the chat
+      // UI's own default, instead of failing mid-conversation.
+      if (!isAiConfigured("openai")) return { agentId: DEFAULT_CHAT_AGENT_ID };
       // 1. load agent embeddings and ensure non-empty
       const embeddings = await loadAgentEmbeddings();
       if (embeddings.length === 0) {
@@ -374,7 +372,7 @@ export const mastraRouter = createTRPCRouter({
       if (trimmed.length === 0) {
         throw new TRPCError({ code: 'BAD_REQUEST', message: 'Message is empty' });
       }
-      const msgEmbRes = await openai.embeddings.create({
+      const msgEmbRes = await getOpenAIClient("Choosing an agent").embeddings.create({
         model: 'text-embedding-3-small',
         input: trimmed,
       });
@@ -420,6 +418,7 @@ export const mastraRouter = createTRPCRouter({
       })
     )
     .mutation(async ({ input, ctx }) => {
+      requireAi("assistant", "The Assistant");
       let { agentId } = input;
       // SECURITY: Strip client-supplied system messages to prevent prompt injection.
       // Client context is preserved but demoted with clear delimiters.
@@ -563,7 +562,7 @@ export const mastraRouter = createTRPCRouter({
 
       const startTime = Date.now();
       const res = await fetch(
-        `${MASTRA_API_URL}/api/agents/${agentId}/generate`,
+        `${requireMastraUrl("The Assistant")}/api/agents/${agentId}/generate`,
         {
           method: 'POST',
           headers: {
@@ -1875,7 +1874,11 @@ export const mastraRouter = createTRPCRouter({
       });
 
       // Extract insights using AI-enhanced analysis
-      const insights = await extractInsightsFromTranscriptions(transcriptions, input.insightTypes, openai);
+      const insights = await extractInsightsFromTranscriptions(
+        transcriptions,
+        input.insightTypes,
+        isAiConfigured("openai") ? getOpenAIClient() : undefined,
+      );
 
       return {
         insights,
@@ -5000,7 +5003,8 @@ function determineContextType(content: string): 'decision' | 'action_item' | 'de
   return 'discussion';
 }
 
-async function extractInsightsFromTranscriptions(transcriptions: any[], _insightTypes?: string[], openaiClient?: OpenAI) {
+/** Exported for tests. */
+export async function extractInsightsFromTranscriptions(transcriptions: any[], _insightTypes?: string[], openaiClient?: OpenAI) {
   const insights = {
     decisions: [] as any[],
     actionItems: [] as any[],

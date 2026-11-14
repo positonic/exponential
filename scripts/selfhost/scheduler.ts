@@ -12,12 +12,17 @@
  *
  *   CRON_SECRET=… SCHEDULER_TARGET_URL=http://localhost:3000 npm run scheduler:selfhost
  *
+ * Like `start:selfhost`, it reads `.env` files from the working directory, so
+ * the `CRON_SECRET` in a `.env` copied from `.env.selfhost.example` reaches
+ * both processes. Exported variables win over the files.
+ *
  * Imports only Node builtins and node-cron (nothing from `src/`), so the
  * scheduler image needs no Next build.
  */
 
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
+import { loadEnvFile } from "node:process";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import cron from "node-cron";
 import { type CronEntry, readCronPlan } from "./cronPlan";
@@ -134,10 +139,26 @@ function readSchedulerConfig(env: NodeJS.ProcessEnv): SchedulerConfig {
   return { targetUrl, cronSecret, timeoutMs };
 }
 
+/**
+ * `.env` files in Next's production precedence, highest first. Node's
+ * `loadEnvFile` never overwrites a variable that is already set, so loading in
+ * this order keeps exported variables first, then the earliest file. Node
+ * builtins only, so the scheduler image still needs no Next install.
+ */
+export const ENV_FILES = [".env.production.local", ".env.local", ".env.production", ".env"] as const;
+
+export function loadEnvFiles(dir: string): void {
+  for (const name of ENV_FILES) {
+    const file = path.join(dir, name);
+    if (existsSync(file)) loadEnvFile(file);
+  }
+}
+
 function main(): void {
   let plan: CronEntry[];
   let config: SchedulerConfig;
   try {
+    loadEnvFiles(process.cwd());
     config = readSchedulerConfig(process.env);
     const here = path.dirname(fileURLToPath(import.meta.url));
     const vercelJsonPath = path.resolve(here, "../../vercel.json");

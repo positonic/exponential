@@ -16,6 +16,7 @@
 import type { PrismaClient } from "@prisma/client";
 import { randomBytes } from "node:crypto";
 import OpenAI from "openai";
+import { isAiConfigured, requireAi } from "~/server/services/ai/requireAi";
 import { z } from "zod";
 import { getAiInteractionLogger } from "~/server/services/AiInteractionLogger";
 import {
@@ -285,6 +286,7 @@ export interface SizeOpenAIClient {
 
 let _defaultOpenAI: OpenAI | undefined;
 function getDefaultOpenAI(): OpenAI {
+  requireAi("openai", "Ticket size suggestions");
   return (_defaultOpenAI ??= new OpenAI({
     apiKey: process.env.OPENAI_API_KEY,
     timeout: 20_000,
@@ -294,7 +296,7 @@ function getDefaultOpenAI(): OpenAI {
 
 /** Whether the server can make suggestions at all (no key → the UI hides the affordance). */
 export function isSizeSuggestionConfigured(): boolean {
-  return Boolean(process.env.OPENAI_API_KEY);
+  return isAiConfigured("openai");
 }
 
 /**

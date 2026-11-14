@@ -17,6 +17,13 @@ vi.mock("~/app/_components/actions/ActionsList", () => ({
 vi.mock("~/app/_components/FirefliesSummaryRenderer", () => ({
   FirefliesSummaryDisplay: () => null,
 }));
+// exponential.im: every AI key set. Individual tests flip it off (keyless self-host).
+const aiCapabilities = vi.hoisted(() => ({
+  current: { openai: true, anthropic: true, assistant: true, summaries: true, voice: true },
+}));
+vi.mock("~/providers/AiCapabilitiesProvider", () => ({
+  useAiCapabilities: () => aiCapabilities.current,
+}));
 
 const STORED = {
   overview: "What happened.",
@@ -159,5 +166,41 @@ describe("SummaryTab freeform summary rendering", () => {
     expect(screen.getByText("ship").tagName).toBe("STRONG");
     expect(screen.getAllByRole("listitem")).toHaveLength(2);
     expect(screen.queryByText(/\*\*ship\*\*/)).toBeNull();
+  });
+});
+
+describe("SummaryTab on an install with no AI key", () => {
+  test("offers no Generate or Ideate button and explains how to turn summaries on", () => {
+    const keyed = aiCapabilities.current;
+    aiCapabilities.current = { openai: false, anthropic: false, assistant: false, summaries: false, voice: false };
+    try {
+      render(
+        <SummaryTab
+          vm={{ ...vmWith(null), plainSummary: null }}
+          rawSummary=""
+          generatedStamp={null}
+          actions={[]}
+          isActionsLoading={false}
+          hasTranscript={true}
+          isCreatingActions={false}
+          isIdeatingFeatures={false}
+          isGeneratingSummary={false}
+          onSaveSummary={vi.fn()}
+          onCreateActions={vi.fn()}
+          onIdeateFeatures={vi.fn()}
+          onRegenerate={vi.fn()}
+        />,
+      );
+
+      expect(screen.queryByText(/^\s*Generate\s*$/)).toBeNull();
+      expect(screen.queryByText(/Ideate Features/)).toBeNull();
+      const notes = screen.getAllByRole("note").map((note) => note.textContent ?? "");
+      expect(notes.some((text) => text.includes("ANTHROPIC_API_KEY"))).toBe(true);
+      expect(notes.some((text) => text.startsWith("Feature ideation"))).toBe(true);
+      // Editing a summary by hand is not AI and stays.
+      expect(screen.getByText("Edit")).toBeTruthy();
+    } finally {
+      aiCapabilities.current = keyed;
+    }
   });
 });

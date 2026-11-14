@@ -6512,3 +6512,17 @@ model AdrSyncRun {
   @@index([configId, startedAt])
   @@index([triggeredById])
 }
+
+/// Instance-wide settings for one install (ADR-0081). A single row, id "instance";
+/// an absent row means every default below, which is how exponential.im runs.
+model InstanceSettings {
+  id                  String    @id @default("instance")
+  /// "open" | "invite-only". Null (or no row) means open. Claiming a
+  /// self-host install sets invite-only; an instance admin can change it in /admin.
+  signUpMode          String?
+  /// SHA-256 of the one-time setup token `start:selfhost` prints while the
+  /// install has no instance admin. Cleared when /setup claims it.
+  setupTokenHash      String?
+  setupTokenExpiresAt DateTime?
+  updatedAt           DateTime  @updatedAt
+}

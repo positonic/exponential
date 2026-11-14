@@ -111,6 +111,8 @@ db-backups/
 .claude/skills/impeccable/
 .claude/skills/verify/
 .env*
+# The self-host example holds no secrets and is documentation.
+!.env.selfhost.example
 
 # Playwright (agent visual testing)
 /e2e/.auth/

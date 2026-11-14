@@ -267,27 +267,31 @@ describe("EmbeddingTriggerService — reindexStalePages (cron backstop)", () => 
 
     const result = await svc.reindexStalePages(new Date("2026-10-08T12:00:00Z"), 20);
 
-    expect(result).toEqual({ checked: 3, embedded: 1, cleared: 2, failed: 0 });
+    expect(result).toEqual({ checked: 3, embedded: 1, cleared: 2, failed: 0, skipped: 0 });
     expect(embedSource).toHaveBeenCalledTimes(1);
     expect(deleteChunks).toHaveBeenCalledWith("page", "p2");
     expect(deleteChunks).toHaveBeenCalledWith("page", "p4");
   });
 
-  it("bounds the sweep to settled saves inside the lookback window", async () => {
+  it("bounds re-embeds to the lookback window but clears unwanted chunks at any age", async () => {
     const { svc, sweepRows } = makeService({});
     const now = new Date("2026-10-08T12:00:00Z");
     await svc.reindexStalePages(now, 20);
 
     const [strings, ...values] = sweepRows.mock.calls[0] as [readonly string[], ...unknown[]];
     const sql = strings.join("?");
-    expect(sql).toContain('"KnowledgeChunk"');
-    // An emptied page that still has chunks is a candidate, not just pages with a body.
-    expect(sql).toMatch(/btrim\(coalesce\(p\.body, ''\)\) <> ''\s+OR EXISTS/);
     expect(values).toEqual([
-      new Date("2026-10-07T12:00:00Z"), // 24h lookback
       new Date("2026-10-08T11:58:00Z"), // still-settling saves are left to their trigger
+      new Date("2026-10-07T12:00:00Z"), // 24h lookback, re-embed branch only
       20,
     ]);
+    // The lookback sits inside the re-embed branch, not on the whole query, so
+    // an emptied or opted-out page's stale chunks are cleared however old.
+    const [reembed, clear] = sql.split(/\)\s+OR\s+\(/);
+    expect(reembed).toContain('p."updatedAt" > ?');
+    expect(reembed).toContain("<> ''");
+    expect(clear).not.toContain('p."updatedAt" > ?');
+    expect(clear).toContain('NOT p."includeInSearch" OR btrim(coalesce(p.body, \'\')) = \'\'');
   });
 
   it("counts a failure and keeps going", async () => {
@@ -300,6 +304,6 @@ describe("EmbeddingTriggerService — reindexStalePages (cron backstop)", () => 
 
     const result = await svc.reindexStalePages();
 
-    expect(result).toEqual({ checked: 2, embedded: 1, cleared: 0, failed: 1 });
+    expect(result).toEqual({ checked: 2, embedded: 1, cleared: 0, failed: 1, skipped: 0 });
   });
 });

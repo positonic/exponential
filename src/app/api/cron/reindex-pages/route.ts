@@ -1,6 +1,7 @@
 import { timingSafeEqual } from "node:crypto";
 import { type NextRequest, NextResponse } from "next/server";
 import { headers } from "next/headers";
+import { aiConfiguredOrSkip } from "~/server/services/ai/requireAi";
 
 import { db } from "~/server/db";
 import { getEmbeddingTriggerService } from "~/server/services/embedding/EmbeddingTriggerService";
@@ -39,6 +40,10 @@ export async function GET(_request: NextRequest) {
       !timingSafeEqual(provided, expected)
     ) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    if (!aiConfiguredOrSkip("openai", "cron reindex-pages")) {
+      return NextResponse.json({ success: true, skipped: "ai-not-configured" });
     }
 
     const result = await getEmbeddingTriggerService(db).reindexStalePages();

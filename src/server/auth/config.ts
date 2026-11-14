@@ -9,20 +9,26 @@ import Postmark from "next-auth/providers/postmark";
 
 import { db } from "~/server/db";
 import { acceptPendingInvitationsForUser } from "~/server/auth/acceptPendingInvitations";
-import { sendFirstLoginWelcomeEmail, sendSignInCodeEmail, sendWelcomeWithSignInCodeEmail } from "~/server/services/EmailService";
-import { resolveWelcomeEmailContext, type WelcomeEmailContext } from "~/server/auth/welcomeEmailContext";
+import { onUserCreated } from "~/server/auth/onUserCreated";
+import { deliverSignInCode } from "~/server/auth/deliverSignInCode";
+import { authorizeSetupClaim } from "~/server/auth/setupClaim";
+import { mayCreateAccount } from "~/server/auth/signUpPolicy";
+import { EMAIL_SIGN_IN_UNAVAILABLE_ERROR, SIGN_UP_CLOSED_ERROR } from "~/lib/signInErrors";
+import { resolveSignInMethods, signInMethodWarnings } from "~/server/auth/signInMethods";
 import { generateSignInCode, SIGN_IN_CODE_TTL_SECONDS } from "~/lib/signInCode";
 import { verifyAuthCode, verifyPkce } from "~/server/utils/native-auth";
 
-/**
- * Kill switch for Microsoft Entra ID sign-in. Set to `false` to disable the
- * "Sign in with Microsoft" option regardless of whether the
- * `MICROSOFT_ENTRA_ID_*` env vars are configured. The provider code and env
- * wiring are intentionally left in place so it can be re-enabled by flipping
- * this back to `true`. Also consumed by the `auth` router
- * (`getConfiguredProviders`) so the UI button stays in sync.
- */
-export const MICROSOFT_LOGIN_ENABLED = false;
+/** Where the signIn callback sends an account creation that Sign-up mode refuses. */
+const SIGN_UP_CLOSED_REDIRECT = `/signin?error=${SIGN_UP_CLOSED_ERROR}`;
+
+/** Where a code request is sent when codes go to the log and the requester isn't an instance admin. */
+const EMAIL_SIGN_IN_UNAVAILABLE_REDIRECT = `/signin?error=${EMAIL_SIGN_IN_UNAVAILABLE_ERROR}`;
+
+/** Which ways in this install has, resolved once at config load. */
+const signInMethods = resolveSignInMethods(process.env);
+
+// Once per process, at config load: log delivery on, or its flag ignored.
+for (const warning of signInMethodWarnings(process.env)) console.warn(warning);
 
 /**
  * Module augmentation for `next-auth` types. Allows us to add custom properties to the `session`
@@ -51,38 +57,50 @@ export const authConfig = {
     verifyRequest: '/auth/verify-request',
   },
   providers: [
-    DiscordProvider({
-      clientId: process.env.AUTH_DISCORD_ID!,
-      clientSecret: process.env.AUTH_DISCORD_SECRET!,
-      authorization: {
-        url: "https://discord.com/api/oauth2/authorize",
-        params: {
-          scope: "identify email guilds",
-        },
-      },
-      allowDangerousEmailAccountLinking: true,
-    }),
-    GoogleProvider({
-      clientId: process.env.GOOGLE_CLIENT_ID!,
-      clientSecret: process.env.GOOGLE_CLIENT_SECRET!,
-      allowDangerousEmailAccountLinking: true,
-      authorization: {
-        params: {
-          access_type: "offline",
-          prompt: "consent",
-          scope: [
-            "openid",
-            "https://www.googleapis.com/auth/userinfo.email",
-            "https://www.googleapis.com/auth/userinfo.profile",
-          ].join(" "),
-        },
-      },
-    }),
-    ...(MICROSOFT_LOGIN_ENABLED && process.env.MICROSOFT_ENTRA_ID_CLIENT_ID
+    // OAuth providers register only when their id and secret are both set, so
+    // an install never offers a button that bounces with "provider not
+    // found". `/signin`, the invite page and `auth.getConfiguredProviders`
+    // read the same resolver.
+    ...(signInMethods.discord
+      ? [
+          DiscordProvider({
+            clientId: process.env.AUTH_DISCORD_ID,
+            clientSecret: process.env.AUTH_DISCORD_SECRET,
+            authorization: {
+              url: "https://discord.com/api/oauth2/authorize",
+              params: {
+                scope: "identify email guilds",
+              },
+            },
+            allowDangerousEmailAccountLinking: true,
+          }),
+        ]
+      : []),
+    ...(signInMethods.google
+      ? [
+          GoogleProvider({
+            clientId: process.env.GOOGLE_CLIENT_ID,
+            clientSecret: process.env.GOOGLE_CLIENT_SECRET,
+            allowDangerousEmailAccountLinking: true,
+            authorization: {
+              params: {
+                access_type: "offline",
+                prompt: "consent",
+                scope: [
+                  "openid",
+                  "https://www.googleapis.com/auth/userinfo.email",
+                  "https://www.googleapis.com/auth/userinfo.profile",
+                ].join(" "),
+              },
+            },
+          }),
+        ]
+      : []),
+    ...(signInMethods.microsoft
       ? [
           MicrosoftEntraID({
             clientId: process.env.MICROSOFT_ENTRA_ID_CLIENT_ID,
-            clientSecret: process.env.MICROSOFT_ENTRA_ID_CLIENT_SECRET!,
+            clientSecret: process.env.MICROSOFT_ENTRA_ID_CLIENT_SECRET,
             issuer: process.env.MICROSOFT_ENTRA_ID_TENANT_ID
               ? `https://login.microsoftonline.com/${process.env.MICROSOFT_ENTRA_ID_TENANT_ID}/v2.0`
               : undefined,
@@ -95,19 +113,31 @@ export const authConfig = {
           }),
         ]
       : []),
-    NotionProvider({
-      clientId: process.env.NOTION_CLIENT_ID!,
-      clientSecret: process.env.NOTION_CLIENT_SECRET!,
-      redirectUri: process.env.NOTION_REDIRECT_URI!,
-      authorization: {
-        params: {
-          scope: 'basic read_databases write_databases',
-          owner: 'user',
-          response_type: 'code'
-        },
-        redirectUri: process.env.NOTION_REDIRECT_URI!,
-      }
-    }),
+    ...(signInMethods.notion
+      ? [
+          NotionProvider({
+            clientId: process.env.NOTION_CLIENT_ID,
+            clientSecret: process.env.NOTION_CLIENT_SECRET,
+            redirectUri: process.env.NOTION_REDIRECT_URI!,
+            authorization: {
+              params: {
+                scope: 'basic read_databases write_databases',
+                owner: 'user',
+                response_type: 'code'
+              },
+              redirectUri: process.env.NOTION_REDIRECT_URI!,
+            }
+          }),
+        ]
+      : []),
+    // The email provider. Its id is `postmark` whatever actually delivers the
+    // code (Postmark, SMTP or, opt-in, the server log — `deliverSignInCode`
+    // decides), because the id is load-bearing: `buildSignInCodeCallbackUrl`
+    // hard-codes `/api/auth/callback/postmark` and three forms call
+    // `signIn("postmark")`. The factory only supplies the token generator and
+    // `sendVerificationRequest`; its apiKey/from are unused. Registered
+    // unconditionally, so a code requested on an install with no delivery
+    // fails as a send (SEND_FAILED_MESSAGE) rather than "provider not found".
     Postmark({
       apiKey: process.env.AUTH_POSTMARK_KEY ?? process.env.POSTMARK_SERVER_TOKEN ?? "",
       from: process.env.AUTH_POSTMARK_FROM ?? "noreply@exponential.im",
@@ -125,87 +155,8 @@ export const authConfig = {
        */
       generateVerificationToken: generateSignInCode,
       maxAge: SIGN_IN_CODE_TTL_SECONDS,
-      sendVerificationRequest: async ({ identifier, token, expires }) => {
-        if (!process.env.AUTH_POSTMARK_KEY && !process.env.POSTMARK_SERVER_TOKEN) {
-          throw new Error(
-            'Postmark API key is not configured. Set AUTH_POSTMARK_KEY or POSTMARK_SERVER_TOKEN environment variable.'
-          );
-        }
-        try {
-          // Check if user exists to determine which email to send
-          const existingUser = await db.user.findUnique({
-            where: { email: identifier },
-            select: { id: true },
-          });
-
-          if (existingUser) {
-            // Returning user - send the bare sign-in code
-            await sendSignInCodeEmail(identifier, token);
-          } else {
-            // New user - send welcome email with the code embedded
-            await sendWelcomeWithSignInCodeEmail(identifier, token);
-          }
-        } catch (error) {
-          console.error(
-            `[Auth] Failed to send sign-in code email to ${identifier}:`,
-            error
-          );
-          throw error;
-        }
-
-        try {
-          // Retire this address's older codes, because the entropy argument in
-          // ADR-0056 assumes one live code per identifier and Auth.js's
-          // `sendToken` never retires the previous row. Without this, N
-          // requests leave N simultaneously-valid codes and the odds of a
-          // blind guess landing scale linearly with N — on an endpoint we
-          // can't rate limit. `expires` is issue time + maxAge, so "older" is
-          // exactly "expires sooner".
-          //
-          // Strictly after the send, and that ordering is load-bearing: Auth.js
-          // writes the new row via `Promise.all` whether or not the send throws,
-          // so retiring first would answer a failed send by destroying the code
-          // the user could still have typed and replacing it with one that never
-          // arrived. Leaving them with nothing is worse than leaving them with
-          // two.
-          //
-          // Retiring a still-unused code is otherwise the point, not a side
-          // effect: ask for a second code and the first stops working. The
-          // comparison is strict, so this can never delete the row for the code
-          // just sent.
-          //
-          // Deliberately not keyed off the token hash, which would identify
-          // "mine" exactly: that means re-deriving `sha256(token + secret)`,
-          // and if `AUTH_SECRET` ever becomes an array for rotation the hash
-          // silently diverges and this deletes the live row instead of the
-          // stale ones — sign-in breaks for everyone. The residual cost of the
-          // timestamp approach is far smaller: two near-simultaneous requests
-          // for one address, on instances whose clocks disagree by more than
-          // the gap between them, can retire the newer code instead of the
-          // older. The user asks for another code.
-          //
-          // Emails only: legacy API-key rows share this table under an
-          // `api-key:<userId>:<uid>` identifier, which never matches.
-          await db.verificationToken.deleteMany({
-            where: { identifier, expires: { lt: expires } },
-          });
-        } catch (error) {
-          // Its own catch, and it deliberately does not rethrow: by this point
-          // the code is in the user's inbox. Letting a failed cleanup escape
-          // would surface as "we couldn't send that email, so no code is on
-          // its way" — telling someone holding a working code to go and get
-          // another one. Failing to retire the old ones just leaves the
-          // pre-ADR-0056 status quo of more than one live code.
-          //
-          // Not routed through `reportHandledError`: it pulls in
-          // `@sentry/nextjs`, and `middleware.ts` drags this whole config into
-          // the Edge bundle. Revisit once the Edge-safe config split lands.
-          console.error(
-            `[Auth] Sent a sign-in code to ${identifier} but could not retire the older ones:`,
-            error
-          );
-        }
-      },
+      sendVerificationRequest: ({ identifier, token, expires }) =>
+        deliverSignInCode({ identifier, token, expires }),
     }),
     /**
      * Desktop (Electron) sign-in bridge. The Electron app can't run Google/
@@ -255,6 +206,22 @@ export const authConfig = {
         return { id: user.id, email: user.email, name: user.name, image: user.image };
       },
     }),
+    /**
+     * First-run claim of a self-host install (`/setup`, ADR-0081). Accepts an
+     * email and the one-time **Setup token** `start:selfhost` printed, creates
+     * or promotes that user as the instance admin and signs them in — no email
+     * transport needed. Registered everywhere, but `claimInstance` refuses
+     * once any instance admin exists, so on exponential.im it never succeeds.
+     */
+    CredentialsProvider({
+      id: "setup",
+      name: "Instance setup",
+      credentials: {
+        email: { label: "Email", type: "email" },
+        token: { label: "Setup token", type: "text" },
+      },
+      authorize: (credentials) => authorizeSetupClaim(credentials),
+    }),
   ],
   adapter: PrismaAdapter(db),
   session: {
@@ -295,12 +262,44 @@ export const authConfig = {
       }
       return token;
     },
-    signIn: async ({ user, account }) => {
-      // Allow sign in if the user doesn't exist yet
-      if (!user.email) {
-        return true;
+    signIn: async ({ user, account, email }) => {
+      // Log delivery (no email transport) is for the instance admin only
+      // (ADR-0081): anyone else asking for a Sign-in code is refused before a
+      // code exists, with copy saying email sign-in isn't set up. Read per
+      // request, like the verify page, rather than from the module-level
+      // `signInMethods`.
+      if (
+        email?.verificationRequest &&
+        account?.provider === "postmark" &&
+        resolveSignInMethods(process.env).emailDelivery === "log"
+      ) {
+        const requester = user.email
+          ? await db.user.findUnique({ where: { email: user.email }, select: { isAdmin: true } })
+          : null;
+        if (!requester?.isAdmin) return EMAIL_SIGN_IN_UNAVAILABLE_REDIRECT;
       }
-      
+
+      // No email (some OAuth profiles): an existing account signs in; a new
+      // one is an account creation, so Sign-up mode decides.
+      if (!user.email) {
+        // Credentials sign-ins (desktop bridge, /setup) only ever return a
+        // user their `authorize` already found or created.
+        if (account?.type === "credentials") return true;
+        const existingAccount = account
+          ? await db.account.findUnique({
+              where: {
+                provider_providerAccountId: {
+                  provider: account.provider,
+                  providerAccountId: account.providerAccountId,
+                },
+              },
+              select: { id: true },
+            })
+          : null;
+        if (existingAccount) return true;
+        return (await mayCreateAccount(db, null)) ? true : SIGN_UP_CLOSED_REDIRECT;
+      }
+
       // Check if a user exists with this email
       const existingUser = await db.user.findUnique({
         where: { email: user.email },
@@ -311,10 +310,12 @@ export const authConfig = {
         },
       });
 
-      // If no user exists, allow sign in. The Welcome email fires from
-      // events.createUser — once per user, on any provider — not from here.
+      // No user yet: this sign-in creates the account. Under invite-only
+      // Sign-up mode (ADR-0081) that needs a pending invitation; refused here,
+      // an email sign-in is refused before any code is sent. The Welcome email
+      // fires from events.createUser — once per user, on any provider.
       if (!existingUser) {
-        return true;
+        return (await mayCreateAccount(db, user.email)) ? true : SIGN_UP_CLOSED_REDIRECT;
       }
 
       // Update lastLogin timestamp for existing users
@@ -366,95 +367,10 @@ export const authConfig = {
     },
   },
   events: {
+    // A new user's one-time setup (Personal workspace, invitations, Welcome
+    // email) lives in `onUserCreated`, which `/setup` also calls.
     createUser: async ({ user }) => {
-      // Set lastLogin for newly created users
-      await db.user.update({
-        where: { id: user.id },
-        data: { lastLogin: new Date() },
-      });
-
-      // Create personal workspace for new users
-      if (!user.id) return;
-
-      let personalWorkspaceId: string | null = null;
-
-      try {
-        const slug = `personal-${user.id}`;
-        const workspace = await db.workspace.create({
-          data: {
-            name: "Personal",
-            slug,
-            type: "personal",
-            ownerId: user.id,
-            members: {
-              create: {
-                userId: user.id,
-                role: "owner",
-              },
-            },
-          },
-        });
-
-        personalWorkspaceId = workspace.id;
-
-        // Set as default workspace
-        await db.user.update({
-          where: { id: user.id },
-          data: { defaultWorkspaceId: workspace.id },
-        });
-      } catch (error) {
-        // Log error but don't block user creation
-        console.error("[Auth] Failed to create personal workspace:", error);
-      }
-
-      if (!user.email) return;
-
-      // Prefer an invited workspace as the user's default so they land there
-      // instead of their empty Personal workspace after sign-up.
-      const firstAcceptedWorkspaceId = await acceptPendingInvitationsForUser(
-        db,
-        user.id,
-        user.email
-      );
-      if (firstAcceptedWorkspaceId && firstAcceptedWorkspaceId !== personalWorkspaceId) {
-        try {
-          await db.user.update({
-            where: { id: user.id },
-            data: { defaultWorkspaceId: firstAcceptedWorkspaceId },
-          });
-        } catch (error) {
-          // Best-effort: landing in Personal instead of the invited workspace
-          // must not cost the user their only Welcome email below.
-          console.error("[Auth] Failed to set invited workspace as default:", error);
-        }
-      }
-
-      // The Welcome email — the single onboarding email a user ever receives.
-      // Sent from here because this event fires exactly once per user, after
-      // the first successful sign-in on any provider; the sign-in code emails
-      // stay minimal by design (see CONTEXT.md, "Welcome email"). Invited
-      // users get a frame naming their first accepted workspace and inviter,
-      // and the task-layer bullet names the chat tool that workspace actually
-      // uses (resolved in `resolveWelcomeEmailContext`, which never throws).
-      //
-      // Awaited deliberately: this event runs inside the sign-in request on
-      // Vercel, and a detached promise races the lambda freeze — the send
-      // could silently never happen. The `.catch` still guarantees a failed
-      // send can't block account creation. Not routed through
-      // `reportHandledError` for the same Edge-bundle reason as in
-      // `sendVerificationRequest` above.
-      const context: WelcomeEmailContext = firstAcceptedWorkspaceId
-        ? await resolveWelcomeEmailContext(db, firstAcceptedWorkspaceId, user.email)
-        : {};
-
-      await sendFirstLoginWelcomeEmail({
-        to: user.email,
-        name: user.name,
-        invited: context.invited,
-        chatTools: context.chatTools,
-      }).catch((error) => {
-        console.error("[Auth] Failed to send welcome email:", error);
-      });
+      await onUserCreated(user);
     },
   },
 } satisfies NextAuthConfig;

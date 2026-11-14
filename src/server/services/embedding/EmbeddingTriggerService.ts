@@ -1,6 +1,7 @@
 import type { PrismaClient } from "@prisma/client";
 import { after } from "next/server";
 import { getKnowledgeService } from "../KnowledgeService";
+import { isAiConfigured } from "../ai/requireAi";
 import { TranscriptionSource } from "./sources/TranscriptionSource";
 import { PageSource } from "./sources/PageSource";
 import { projectedPageBody } from "~/server/services/databases/projection";
@@ -40,6 +41,8 @@ export interface StalePageSweepResult {
   embedded: number;
   cleared: number;
   failed: number;
+  /** Left as they were because no embeddings provider is configured. */
+  skipped: number;
 }
 
 /**
@@ -100,15 +103,20 @@ export class EmbeddingTriggerService {
   }
 
   /**
-   * Cron backstop: re-index recently-saved Pages whose chunks predate their
-   * last save (a dropped or failed trigger), and clear chunks left on Pages that
-   * have since been opted out of search. Bounded per run, oldest first, and only
-   * within the lookback window so a page that can never embed isn't retried
-   * forever. A searchable page is a candidate when its index is older than its
-   * last save and it either has a body or still has chunks (an emptied page
-   * whose stale chunks need clearing); `indexPage` then decides on the
-   * projection (ADR-0078 §7). A database row with properties but no prose that
-   * was never indexed is left to its own trigger.
+   * Cron backstop, two kinds of candidate, oldest first and bounded per run:
+   *
+   * - A searchable Page with a body whose chunks predate its last save (a
+   *   dropped or failed trigger). Only saves inside the lookback window qualify,
+   *   so a page that can never embed isn't retried forever.
+   * - A Page holding chunks it shouldn't — opted out of search, or emptied —
+   *   that are older than its last save. No lookback: clearing ends the
+   *   candidacy, so this also cleans up backlog left from before the sweep
+   *   existed or while the cron wasn't running.
+   *
+   * `indexPage` then decides on the projection (ADR-0078 §7), so a database row
+   * with properties but no prose is re-embedded rather than cleared, and its
+   * fresh chunks end its candidacy. Such a row that was never indexed is left to
+   * its own trigger.
    */
   async reindexStalePages(
     now: Date = new Date(),
@@ -118,21 +126,18 @@ export class EmbeddingTriggerService {
     const settledBefore = new Date(now.getTime() - STALE_PAGE_MIN_AGE_MS);
     const stale = await this.db.$queryRaw<{ id: string }[]>`
       SELECT p.id FROM "KnowledgePage" p
-      WHERE p."updatedAt" > ${since} AND p."updatedAt" < ${settledBefore}
+      WHERE p."updatedAt" < ${settledBefore}
+        AND NOT EXISTS (
+          SELECT 1 FROM "KnowledgeChunk" c
+          WHERE c."sourceType" = 'page' AND c."sourceId" = p.id
+            AND c."createdAt" >= p."updatedAt"
+        )
         AND (
-          (p."includeInSearch"
-            AND NOT EXISTS (
-              SELECT 1 FROM "KnowledgeChunk" c
-              WHERE c."sourceType" = 'page' AND c."sourceId" = p.id
-                AND c."createdAt" >= p."updatedAt"
-            )
-            AND (btrim(coalesce(p.body, '')) <> ''
-              OR EXISTS (
-                SELECT 1 FROM "KnowledgeChunk" c
-                WHERE c."sourceType" = 'page' AND c."sourceId" = p.id
-              )))
+          (p."updatedAt" > ${since}
+            AND p."includeInSearch"
+            AND btrim(coalesce(p.body, '')) <> '')
           OR
-          (NOT p."includeInSearch"
+          ((NOT p."includeInSearch" OR btrim(coalesce(p.body, '')) = '')
             AND EXISTS (
               SELECT 1 FROM "KnowledgeChunk" c
               WHERE c."sourceType" = 'page' AND c."sourceId" = p.id
@@ -147,6 +152,7 @@ export class EmbeddingTriggerService {
       embedded: 0,
       cleared: 0,
       failed: 0,
+      skipped: 0,
     };
     for (const { id } of stale) {
       try {
@@ -188,7 +194,7 @@ export class EmbeddingTriggerService {
   /** Embed or clear one Page from a fresh read. */
   private async indexPage(
     pageId: string,
-  ): Promise<"embedded" | "cleared" | "failed"> {
+  ): Promise<"embedded" | "cleared" | "failed" | "skipped"> {
     const knowledgeService = getKnowledgeService(this.db);
     const page = await this.db.knowledgePage.findUnique({
       where: { id: pageId },
@@ -209,6 +215,7 @@ export class EmbeddingTriggerService {
       return "cleared";
     }
     const result = await knowledgeService.embedSource(PageSource.fromEntity({ ...page, body }));
+    if (result.skipped) return "skipped";
     if (result.success) {
       console.log(
         `[EmbeddingTriggerService] Embedded page ${pageId}: ${result.chunkCount} chunks`,
@@ -251,6 +258,10 @@ export class EmbeddingTriggerService {
   async embedTranscriptionNow(
     transcriptionId: string
   ): Promise<EmbeddingStatus> {
+    // No embeddings provider: leave the status untouched (nothing attempted),
+    // so the meeting embeds once a key is added.
+    if (!isAiConfigured("openai")) return "none";
+
     const knowledgeService = getKnowledgeService(this.db);
 
     // 1. Mark as processing
