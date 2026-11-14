@@ -2,10 +2,31 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { IconChevronDown } from "@tabler/icons-react";
+import {
+  IconBolt,
+  IconBrandGithub,
+  IconBriefcase,
+  IconCalendar,
+  IconCalendarStats,
+  IconChartBar,
+  IconChartLine,
+  IconCheck,
+  IconChevronDown,
+  IconFolder,
+  IconInbox,
+  IconMessageCircle,
+  IconMicrophone,
+  IconNotes,
+  IconRefresh,
+  IconRobot,
+  IconSearch,
+  IconTarget,
+  IconUsers,
+  type Icon,
+} from "@tabler/icons-react";
 
 interface FeatureItem {
-  icon: string;
+  icon: Icon;
   title: string;
   description: string;
   href?: string;
@@ -21,19 +42,19 @@ const featureColumns: FeatureColumn[] = [
     label: "ALIGNMENT",
     items: [
       {
-        icon: "📎",
+        icon: IconTarget,
         title: "Goals",
         description: "Define what matters and why",
         href: "/features/goals",
       },
       {
-        icon: "📈",
+        icon: IconChartLine,
         title: "OKRs",
         description: "Objectives & Key Results tracking",
         href: "/features/okrs",
       },
       {
-        icon: "🔄",
+        icon: IconRefresh,
         title: "Weekly Plan",
         description: "Reflect, reset, realign",
         href: "/features/weekly-plan",
@@ -44,25 +65,25 @@ const featureColumns: FeatureColumn[] = [
     label: "EXECUTION",
     items: [
       {
-        icon: "📋",
+        icon: IconFolder,
         title: "Projects",
         description: "Containers for focused work",
         href: "/features/projects",
       },
       {
-        icon: "✓",
+        icon: IconCheck,
         title: "Actions",
         description: "Tasks that connect to your goals",
         href: "/features/actions",
       },
       {
-        icon: "📅",
+        icon: IconCalendar,
         title: "Today View",
         description: "Focus on what matters now",
         href: "/features/today-view",
       },
       {
-        icon: "📥",
+        icon: IconInbox,
         title: "Inbox",
         description: "Capture anything, process later",
         href: "/features/inbox",
@@ -73,19 +94,19 @@ const featureColumns: FeatureColumn[] = [
     label: "AI ASSISTANT",
     items: [
       {
-        icon: "🤖",
+        icon: IconRobot,
         title: "AI Assistant",
         description: "Chat with Zoe about your work",
         href: "/features/ai-assistant",
       },
       {
-        icon: "🔍",
+        icon: IconSearch,
         title: "Smart Search",
         description: "Find anything across your work",
         href: "/features/smart-search",
       },
       {
-        icon: "🎙️",
+        icon: IconMicrophone,
         title: "Meeting Intelligence",
         description: "Auto-capture action items",
         href: "/features/meeting-intelligence",
@@ -93,18 +114,18 @@ const featureColumns: FeatureColumn[] = [
     ],
   },
   {
-    label: "AI COORDINATION",
+    label: "AGENTS",
     items: [
       {
-        icon: "👔",
+        icon: IconBriefcase,
         title: "AI Project Manager",
-        description: "AI agents that run your projects",
+        description: "Status, risks and follow-ups drafted for you",
         href: "/features/ai-project-manager",
       },
       {
-        icon: "⚡",
+        icon: IconBolt,
         title: "AI Workflows",
-        description: "Coordinate human and AI execution",
+        description: "Hand work to agents and review the result",
         href: "/features/ai-workflows",
       },
     ],
@@ -113,19 +134,19 @@ const featureColumns: FeatureColumn[] = [
     label: "ORGANIZATION",
     items: [
       {
-        icon: "👥",
+        icon: IconUsers,
         title: "Workspaces",
         description: "Organize teams and AI agents",
         href: "/features/workspaces",
       },
       {
-        icon: "📊",
+        icon: IconChartBar,
         title: "Team Weekly Review",
         description: "See what everyone and every agent is doing",
         href: "/features/team-weekly-review",
       },
       {
-        icon: "📆",
+        icon: IconCalendarStats,
         title: "Team Capacity",
         description: "Track human and AI capacity",
         href: "/features/team-capacity",
@@ -134,13 +155,13 @@ const featureColumns: FeatureColumn[] = [
   },
 ];
 
-const integrations: { icon: string; name: string; href?: string }[] = [
-  { icon: "🤖", name: "Claude", href: "/features/integrations/claude" },
-  { icon: "💬", name: "Slack" },
-  { icon: "📝", name: "Notion" },
-  { icon: "🐙", name: "GitHub" },
-  { icon: "🎤", name: "Fireflies" },
-  { icon: "💬", name: "WhatsApp" },
+const integrations: { icon: Icon; name: string; href?: string }[] = [
+  { icon: IconRobot, name: "Claude", href: "/features/integrations/claude" },
+  { icon: IconMessageCircle, name: "Slack" },
+  { icon: IconNotes, name: "Notion" },
+  { icon: IconBrandGithub, name: "GitHub" },
+  { icon: IconMicrophone, name: "Fireflies" },
+  { icon: IconMessageCircle, name: "WhatsApp" },
 ];
 
 export function FeaturesMenu() {
@@ -157,7 +178,7 @@ export function FeaturesMenu() {
         className="flex items-center gap-1 text-text-secondary hover:text-text-primary transition-colors text-sm font-medium"
         onClick={() => setIsOpen(!isOpen)}
       >
-        Features
+        Product
         <IconChevronDown
           size={16}
           className={`transition-transform ${isOpen ? "rotate-180" : ""}`}
@@ -186,9 +207,11 @@ export function FeaturesMenu() {
                           href={item.href ?? "#features"}
                           className="group flex items-start gap-3 hover:bg-surface-hover rounded-lg p-2 -m-2 transition-colors"
                         >
-                          <span className="text-lg flex-shrink-0">
-                            {item.icon}
-                          </span>
+                          <item.icon
+                            size={18}
+                            stroke={1.5}
+                            className="text-text-muted flex-shrink-0 mt-0.5"
+                          />
                           <div>
                             <p className="font-medium text-text-primary text-sm group-hover:text-accent-indigo transition-colors">
                               {item.title}
@@ -219,7 +242,7 @@ export function FeaturesMenu() {
                         href={integration.href}
                         className="flex items-center gap-1.5 text-text-secondary text-sm hover:text-text-primary transition-colors"
                       >
-                        <span>{integration.icon}</span>
+                        <integration.icon size={16} stroke={1.5} />
                         {integration.name}
                       </Link>
                     ) : (
@@ -227,7 +250,7 @@ export function FeaturesMenu() {
                         key={integration.name}
                         className="flex items-center gap-1.5 text-text-secondary text-sm"
                       >
-                        <span>{integration.icon}</span>
+                        <integration.icon size={16} stroke={1.5} />
                         {integration.name}
                       </span>
                     ),

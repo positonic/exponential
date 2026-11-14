@@ -14,7 +14,8 @@ const footerLinks = {
   product: [
     // Root-relative so the links work from every page that renders the footer.
     { label: "Features", href: "/#features" },
-    { label: "How It Works", href: "/#how-it-works" },
+    { label: "Agents", href: "/#agents" },
+    { label: "Self-host", href: "/#self-host" },
     { label: "Pricing", href: "/#pricing" },
     { label: "Claude integration", href: "/features/integrations/claude" },
     // The docs page carries the Deploy on Railway button.
@@ -53,8 +54,9 @@ export function FooterSection({ id }: FooterSectionProps) {
           <div className="col-span-2">
             <LogoDisplay theme={theme} href="/" className="text-xl mb-4" />
             <p className="text-text-muted text-sm max-w-xs leading-relaxed">
-              The operating system for AI-native organizations. Where humans
-              and AI coordinate to build what matters.
+              An open-source operating workspace for organizations, where
+              people and AI agents work from the same goals, projects and
+              decisions.
             </p>
           </div>
 
