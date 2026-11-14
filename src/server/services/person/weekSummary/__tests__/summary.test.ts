@@ -438,6 +438,108 @@ describe("getPersonWeekSummary — stored summaries", () => {
   });
 });
 
+describe("getPersonWeekSummary — summaries being written at the same moment", () => {
+  /** A model call that stays pending until `finish` is called. */
+  function openaiPending() {
+    const finish: Array<(narrative: string) => void> = [];
+    const create = vi.fn(
+      () =>
+        new Promise((resolve) => {
+          finish.push((narrative) =>
+            resolve({
+              choices: [{ message: { content: JSON.stringify({ narrative, highlights: [] }) } }],
+              usage: { prompt_tokens: 1, completion_tokens: 1 },
+            }),
+          );
+        }),
+    );
+    return { client: { chat: { completions: { create } } } as never, create, finish };
+  }
+  const call = (client: unknown, extra: Record<string, unknown> = {}) =>
+    getPersonWeekSummary(db, {
+      viewerId: VIEWER,
+      subjectId: SUBJECT,
+      now: NOW,
+      openai: client as never,
+      ...extra,
+    });
+  /** Let the first request get as far as its (pending) model call. */
+  const untilCalled = (create: ReturnType<typeof vi.fn>, times: number) =>
+    vi.waitFor(() => expect(create).toHaveBeenCalledTimes(times));
+
+  it("two requests for the same summary share one model call", async () => {
+    const rows = [row("action", "created", "A")];
+    const pending = openaiPending();
+
+    install(rows);
+    const first = call(pending.client);
+    await untilCalled(pending.create, 1);
+    install(rows);
+    const second = call(pending.client);
+    // Give the second request every chance to start its own call.
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    pending.finish[0]!("Shared.");
+
+    expect((await first).narrative).toBe("Shared.");
+    expect((await second).narrative).toBe("Shared.");
+    expect(pending.create).toHaveBeenCalledTimes(1);
+  });
+
+  it("a burst of regenerate requests costs one model call", async () => {
+    const rows = [row("action", "created", "A")];
+    const pending = openaiPending();
+    const seedStored = () => stored([rows[0]!.id], 10 * 60_000); // past the cooldown
+
+    install(rows);
+    seedStored();
+    const first = call(pending.client, { force: true });
+    await untilCalled(pending.create, 1);
+    install(rows);
+    seedStored();
+    const second = call(pending.client, { force: true });
+    install(rows);
+    seedStored();
+    const third = call(pending.client, { force: true });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    pending.finish[0]!("Regenerated once.");
+
+    const results = await Promise.all([first, second, third]);
+    expect(results.map((r) => r.narrative)).toEqual([
+      "Regenerated once.",
+      "Regenerated once.",
+      "Regenerated once.",
+    ]);
+    expect(pending.create).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not hand over a pending summary written from an event this request can no longer see", async () => {
+    const pageEdit = row("page", "updated", "Reorg plan", { entityId: "page-private" });
+    const action = row("action", "created", "Book the venue");
+    const pending = openaiPending();
+
+    // The first request starts while the viewer can still open the page.
+    install([pageEdit, action], { openPages: ["page-private"] });
+    const first = call(pending.client);
+    await untilCalled(pending.create, 1);
+    expect(promptOf(pending.create)).toContain("Reorg plan");
+
+    // Access is removed, and a second request arrives before the first ends.
+    install([pageEdit, action], { openPages: [] });
+    const second = call(pending.client);
+    await untilCalled(pending.create, 2);
+    const secondPrompt = (
+      pending.create.mock.calls[1]![0] as { messages: Array<{ role: string; content: string }> }
+    ).messages.find((m) => m.role === "user")!.content;
+    expect(secondPrompt).not.toContain("Reorg plan");
+
+    pending.finish[0]!("Mentions the reorg plan.");
+    pending.finish[1]!("Only the venue.");
+
+    await first;
+    expect(await second).toMatchObject({ narrative: "Only the venue.", eventCount: 1 });
+  });
+});
+
 describe("isStoredSummaryServable", () => {
   const at = (ageMs: number) => ({ generatedAt: new Date(NOW.getTime() - ageMs) });
   const HOUR = 60 * 60 * 1000;

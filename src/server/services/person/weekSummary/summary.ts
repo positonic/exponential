@@ -50,7 +50,17 @@ export class PersonSummaryRateLimitError extends Error {
   }
 }
 
-const inFlight = new Map<string, Promise<PersonWeekSummary>>();
+/**
+ * A summary being written right now, with the events it is being written from.
+ * A second request for the same viewer, subject and week joins it instead of
+ * paying for another model call — but only after the same check a stored row
+ * gets, against what THAT request can see (see `getPersonWeekSummary`).
+ */
+interface PendingSummary {
+  eventIds: string[];
+  work: Promise<PersonWeekSummary>;
+}
+const inFlight = new Map<string, PendingSummary>();
 
 function jsonStringArray(value: unknown): string[] {
   return Array.isArray(value)
@@ -197,22 +207,32 @@ export async function getPersonWeekSummary(
     }
   }
 
+  // Join a summary that is already being written, forced or not: it is a
+  // fresh rewrite either way, so a burst of regenerate clicks costs one model
+  // call. The exception is a pending summary written from an event this
+  // request can no longer see (access changed while it was being written):
+  // that one is never handed to this caller, who writes their own instead.
   const flightKey = `${args.viewerId}:${args.subjectId}:${isoYear}:${isoWeek}`;
-  if (!args.force) {
-    const pending = inFlight.get(flightKey);
-    if (pending) return pending;
+  const pending = inFlight.get(flightKey);
+  if (pending) {
+    const visible = new Set(visibleEventIds);
+    if (pending.eventIds.every((id) => visible.has(id))) return pending.work;
   }
 
-  const work = writeAndStore(db, {
-    key,
-    subject: { name, isAgent: subject.isAgent },
-    week,
-    openai: args.openai,
-  }).finally(() => {
-    inFlight.delete(flightKey);
-  });
-  if (!args.force) inFlight.set(flightKey, work);
-  return work;
+  const entry: PendingSummary = {
+    eventIds: visibleEventIds,
+    work: writeAndStore(db, {
+      key,
+      subject: { name, isAgent: subject.isAgent },
+      week,
+      openai: args.openai,
+    }).finally(() => {
+      // Only clear our own entry: a later request may have replaced it.
+      if (inFlight.get(flightKey) === entry) inFlight.delete(flightKey);
+    }),
+  };
+  inFlight.set(flightKey, entry);
+  return entry.work;
 }
 
 async function writeAndStore(
