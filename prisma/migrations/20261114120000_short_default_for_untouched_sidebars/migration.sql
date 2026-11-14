@@ -14,23 +14,33 @@
 --
 -- Order, names, folds and custom shortcuts are untouched; only `hidden` on
 -- those six built-in items changes. Each person can switch any of them back
--- on from More -> "Choose what's in my menu".
+-- on from the More row at the end of the sidebar.
+--
+-- Every value is checked with jsonb_typeof before it is read as an object or
+-- an array, in ordered CASE branches (plain AND-ed conditions may be evaluated
+-- in any order). A malformed row is skipped; it can never fail the migration.
+-- The comments in this file deliberately contain no quote characters.
 
 -- Per-workspace layouts (ADR-0073).
 UPDATE "WorkspaceNavLayout" AS w
 SET "navLayout" = (
   SELECT jsonb_agg(
     CASE
-      WHEN s.section->>'id' = 'shortcuts' OR jsonb_typeof(s.section->'items') IS DISTINCT FROM 'array' THEN s.section
+      WHEN jsonb_typeof(s.section) IS DISTINCT FROM 'object' THEN s.section
+      WHEN s.section->>'id' = 'shortcuts' THEN s.section
+      WHEN jsonb_typeof(s.section->'items') IS DISTINCT FROM 'array' THEN s.section
       ELSE jsonb_set(
         s.section,
         '{items}',
         COALESCE(
           (
             SELECT jsonb_agg(
+              -- Branches are tried in order and the first match wins, so each
+              -- test below only ever sees an entry the one above let through.
               CASE
+                WHEN jsonb_typeof(i.item) IS DISTINCT FROM 'object' THEN i.item
+                WHEN i.item ? 'href' THEN i.item
                 WHEN i.item->>'id' IN ('actions', 'metrics', 'shipped', 'crm', 'agents', 'knowledge')
-                  AND NOT (i.item ? 'href')
                 THEN jsonb_set(i.item, '{hidden}', 'true'::jsonb)
                 ELSE i.item
               END
@@ -77,16 +87,21 @@ UPDATE "NavigationPreference" AS p
 SET "navLayout" = (
   SELECT jsonb_agg(
     CASE
-      WHEN s.section->>'id' = 'shortcuts' OR jsonb_typeof(s.section->'items') IS DISTINCT FROM 'array' THEN s.section
+      WHEN jsonb_typeof(s.section) IS DISTINCT FROM 'object' THEN s.section
+      WHEN s.section->>'id' = 'shortcuts' THEN s.section
+      WHEN jsonb_typeof(s.section->'items') IS DISTINCT FROM 'array' THEN s.section
       ELSE jsonb_set(
         s.section,
         '{items}',
         COALESCE(
           (
             SELECT jsonb_agg(
+              -- Branches are tried in order and the first match wins, so each
+              -- test below only ever sees an entry the one above let through.
               CASE
+                WHEN jsonb_typeof(i.item) IS DISTINCT FROM 'object' THEN i.item
+                WHEN i.item ? 'href' THEN i.item
                 WHEN i.item->>'id' IN ('actions', 'metrics', 'shipped', 'crm', 'agents', 'knowledge')
-                  AND NOT (i.item ? 'href')
                 THEN jsonb_set(i.item, '{hidden}', 'true'::jsonb)
                 ELSE i.item
               END
