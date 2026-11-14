@@ -66,6 +66,20 @@ describe("Pill", () => {
     expect(el.className).toContain("h-[18px]");
   });
 
+  test("status tones take their text from the readable -text tokens, not the brand fills", () => {
+    render(
+      <>
+        <Pill tone="warning" data-testid="w">due soon</Pill>
+        <Pill tone="danger" data-testid="d">overdue</Pill>
+      </>,
+    );
+    const warning = screen.getByTestId("w").className;
+    const danger = screen.getByTestId("d").className;
+    expect(warning).toContain("bg-warning-bg border-warning-border text-warning-text");
+    expect(danger).toContain("bg-error-bg border-error-border text-error-text");
+    expect(`${warning} ${danger}`).not.toMatch(/text-brand-(warning|error)/);
+  });
+
   test("renders a leading icon slot", () => {
     render(<Pill icon={<i data-testid="i" />}>x</Pill>);
     expect(screen.getByTestId("i")).toBeTruthy();

@@ -1,4 +1,7 @@
-import { describe, expect, it } from "vitest";
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
+import { afterEach, describe, expect, it } from "vitest";
 import {
   buildReport,
   collectDefinitions,
@@ -8,6 +11,7 @@ import {
   isHandRolledSurface,
   isTokenRadius,
   isTokenShadow,
+  loadSources,
 } from "../check-design-tokens";
 
 describe("collectDefinitions", () => {
@@ -29,6 +33,55 @@ describe("collectDefinitions", () => {
       ]),
     );
     expect([...defs]).toEqual(["--color-d"]);
+  });
+
+  it("counts the variable a next/font loader declares", () => {
+    const defs = collectDefinitions(
+      new Map([["fonts.ts", "const inter = Inter({\n  subsets: ['latin'],\n  variable: '--font-inter',\n});"]]),
+    );
+    expect([...defs]).toEqual(["--font-inter"]);
+  });
+});
+
+describe("loadSources", () => {
+  let dir: string | undefined;
+  afterEach(() => {
+    if (dir) fs.rmSync(dir, { recursive: true, force: true });
+    dir = undefined;
+  });
+
+  it("reads tailwind.config.ts alongside src/, so a utility mapped to an undeclared variable fails", () => {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), "tokens-check-"));
+    fs.mkdirSync(path.join(dir, "src"));
+    fs.writeFileSync(path.join(dir, "src", "globals.css"), ":root { --color-error-bg: red; --accent-rgb: 1 2 3; }");
+    fs.writeFileSync(
+      path.join(dir, "tailwind.config.ts"),
+      [
+        "export default { theme: { extend: { colors: {",
+        "  error: { bg: 'var(--color-error-bg)', border: 'var(--color-error-border)' },",
+        "  accent: 'rgb(var(--accent-rgb) / <alpha-value>)',",
+        "  ghost: 'rgb(var(--ghost-rgb) / <alpha-value>)',",
+        "  fontFamily: { sans: ['var(--font-geist-sans)'] },",
+        "} } } };",
+      ].join("\n"),
+    );
+
+    const sources = loadSources(dir);
+    expect([...sources.keys()].sort()).toEqual(["src/globals.css", "tailwind.config.ts"]);
+
+    const defs = collectDefinitions(sources);
+    const out = findUndefinedVars("tailwind.config.ts", sources.get("tailwind.config.ts")!, defs);
+    expect(out.map((f) => [f.line, /var\((--[a-z-]+)\)/.exec(f.detail)?.[1]])).toEqual([
+      [2, "--color-error-border"],
+      [4, "--ghost-rgb"],
+    ]);
+  });
+
+  it("is not thrown by a checkout with no tailwind config", () => {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), "tokens-check-"));
+    fs.mkdirSync(path.join(dir, "src"));
+    fs.writeFileSync(path.join(dir, "src", "a.css"), ".a { color: red; }");
+    expect([...loadSources(dir).keys()]).toEqual(["src/a.css"]);
   });
 });
 

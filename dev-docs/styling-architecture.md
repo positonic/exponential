@@ -331,8 +331,10 @@ and Pill rely on `xl` meaning "fully round", and ~200 call sites pass
   token is `--color-bg-primary`) and an undefined variable silently invalidates
   the whole declaration: square corners, inherited fonts, missing borders. The
   checker fails on any bare reference to a variable declared nowhere under
-  `src/`. Use a fallback (`var(--x, 4px)`) only for a value that is set at
-  runtime from JS.
+  `src/`, and it reads `tailwind.config.ts` as well as `src/`: a utility
+  mapped to an undeclared variable (`bg-warning-bg` was one) paints nothing,
+  and the `var()` text appears in no file under `src/`. Use a fallback
+  (`var(--x, 4px)`) only for a value that is set at runtime from JS.
 - **Shadows are painted with a token colour**, never `rgba(...)`.
 
 ### Enforcement
@@ -439,6 +441,11 @@ Rules of the folder:
 - `bg-brand-success` - Success states
 - `bg-brand-error` - Error states
 - `bg-brand-warning` - Warning states
+- `bg-error-bg border-error-border text-error-text` and the `warning-*` trio - a status
+  chip: low-alpha wash, hairline, and the text colour that reads on it. **Never
+  `text-brand-warning` / `text-brand-error` for text on a light surface**: the brand
+  hues are fills (1.9:1 and 3.3:1 on white). `<Pill tone="warning|danger">` already
+  uses the trio.
 
 ## Migration Checklist
 

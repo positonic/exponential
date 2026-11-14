@@ -92,7 +92,6 @@ export default {
           warning: 'var(--color-brand-warning)',
           error: 'var(--color-brand-error)',
           info: 'var(--color-brand-info)',
-          'primary-opacity': 'var(--color-brand-primary-opacity)',
           // Subtle brand wash (rgba ~6%) — e.g. the calendar "today" column.
           subtle: 'var(--color-brand-subtle)',
           // Meetings v2: secondary brand tier used for "TODAY" date label,
@@ -109,14 +108,19 @@ export default {
           DEFAULT: 'rgb(var(--color-link-rgb) / <alpha-value>)',
           hover: 'var(--color-link-hover)',
         },
-        // Error/Warning utility colors
+        // Error/Warning utility colors: the wash and hairline behind a
+        // status chip, and the text colour that reads on it. `text` is not
+        // `text-brand-error` / `text-brand-warning`: those are fills and fail
+        // contrast as text on light surfaces.
         error: {
           bg: 'var(--color-error-bg)',
           border: 'var(--color-error-border)',
+          text: 'var(--color-error-text)',
         },
         warning: {
           bg: 'var(--color-warning-bg)',
           border: 'var(--color-warning-border)',
+          text: 'var(--color-warning-text)',
         },
         // Accent colors for landing page + Meetings v2 design tokens
         accent: {

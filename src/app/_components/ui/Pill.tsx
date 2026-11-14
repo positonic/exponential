@@ -16,8 +16,11 @@ export type PillSize = "xs" | "sm";
 const TONE: Record<PillTone, string> = {
   neutral: "bg-surface-muted border-border-subtle text-text-muted",
   brand: "bg-brand-subtle border-transparent text-brand-primary",
-  warning: "bg-warning-bg border-warning-border text-brand-warning",
-  danger: "bg-error-bg border-error-border text-brand-error",
+  // Not `text-brand-warning` / `text-brand-error`: the brand hues are fills,
+  // and as text on a light surface they are 1.9:1 and 3.3:1. The `-text`
+  // tokens are the same hues made readable on their wash.
+  warning: "bg-warning-bg border-warning-border text-warning-text",
+  danger: "bg-error-bg border-error-border text-error-text",
 };
 
 const SIZE: Record<PillSize, string> = {
