@@ -373,3 +373,30 @@ describe("public render path (tables)", () => {
     expect(table?.content?.length).toBe(2);
   });
 });
+
+// The bubble menu's marks and the `/divider` block on the same public render
+// path: the shared schema emits the tags the `.prd-document` styles target.
+describe("public render path (marks and divider)", () => {
+  it("renders underline, strike, highlight and a divider as their tags", () => {
+    const html = generateHTML(
+      sanitizeDocForPublic(
+        doc([
+          {
+            type: "paragraph",
+            content: [
+              { type: "text", text: "u", marks: [{ type: "underline" }] },
+              { type: "text", text: "s", marks: [{ type: "strike" }] },
+              { type: "text", text: "m", marks: [{ type: "highlight" }] },
+            ],
+          },
+          { type: "horizontalRule" },
+        ]),
+      ),
+      buildPrdExtensions(),
+    );
+    expect(html).toContain("<u>u</u>");
+    expect(html).toContain("<s>s</s>");
+    expect(html).toContain("<mark>m</mark>");
+    expect(html).toContain("<hr>");
+  });
+});

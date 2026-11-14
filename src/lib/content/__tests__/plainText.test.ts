@@ -118,6 +118,12 @@ describe("toPlainText", () => {
       expect(toPlainText("***very*** important")).toBe("very important");
     });
 
+    it("strips the editor's <u>/<mark> projection of underline and highlight", () => {
+      expect(toPlainText("## Plan\n\nAn <u>underlined</u> and <mark>key</mark> point")).toBe(
+        "Plan An underlined and key point",
+      );
+    });
+
     it("keeps underscores and asterisks that are not emphasis", () => {
       expect(toPlainText("rename user_profile_id and compute 2 * 3 * 4")).toBe(
         "rename user_profile_id and compute 2 * 3 * 4",

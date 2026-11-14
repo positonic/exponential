@@ -117,6 +117,9 @@ function markdownToText(markdown: string): string {
       .replace(/\*\*(.+?)\*\*/gs, "$1")
       .replace(/__(.+?)__/gs, "$1")
       .replace(/~~(.+?)~~/gs, "$1")
+      // Underline and highlight have no Markdown syntax; the editor's
+      // projection writes them as tags (~/lib/prd/marks).
+      .replace(/<\/?(?:u|mark)>/gi, "")
       // Single-delimiter emphasis only at word edges, so snake_case names and
       // arithmetic ("2 * 3") survive untouched.
       .replace(/(?<!\w)\*(?!\s)(.+?)(?<!\s)\*(?!\w)/gs, "$1")

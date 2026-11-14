@@ -166,6 +166,120 @@ describe("PRD document codec", () => {
     });
   });
 
+  describe("the bubble menu's marks and the block menu's blocks", () => {
+    const para = (...content: JSONContent[]): JSONContent => ({
+      type: "doc",
+      content: [{ type: "paragraph", content }],
+    });
+    const marked = (text: string, mark: string): JSONContent => ({
+      type: "text",
+      text,
+      marks: [{ type: mark }],
+    });
+    /** The marks on each text run of the first paragraph. */
+    const runMarks = (doc: JSONContent) =>
+      doc.content?.[0]?.content?.map((n) => ({
+        text: n.text,
+        marks: (n.marks ?? []).map((m) => m.type),
+      }));
+
+    it("strike is native Markdown (~~) in both directions", () => {
+      const md = "A ~~struck~~ word.";
+      expect(runMarks(markdownToDoc(md))).toContainEqual({
+        text: "struck",
+        marks: ["strike"],
+      });
+      expect(roundTrip(md)).toBe(md);
+      expect(docToMarkdown(para(marked("gone", "strike")))).toBe("~~gone~~");
+    });
+
+    it("underline and highlight parse from their HTML tags into marks", () => {
+      // Markdown has no syntax for either, so the projection is <u>/<mark>
+      // (~/lib/prd/marks); markdown-it hands the tags to Tiptap's parseHTML.
+      const doc = markdownToDoc("An <u>underlined</u> and <mark>highlighted</mark> word.");
+      const runs = runMarks(doc);
+      expect(runs).toContainEqual({ text: "underlined", marks: ["underline"] });
+      expect(runs).toContainEqual({ text: "highlighted", marks: ["highlight"] });
+      // The tags became marks, not literal text.
+      expect(JSON.stringify(doc)).not.toContain("<u>");
+      expect(JSON.stringify(doc)).not.toContain("<mark>");
+    });
+
+    it("underline and highlight round-trip through their HTML tags exactly", () => {
+      // Pinned exactly: off-editor readers (the CLI, agents) see this string.
+      const md = "An <u>underlined</u> and <mark>highlighted</mark> word.";
+      expect(roundTrip(md)).toBe(md);
+      expect(roundTrip(roundTrip(md))).toBe(md);
+    });
+
+    it("serialises doc-authored underline and highlight marks", () => {
+      const doc = para(
+        marked("under", "underline"),
+        { type: "text", text: " " },
+        marked("high", "highlight"),
+      );
+      const md = docToMarkdown(doc);
+      expect(md).toBe("<u>under</u> <mark>high</mark>");
+      // And back: the same marks on the same text.
+      expect(runMarks(markdownToDoc(md))).toEqual(runMarks(doc));
+    });
+
+    it("stacked marks survive together", () => {
+      const doc = para({
+        type: "text",
+        text: "all three",
+        marks: [{ type: "underline" }, { type: "strike" }, { type: "highlight" }],
+      });
+      const md = docToMarkdown(doc);
+      const back = runMarks(markdownToDoc(md));
+      expect(back).toHaveLength(1);
+      expect(back?.[0]?.text).toBe("all three");
+      expect([...(back?.[0]?.marks ?? [])].sort()).toEqual(["highlight", "strike", "underline"]);
+      expect(roundTrip(md)).toBe(md);
+    });
+
+    it("a divider round-trips as a thematic break", () => {
+      const md = "Above\n\n---\n\nBelow";
+      expect(markdownToDoc(md).content?.map((n) => n.type)).toEqual([
+        "paragraph",
+        "horizontalRule",
+        "paragraph",
+      ]);
+      const out = roundTrip(md);
+      expect(out).toMatch(/\n-{3,}\n/);
+      expect(roundTrip(out)).toBe(out);
+      // A doc-authored horizontalRule node (what `/divider` inserts)
+      // serialises to the same break.
+      const doc: JSONContent = {
+        type: "doc",
+        content: [
+          { type: "paragraph", content: [{ type: "text", text: "Above" }] },
+          { type: "horizontalRule" },
+          { type: "paragraph", content: [{ type: "text", text: "Below" }] },
+        ],
+      };
+      expect(docToMarkdown(doc)).toBe(out);
+    });
+
+    it("an /image node (src only) round-trips as a Markdown image", () => {
+      const src = "https://blob.example/screenshots/pages/p1/upload.png";
+      const doc: JSONContent = { type: "doc", content: [{ type: "image", attrs: { src } }] };
+      const md = docToMarkdown(doc);
+      expect(md).toBe(`![](${src})`);
+      expect(markdownToDoc(md).content?.[0]).toMatchObject({ type: "image", attrs: { src } });
+      expect(roundTrip(md)).toBe(md);
+    });
+
+    it("comment marks still drop when they overlap the new marks", () => {
+      const doc = para({
+        type: "text",
+        text: "noted",
+        marks: [{ type: "highlight" }, { type: "comment", attrs: { threadId: "t1" } }],
+      });
+      expect(docToMarkdown(doc)).toBe("<mark>noted</mark>");
+    });
+  });
+
   describe("page links project to plain Markdown links", () => {
     it("serialises a pageLink node as [title](href)", () => {
       const doc: JSONContent = {
