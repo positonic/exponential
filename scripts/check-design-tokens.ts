@@ -461,7 +461,14 @@ export function findThemeShadowLiterals(file: string, text: string): Finding[] {
     // later quote with the wrong partner.
     for (const v of block.matchAll(/(["'`])((?:(?!\1)[^\\]|\\.)*)\1/g)) {
       const value = v[2]!;
-      if (/^\s*:/.test(block.slice((v.index ?? 0) + v[0].length))) continue;
+      const start = v.index ?? 0;
+      // A key is followed by `:` AND opens an entry (starts the map, or
+      // follows `{` or `,`). The colon alone is not enough: the then-branch
+      // of a ternary (`dark ? '0 1px rgba(…)' : 'var(--shadow-sm)'`) is
+      // followed by one too, and it is a value.
+      const opensEntry = /(?:^|[{,])\s*$/.test(block.slice(0, start));
+      const beforeColon = /^\s*:/.test(block.slice(start + v[0].length));
+      if (opensEntry && beforeColon) continue;
       if (isTokenShadow(value)) continue;
       out.push({
         file,

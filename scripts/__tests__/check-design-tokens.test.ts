@@ -337,6 +337,17 @@ describe("findThemeShadowLiterals", () => {
     ]);
   });
 
+  it("checks both branches of a ternary, though the first is followed by a colon", () => {
+    const text = config([
+      "  boxShadow: {",
+      "    card: dark ? '0 4px 6px rgba(0,0,0,.1)' : 'var(--shadow-md)',",
+      "    'lift': dark ? 'var(--shadow-lg)' : '0 8px 24px rgba(0,0,0,.35)',",
+      "    ok: dark ? 'var(--shadow-lg)' : 'var(--shadow-md)',",
+      "  },",
+    ]);
+    expect(findThemeShadowLiterals("tailwind.config.ts", text).map((f) => f.line)).toEqual([3, 4]);
+  });
+
   it("does not end the map at a brace inside a string", () => {
     const text = config([
       "  boxShadow: {",
