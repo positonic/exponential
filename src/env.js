@@ -30,14 +30,11 @@ export const env = createEnv({
     // secret are both set (src/server/auth/signInMethods.ts).
     AUTH_DISCORD_ID: z.string().optional(),
     AUTH_DISCORD_SECRET: z.string().optional(),
-    // Required in production because the app constructs OpenAI clients at
-    // module scope (routers/tool.ts, routers/mastra.ts, AiGenerateStandupStep),
-    // and the openai SDK throws in its constructor without a key — so a missing
-    // key would 500 every tRPC call at module load. This moves that to boot.
-    OPENAI_API_KEY:
-      process.env.NODE_ENV === "production"
-        ? z.string()
-        : z.string().optional(),
+    // Optional everywhere: with no key the app runs as a project and task tool
+    // and each AI feature switches off (src/server/services/ai/capabilities.ts).
+    // LLM clients are built lazily, never at module scope, so a missing key
+    // can't 500 a route at module load (guarded by noModuleScopeLlmClients.test.ts).
+    OPENAI_API_KEY: z.string().optional(),
     // Plain SMTP for transactional email, beside Postmark (which wins when both
     // are set). SMTP_HOST counts only together with a sender (EMAIL_FROM, or
     // AUTH_POSTMARK_FROM); the cross-field rule lives in signInMethods.ts and

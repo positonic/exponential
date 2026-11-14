@@ -89,6 +89,7 @@ import {
   type SidebarGroup,
 } from '~/app/_components/settings/SettingsShell';
 import { WorkspaceUpdatesSettings } from '~/app/_components/settings/WorkspaceUpdatesSettings';
+import { AiFeaturesSettings } from '~/app/_components/settings/AiFeaturesSettings';
 
 type SectionId =
   | 'general'
@@ -1325,6 +1326,7 @@ export default function WorkspaceSettingsPage() {
 
         {section === 'integrations' && (
           <>
+            <AiFeaturesSettings />
             <SettingsSection
               icon={IconMail}
               title="Email Account"

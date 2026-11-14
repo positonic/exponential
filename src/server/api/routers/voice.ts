@@ -22,6 +22,7 @@ import { resolveVoiceCaller } from "~/server/api/middleware/resolveVoiceCaller";
 import { DEFAULT_EXPIRY } from "~/server/utils/jwt";
 import { mintVoiceSessionToken, verifyVoiceSessionToken } from "~/server/utils/voice-token";
 import { createRealtimeSession } from "~/server/services/voice/openai-realtime";
+import { requireAi } from "~/server/services/ai/requireAi";
 import { captureAction } from "~/server/services/voice/capture";
 import {
   getDailyContext,
@@ -91,6 +92,7 @@ export const voiceRouter = createTRPCRouter({
     )
     .mutation(async ({ ctx, input }) => {
       const { userId } = await resolveVoiceCaller(ctx);
+      requireAi("voice", "Voice mode");
 
       // ADR-0049: this procedure returns a minted JWT, so External-agent
       // principals are denied — a revocable agent key must never be exchanged

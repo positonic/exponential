@@ -10,7 +10,7 @@
  * fragments KnowledgeService passes to Prisma's tagged-template runner.
  */
 
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 vi.hoisted(() => {
   process.env.OPENAI_API_KEY ??= "sk-test-dummy";
@@ -770,5 +770,54 @@ describe("KnowledgeService — embedSource on a large source", () => {
     // No tx was opened, so no DELETE ran — the old index survives.
     expect(executeRawCalls.some((c) => joinSql(c).includes("DELETE"))).toBe(false);
     errorSpy.mockRestore();
+  });
+});
+
+// ── No embeddings provider (keyless self-host, smoky.anvil) ───────────
+
+describe("KnowledgeService without OPENAI_API_KEY", () => {
+  beforeEach(() => {
+    embeddingsApi.calls = [];
+    vi.stubEnv("OPENAI_API_KEY", "");
+  });
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it("embedSource skips before touching the database, so existing chunks stay as they were", async () => {
+    const fake = buildFakeDb();
+    const service = new KnowledgeService(fake.db);
+
+    const result = await service.embedSource(buildSource());
+
+    expect(result).toMatchObject({ success: false, chunkCount: 0, skipped: "ai-not-configured" });
+    expect(fake.executeRawCalls).toHaveLength(0);
+    expect(fake.queryRawCalls).toHaveLength(0);
+    expect(fake.txOptions).toHaveLength(0);
+    expect(embeddingsApi.calls).toHaveLength(0);
+  });
+
+  it("search throws the typed not-configured error rather than calling OpenAI", async () => {
+    const fake = buildFakeDb();
+    const service = new KnowledgeService(fake.db);
+
+    await expect(service.search("roadmap", { workspaceId: "ws-1" })).rejects.toMatchObject({
+      name: "AiNotConfiguredError",
+      code: "PRECONDITION_FAILED",
+    });
+    expect(fake.queryRawCalls).toHaveLength(0);
+  });
+
+  it("with the key set again, embedSource embeds and writes as before", async () => {
+    vi.stubEnv("OPENAI_API_KEY", "sk-test");
+    const fake = buildFakeDb();
+    const service = new KnowledgeService(fake.db);
+
+    const result = await service.embedSource(buildSource());
+
+    expect(result.success).toBe(true);
+    expect(result.skipped).toBeUndefined();
+    expect(embeddingsApi.calls.length).toBeGreaterThan(0);
+    expect(fake.txOptions).toHaveLength(1);
   });
 });

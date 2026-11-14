@@ -54,6 +54,7 @@ import {
   markdownOutline,
 } from "~/lib/pages/markdown-outline";
 import { getKnowledgeService } from "~/server/services/KnowledgeService";
+import { isAiConfigured } from "~/server/services/ai/requireAi";
 import {
   getKnowledgePageAccess,
   canViewKnowledgePage,
@@ -1964,47 +1965,51 @@ export const pageRouter = createTRPCRouter({
       const seen = new Set<string>();
       const pageUrl = (id: string) => `/w/${workspace.slug}/pages/${id}`;
 
-      try {
-        // `pageViewerId` is the access rule; the service's `userId` option
-        // would narrow to chunks the caller authored, which is not "pages I
-        // can read". The project filter is applied strictly below (the
-        // service's own includes project-less chunks).
-        const chunks = await getKnowledgeService(ctx.db).search(input.query, {
-          workspaceId: input.workspaceId,
-          pageViewerId: userId,
-          sourceTypes: ["page"],
-          projectId: input.projectId,
-          limit: input.limit * PAGE_SEARCH_CHUNKS_PER_PAGE,
-        });
-        let inProject: Set<string> | null = null;
-        if (input.projectId && chunks.length) {
-          const rows = await ctx.db.knowledgePage.findMany({
-            where: {
-              id: { in: [...new Set(chunks.map((c) => c.sourceId))] },
-              projectId: input.projectId,
-            },
-            select: { id: true },
+      // Semantic matches need an embeddings provider; without one, page search
+      // is the title/body text match below.
+      if (isAiConfigured("openai")) {
+        try {
+          // `pageViewerId` is the access rule; the service's `userId` option
+          // would narrow to chunks the caller authored, which is not "pages I
+          // can read". The project filter is applied strictly below (the
+          // service's own includes project-less chunks).
+          const chunks = await getKnowledgeService(ctx.db).search(input.query, {
+            workspaceId: input.workspaceId,
+            pageViewerId: userId,
+            sourceTypes: ["page"],
+            projectId: input.projectId,
+            limit: input.limit * PAGE_SEARCH_CHUNKS_PER_PAGE,
           });
-          inProject = new Set(rows.map((r) => r.id));
+          let inProject: Set<string> | null = null;
+          if (input.projectId && chunks.length) {
+            const rows = await ctx.db.knowledgePage.findMany({
+              where: {
+                id: { in: [...new Set(chunks.map((c) => c.sourceId))] },
+                projectId: input.projectId,
+              },
+              select: { id: true },
+            });
+            inProject = new Set(rows.map((r) => r.id));
+          }
+          // Nearest first, so a page's first chunk is its best.
+          for (const chunk of chunks) {
+            if (chunk.similarity < PAGE_SEARCH_MIN_SIMILARITY) break;
+            if (seen.has(chunk.sourceId)) continue;
+            if (inProject && !inProject.has(chunk.sourceId)) continue;
+            seen.add(chunk.sourceId);
+            results.push({
+              id: chunk.sourceId,
+              title: chunk.sourceTitle ?? "Untitled",
+              snippet: snippetOf(chunk.content),
+              similarity: chunk.similarity,
+              matchedBy: "semantic",
+              url: pageUrl(chunk.sourceId),
+            });
+            if (results.length >= input.limit) break;
+          }
+        } catch (error) {
+          console.error("[page.search] Knowledge search failed:", error);
         }
-        // Nearest first, so a page's first chunk is its best.
-        for (const chunk of chunks) {
-          if (chunk.similarity < PAGE_SEARCH_MIN_SIMILARITY) break;
-          if (seen.has(chunk.sourceId)) continue;
-          if (inProject && !inProject.has(chunk.sourceId)) continue;
-          seen.add(chunk.sourceId);
-          results.push({
-            id: chunk.sourceId,
-            title: chunk.sourceTitle ?? "Untitled",
-            snippet: snippetOf(chunk.content),
-            similarity: chunk.similarity,
-            matchedBy: "semantic",
-            url: pageUrl(chunk.sourceId),
-          });
-          if (results.length >= input.limit) break;
-        }
-      } catch (error) {
-        console.error("[page.search] Knowledge search failed:", error);
       }
 
       if (results.length < input.limit) {

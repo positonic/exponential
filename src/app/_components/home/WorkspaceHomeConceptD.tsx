@@ -30,6 +30,7 @@ import {
 } from '@tabler/icons-react';
 import { api } from '~/trpc/react';
 import { useWorkspace } from '~/providers/WorkspaceProvider';
+import { useAiCapabilities } from '~/providers/AiCapabilitiesProvider';
 import { YourWorkPanel } from './YourWorkPanel';
 import styles from './WorkspaceHomeConceptD.module.css';
 
@@ -62,6 +63,8 @@ function formatDate(date: Date): string {
 export function WorkspaceHomeConceptD() {
   const [query, setQuery] = useState('');
   const [mode, setMode] = useState<Mode>('all');
+  // No Assistant on this install: no "Ask Zoe" mode, suggestions or prompt.
+  const { assistant: hasAssistant } = useAiCapabilities();
   const [highlightedIndex, setHighlightedIndex] = useState<number | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const router = useRouter();
@@ -84,7 +87,7 @@ export function WorkspaceHomeConceptD() {
     )
     .slice(0, 4);
 
-  const suggested: SuggestedItem[] = [
+  const suggested: SuggestedItem[] = ([
     {
       icon: IconFlag,
       label: 'Plan your week',
@@ -94,7 +97,7 @@ export function WorkspaceHomeConceptD() {
     { icon: IconTarget, label: 'Review Q2 OKR progress', sub: 'Summary from Zoe', href: null },
     { icon: IconPlus, label: 'Create project', sub: 'Start from template', href: null },
     { icon: IconCalendar, label: 'Plan my day', sub: 'Ask Zoe', href: null },
-  ];
+  ] satisfies SuggestedItem[]).filter((item) => hasAssistant || !item.sub.includes('Zoe'));
 
   const totalRows = filteredProjects.length + suggested.length;
 
@@ -160,7 +163,7 @@ export function WorkspaceHomeConceptD() {
       <div className={styles.inputWrap}>
         <TextInput
           ref={inputRef}
-          placeholder="Search, command, or ask Zoe…"
+          placeholder={hasAssistant ? "Search, command, or ask Zoe…" : "Search or run a command…"}
           value={query}
           onChange={(e) => setQuery(e.currentTarget.value)}
           onKeyDown={handleKeyDown}
@@ -194,7 +197,7 @@ export function WorkspaceHomeConceptD() {
       </div>
 
       <Group gap={6} mt={16} justify="center" wrap="wrap">
-        {MODES.map(({ id, label, icon: Icon }) => {
+        {MODES.filter((m) => hasAssistant || m.id !== 'ai').map(({ id, label, icon: Icon }) => {
           const isActive = mode === id;
           return (
             <UnstyledButton
@@ -224,14 +227,15 @@ export function WorkspaceHomeConceptD() {
       <Container size={860} w="100%" mt={56} px={0}>
         {showNoResults ? (
           <Text ta="center" c="dimmed" size="sm">
-            No matches —{' '}
+            No matches{hasAssistant && <>
+            {' '}—{' '}
             <Text
               span
               style={{ color: 'var(--brand-400)', cursor: 'pointer' }}
               onClick={() => setMode('ai')}
             >
               ask Zoe?
-            </Text>
+            </Text></>}
           </Text>
         ) : (
           hasResults && (

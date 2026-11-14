@@ -22,6 +22,9 @@ _Avoid_: Invite code, sign-in code (a different, per-sign-in credential), bootst
 The install-wide rule for who may **create** an account: `open` (anyone who completes a sign-in) or `invite-only` (only an address with a pending workspace or team invitation). Stored on `InstanceSettings.signUpMode`; no value means `open`, which is exponential.im. Claiming a self-host install sets `invite-only`; an **Instance admin** can change it in `/admin`. Enforced in the Auth.js `signIn` callback, so an email sign-in is refused before a code is sent. Never affects existing users ([ADR-0081](docs/adr/0081-first-run-setup-token-and-sign-up-mode.md)).
 _Avoid_: Allowlist, registration lock, closed beta.
 
+**AI capability**:
+Which AI an installation has, resolved from its environment at runtime: an **OpenAI** key, an **Anthropic** key, and the **Assistant** (a Mastra service at `MASTRA_API_URL`), plus what they combine into (meeting summaries need either key; voice needs OpenAI and the Assistant). All are optional (decided 2026-11-11, smoky.anvil): with none, the installation is a plain project and task tool — every AI surface is hidden or says which variable turns it on, AI procedures answer a typed "not configured" error, and AI jobs log one line and skip. In production an unset `MASTRA_API_URL` means no Assistant, never localhost. One resolver (`src/server/services/ai/capabilities.ts`) answers it for the server gates, the public `ai.getCapabilities` query and the self-host preflight.
+
 ### Meetings
 
 **Meeting**:

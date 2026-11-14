@@ -4,6 +4,7 @@ import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 import { TRPCError } from "@trpc/server";
 import { after } from "next/server";
 import { getKnowledgeService } from "~/server/services/KnowledgeService";
+import { requireAi } from "~/server/services/ai/requireAi";
 import { htmlToMarkdown } from "~/lib/content/contentFormat";
 import {
   getProjectAccess,
@@ -682,6 +683,7 @@ export const resourceRouter = createTRPCRouter({
         });
       }
 
+      requireAi("openai", "Knowledge indexing");
       const knowledgeService = getKnowledgeService(ctx.db);
       const chunkCount = await knowledgeService.embedResource(resource.id);
 

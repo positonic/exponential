@@ -12,6 +12,7 @@ import {
   signInMethodWarnings,
   type SignInEnv,
 } from "../../src/server/auth/signInMethods";
+import { aiCapabilityLines } from "../../src/server/services/ai/capabilities";
 
 /** The `vector` row of `pg_available_extensions`, or undefined when there is none. */
 export interface PgvectorRow {
@@ -90,7 +91,9 @@ export interface EnvPreflight {
  * The env checks t3-env can't express (it validates each field on its own):
  * SMTP needs a sender. Also reports the active sign-in methods, and warns —
  * without failing — when log delivery is on or there is no way in at all; the
- * `/signin` setup error is the user-facing path for that.
+ * `/signin` setup error is the user-facing path for that. Last, which AI
+ * features are on and the variable that turns on each one that isn't: AI is
+ * optional, so this never stops startup.
  */
 export function preflightEnv(env: SignInEnv): EnvPreflight {
   const has = (name: string) => (env[name] ?? "").length > 0;
@@ -120,7 +123,7 @@ export function preflightEnv(env: SignInEnv): EnvPreflight {
           `[selfhost] WARNING: no sign-in method is configured. An unclaimed install can still be claimed once at /setup with the setup token, but once that admin signs out nobody can sign in, and /signin shows a setup error. Set one of: ${methods.missing.join(", ")}.`,
         ];
 
-  return { error: null, lines: [...lines, ...signInMethodWarnings(env)] };
+  return { error: null, lines: [...lines, ...signInMethodWarnings(env), ...aiCapabilityLines(env)] };
 }
 
 /**

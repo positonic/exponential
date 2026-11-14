@@ -20,6 +20,8 @@ import { api, type RouterOutputs } from "~/trpc/react";
 import { notifications } from "@mantine/notifications";
 import { getAvatarColor, getInitial, getColorSeed, getTextColor } from "~/utils/avatarColors";
 import { HTMLContent } from "./HTMLContent";
+import { useAiCapabilities } from "~/providers/AiCapabilitiesProvider";
+import { AiNotConfiguredNote } from "~/app/_components/ai/AiNotConfiguredNote";
 
 interface AssignActionModalProps {
   opened: boolean;
@@ -182,7 +184,14 @@ export function AssignActionModal({
     },
   });
 
-  const assignableUsers: AssignableUser[] = assignableData?.assignableUsers ?? [];
+  // No Assistant (Mastra) on this install: a Mastra-backed Assistant could
+  // never run the action, so it isn't offered. LOCAL_CLI Assistants run on
+  // their owner's machine and plain External agents pick work up themselves,
+  // so both stay.
+  const { assistant: hasAssistant } = useAiCapabilities();
+  const assignableUsers: AssignableUser[] = (assignableData?.assignableUsers ?? []).filter(
+    (user) => hasAssistant || !user.assistantOwner || user.assistantExecutor === "LOCAL_CLI",
+  );
 
   // Filter users based on search term (an Assistant also matches its owner's
   // name, and anyone matches the Positions they hold)
@@ -364,6 +373,10 @@ export function AssignActionModal({
             </Stack>
           )}
         </ScrollArea>
+
+        {!hasAssistant && (
+          <AiNotConfiguredNote requirement="assistant" feature="Assigning to an Assistant" />
+        )}
 
         <Group justify="flex-end" gap="sm">
           <Button variant="subtle" onClick={onClose}>

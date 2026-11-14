@@ -44,10 +44,10 @@ describe("app Dockerfile", () => {
     expect(dockerfile).not.toMatch(/^\s*(ENV|ARG)\b.*NEXT_PUBLIC_APP_URL/m);
   });
 
-  it("never persists an OpenAI key in an image layer", () => {
-    // The build needs a placeholder key for one RUN; ENV or ARG would carry it
-    // into the image's config or history.
-    expect(dockerfile).not.toMatch(/^\s*(ENV|ARG)\b.*OPENAI_API_KEY/m);
+  it("builds without any LLM key, placeholder or real", () => {
+    // AI keys are optional (smoky.anvil) and nothing builds an LLM client at
+    // module scope, so no key belongs anywhere in the image build.
+    expect(dockerfile).not.toMatch(/OPENAI_API_KEY|ANTHROPIC_API_KEY/);
   });
 
   it("starts with the self-host start command", () => {

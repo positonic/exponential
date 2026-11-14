@@ -25,6 +25,7 @@ import {
 } from "@mantine/core";
 import { notifications } from "@mantine/notifications";
 import { useMediaQuery } from "@mantine/hooks";
+import { useAiCapabilities } from "~/providers/AiCapabilitiesProvider";
 import { api } from "~/trpc/react";
 import {
   IconMicrophone,
@@ -425,7 +426,9 @@ export function MeetingsContent({ workspaceId }: MeetingsContentProps = {}) {
         }
       },
     });
+  const { summaries: canSummarize } = useAiCapabilities();
   useEffect(() => {
+    if (!canSummarize) return;
     if (summariesSweptRef.current || isLoading || !transcriptions) return;
     const hasUnsummarized = transcriptions.some(
       (t) => !t.archivedAt && !t.summary?.trim(),
@@ -433,7 +436,7 @@ export function MeetingsContent({ workspaceId }: MeetingsContentProps = {}) {
     if (!hasUnsummarized) return;
     summariesSweptRef.current = true;
     ensureMyMeetingSummaries();
-  }, [isLoading, transcriptions, ensureMyMeetingSummaries]);
+  }, [isLoading, transcriptions, ensureMyMeetingSummaries, canSummarize]);
 
 
   const assignProjectMutation = api.transcription.assignProject.useMutation({

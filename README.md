@@ -90,9 +90,11 @@ An open-source productivity and project management platform built with the T3 St
 
 ### Self-hosting
 
-A production install needs four variables (`DATABASE_URL` for a Postgres with
-pgvector, `AUTH_SECRET`, `DATABASE_ENCRYPTION_KEY`, `OPENAI_API_KEY`) and one
-way to sign in. No OAuth app or Postmark account is required. Start from
+A production install needs three variables (`DATABASE_URL` for a Postgres with
+pgvector, `AUTH_SECRET`, `DATABASE_ENCRYPTION_KEY`) and one way to sign in. No
+OAuth app, Postmark account or LLM key is required: AI is optional, and
+`OPENAI_API_KEY`, `ANTHROPIC_API_KEY` or `MASTRA_API_URL` (the Assistant) each
+turn on their features after a restart. Start from
 [.env.selfhost.example](.env.selfhost.example), which lists only what an
 install needs, then:
 
@@ -101,6 +103,97 @@ SKIP_ENV_VALIDATION=1 npm run build
 npm run start:selfhost      # checks env and pgvector, applies migrations, serves
 npm run scheduler:selfhost  # in a second process: runs the scheduled jobs (reads the same .env)
 ```
+
+#### Docker Compose
+
+The whole stack on any Docker host (a VPS or a laptop), from a checkout of
+this repo. Nothing needs setting first:
+
+```bash
+docker compose up -d --build                      # Postgres, the app and the scheduler
+docker compose logs app | grep "Sign-in code"     # your sign-in code, after you ask for one
+```
+
+Open <http://localhost:3000>, enter your email, and read the sign-in code from
+the app's log.
+
+> **Security: the log holds the keys by default.** On first start the app
+> prints a one-time **setup token** to its log; whoever redeems it at `/setup`
+> becomes the instance admin. With no SMTP, Postmark or OAuth configured,
+> Compose also sets `AUTH_LOG_SIGN_IN_CODES=true`, so the admin's later
+> sign-in codes go to the log too (nobody else gets one). Anyone who can read
+> the app's container logs (`docker compose logs`, a shared Docker host, or a
+> log shipper that forwards container output) can therefore claim an
+> unclaimed install or sign in as the admin. Claim it straight away, keep the
+> logs to yourself, and before inviting anyone configure SMTP, Postmark or an
+> OAuth provider and set `AUTH_LOG_SIGN_IN_CODES=false` (codes are ignored
+> anyway once an email transport is set).
+
+What starts:
+
+- **`postgres`**: `pgvector/pgvector:pg16` with its data in the `postgres`
+  volume. Not published on the host.
+- **`secrets-init`**: a one-shot job that generates `AUTH_SECRET`,
+  `DATABASE_ENCRYPTION_KEY` and `CRON_SECRET` into the `secrets` volume on the
+  first start and never overwrites them, so `docker compose down` / `up` keeps
+  everyone signed in. **Back up both volumes**: losing `secrets` signs everyone
+  out and makes stored integration credentials unreadable. `docker compose
+  down -v` deletes them.
+- **`app`**: built from `Dockerfile`; applies migrations, then serves on
+  `APP_PORT` (default 3000).
+- **`scheduler`**: built from `docker/scheduler.Dockerfile`; runs the
+  scheduled jobs against the app.
+
+Settings go in a `.env` file next to `docker-compose.yml` (Compose reads it)
+or in your shell. None is required:
+
+| Variable | Default | What it does |
+|---|---|---|
+| `APP_PORT` | `3000` | The host port the app is published on. |
+| `NEXTAUTH_URL` | `http://localhost:$APP_PORT` | The URL people use. Set it when the install is reached by another name. |
+| `OPENAI_API_KEY`, `ANTHROPIC_API_KEY` | unset | Turn on the AI features (see the table below). |
+| `AUTH_LOG_SIGN_IN_CODES` | `true` | The instance admin's sign-in codes go to the app's log; nobody else gets one. Ignored once SMTP or Postmark is set. **Anyone who can read the log can sign in as the admin**; see the security note above. |
+| `SMTP_*`, `EMAIL_FROM`, `AUTH_POSTMARK_KEY`, `GOOGLE_CLIENT_*`, `AUTH_DISCORD_*` | unset | Other ways in, as in the table below. |
+| `POSTGRES_PASSWORD` | `exponential` | Letters and digits only. Set it before the first start: the database keeps the password it was created with. |
+| `MASTRA_BUILD_CONTEXT` | positonic/mastra `main` | Where the Assistant builds from. |
+
+**The Assistant is opt-in.** Mastra (chat, Assign to Assistant) needs an
+Anthropic key, so it sits behind the `assistant` profile:
+
+```bash
+ANTHROPIC_API_KEY=… OPENAI_API_KEY=… docker compose --profile assistant up -d --build
+```
+
+With the profile on, the app finds the `mastra` service and points
+`MASTRA_API_URL` at it; without it, the Assistant stays off. Mastra builds
+from [positonic/mastra](https://github.com/positonic/mastra)'s
+`docker/Dockerfile` and shares the database (schema `mastra`).
+
+**Memory.** Building the app image needs a Docker host with at least 10 GB of
+memory (see below). On a smaller server, build elsewhere and run the images.
+
+**Prebuilt images.** Compose builds every image from source. If you have
+images in a registry, point Compose at them with a
+`docker-compose.override.yml` next to `docker-compose.yml`, which Compose
+merges in automatically:
+
+```yaml
+services:
+  app:
+    image: registry.example.com/exponential-app:latest
+    build: !reset null
+  scheduler:
+    image: registry.example.com/exponential-scheduler:latest
+    build: !reset null
+```
+
+TLS, a reverse proxy, backups and upgrades are up to you. To update, pull the
+repo and run `docker compose up -d --build`: the app applies new migrations
+when it starts.
+
+`.github/workflows/selfhost-smoke.yml` boots this stack nightly with no
+settings at all, signs in and checks the scheduler, and opens an issue when it
+fails.
 
 #### Container images
 
@@ -124,7 +217,7 @@ docker build -f docker/scheduler.Dockerfile -t exponential-scheduler .      # th
 
 A full install is four services: Postgres with pgvector, the app, the
 scheduler, and the [Mastra agent service](https://github.com/positonic/mastra)
-(agent runs and chat). The scheduler and Mastra reach the app over the
+(agent runs and chat; optional, like every AI key). The scheduler and Mastra reach the app over the
 private network; only the app needs a public address.
 
 | Variable | Service | Needed | Value |
@@ -132,12 +225,12 @@ private network; only the app needs a public address.
 | `DATABASE_URL` | app, mastra | required | Postgres 16 with pgvector 0.5.0+, e.g. the `pgvector/pgvector:pg16` image. Mastra shares the database (it keeps its tables in schema `mastra`). |
 | `AUTH_SECRET` | app, mastra | required | `openssl rand -base64 32`. The same value on both: Mastra verifies the app's tokens with it. |
 | `DATABASE_ENCRYPTION_KEY` | app | required | 32 bytes, raw or base64: `openssl rand -base64 32`. |
-| `OPENAI_API_KEY` | app, mastra | required | Your OpenAI key. The app uses it for embeddings and some AI features. |
-| `ANTHROPIC_API_KEY` | mastra | required for agents | Your Anthropic key. Agent runs and chat run on Anthropic models. The app boots without it. |
+| `OPENAI_API_KEY` | app, mastra | optional (AI) | Turns on meeting summaries, extraction, semantic search and indexing, digests, AI workflow steps and size suggestions. Without it those features are off and say how to turn them on. |
+| `ANTHROPIC_API_KEY` | app, mastra | optional (AI) | On the app: Claude-written summaries and workspace updates, YouTube articles. Mastra needs it for agent runs and chat. |
 | `NEXTAUTH_URL` | app | recommended | The public URL, no trailing slash, e.g. `https://exponential.example.com`. Links in email and callbacks are built from it. Default: `http://localhost:${PORT}`. |
 | `CRON_SECRET` | app, scheduler | required for scheduled jobs | `openssl rand -base64 32`. The same value on both: the cron routes reject calls without it. |
 | `SCHEDULER_TARGET_URL` | scheduler | required in a container | The app's private address, e.g. `http://app:3000`. Default: `http://localhost:3000`. |
-| `MASTRA_API_URL` | app | required for agents | The Mastra service's private address, e.g. `http://mastra:4111`. Default: `http://localhost:4111`. |
+| `MASTRA_API_URL` | app | optional (Assistant) | The Mastra service's private address, e.g. `http://mastra:4111`. Unset means no Assistant: chat, Assign to Assistant and voice are hidden. |
 | `TODO_APP_BASE_URL` | mastra | required for agents | The app's private address, e.g. `http://app:3000`. Mastra's tools call back into the app here. |
 | `PORT` | app, mastra | optional | The port to listen on. Default: 3000 for the app; Mastra uses 4111. |
 | `AUTH_LOG_SIGN_IN_CODES` | app | one way in | `true` writes the instance admin's sign-in codes to the app's log instead of emailing them. Nobody else gets a code, and anyone who can read the log can sign in as the admin. |

@@ -16,6 +16,7 @@
  * the full backlog safely.
  */
 import Anthropic from "@anthropic-ai/sdk";
+import { requireAi } from "~/server/services/ai/requireAi";
 import type { Prisma, PrismaClient } from "@prisma/client";
 import { z } from "zod";
 
@@ -284,6 +285,7 @@ export class AgentEvalService {
   private get anthropic(): Anthropic {
     // Lazy: lets the service be constructed (e.g. to list settled Threads)
     // without ANTHROPIC_API_KEY; the key is only required to judge.
+    if (!this.anthropicClient) requireAi("anthropic", "Thread scoring");
     this.anthropicClient ??= new Anthropic();
     return this.anthropicClient;
   }

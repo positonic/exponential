@@ -32,13 +32,12 @@ COPY . .
 # at runtime from NEXTAUTH_URL instead.
 ENV SKIP_ENV_VALIDATION=1 \
     NEXT_TELEMETRY_DISABLED=1
-# Some modules construct an OpenAI client at module scope, and the openai SDK
-# throws without a key while Next collects page data. The placeholder is set
-# for this one command only, so it never reaches the runtime stage; the real
-# key comes from the environment at runtime. .next/cache is build-only.
+# No LLM key at build time: no module builds an LLM client at module scope
+# (guarded by noModuleScopeLlmClients.test.ts), and AI keys are optional at
+# runtime too. .next/cache is build-only.
 # Memory: this step needs a builder with at least 10 GB. Measured in a
 # container: working set peaks near 9.2 GB; OOM-killed under an 8 GB limit.
-RUN OPENAI_API_KEY=build-time-placeholder-not-a-key npm run build \
+RUN npm run build \
  && rm -rf .next/cache
 
 # --- runtime -----------------------------------------------------------------

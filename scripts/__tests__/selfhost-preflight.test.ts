@@ -73,7 +73,29 @@ describe("preflightEnv", () => {
   it("prints the active sign-in methods", () => {
     const result = preflightEnv({ SMTP_HOST: "smtp.example.test", EMAIL_FROM: "a@example.test" });
     expect(result.error).toBeNull();
-    expect(result.lines).toEqual(["[selfhost] Sign-in methods: email codes (SMTP)"]);
+    expect(result.lines[0]).toBe("[selfhost] Sign-in methods: email codes (SMTP)");
+  });
+
+  it("with no LLM key, starts and lists AI as off with each variable that turns it on", () => {
+    const result = preflightEnv({ NODE_ENV: "production", AUTH_LOG_SIGN_IN_CODES: "true" });
+    expect(result.error).toBeNull();
+    const text = result.lines.join("\n");
+    expect(text).toMatch(/AI features: off \(optional\)/);
+    expect(text).toMatch(/OPENAI_API_KEY/);
+    expect(text).toMatch(/ANTHROPIC_API_KEY/);
+    expect(text).toMatch(/MASTRA_API_URL/);
+  });
+
+  it("with every AI variable set, lists what is on and nothing to add", () => {
+    const result = preflightEnv({
+      NODE_ENV: "production",
+      AUTH_LOG_SIGN_IN_CODES: "true",
+      OPENAI_API_KEY: "sk-test",
+      ANTHROPIC_API_KEY: "sk-ant-test",
+      MASTRA_API_URL: "https://mastra.example.test",
+    });
+    const aiLines = result.lines.filter((line) => line.includes("AI features") || line.includes("To turn on"));
+    expect(aiLines).toEqual(["[selfhost] AI features: OpenAI, Anthropic, Assistant (Mastra)"]);
   });
 
   it("warns, without stopping, when log delivery is on", () => {

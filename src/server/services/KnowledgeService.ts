@@ -1,4 +1,5 @@
 import { OpenAIEmbeddings } from "@langchain/openai";
+import { aiNotConfiguredMessage, isAiConfigured, requireAi } from "~/server/services/ai/requireAi";
 import { Prisma } from "@prisma/client";
 import type { PrismaClient } from "@prisma/client";
 import { randomUUID } from "crypto";
@@ -121,6 +122,7 @@ export class KnowledgeService {
    * Generate embedding vector for text
    */
   async generateEmbedding(text: string): Promise<number[]> {
+    requireAi("openai", "Semantic search");
     try {
       const embedding = await this.embeddings.embedQuery(text);
       return embedding;
@@ -135,6 +137,7 @@ export class KnowledgeService {
    */
   async generateBatchEmbeddings(texts: string[]): Promise<number[][]> {
     if (texts.length === 0) return [];
+    requireAi("openai", "Knowledge indexing");
 
     try {
       // LangChain's embedDocuments handles batching internally
@@ -167,6 +170,17 @@ export class KnowledgeService {
     const projectId = source.getProjectId();
     const workspaceId = source.getWorkspaceId();
     const content = source.getContent();
+
+    // No embeddings provider: skip before touching the database, so the
+    // source's existing chunks (if any) stay exactly as they were.
+    if (!isAiConfigured("openai")) {
+      return {
+        success: false,
+        chunkCount: 0,
+        skipped: "ai-not-configured",
+        error: aiNotConfiguredMessage("openai", "Knowledge indexing"),
+      };
+    }
 
     if (!content) {
       console.warn(
@@ -543,7 +557,7 @@ export class KnowledgeService {
     const source = ResourceSource.fromEntity(resource);
     const result = await this.embedSource(source);
 
-    if (!result.success && result.error) {
+    if (!result.success && result.error && !result.skipped) {
       throw new Error(result.error);
     }
 
@@ -569,7 +583,7 @@ export class KnowledgeService {
     const source = TranscriptionSource.fromEntity(transcription);
     const result = await this.embedSource(source);
 
-    if (!result.success && result.error) {
+    if (!result.success && result.error && !result.skipped) {
       throw new Error(result.error);
     }
 

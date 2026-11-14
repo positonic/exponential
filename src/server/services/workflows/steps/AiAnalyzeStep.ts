@@ -1,4 +1,5 @@
 import { ChatOpenAI } from "@langchain/openai";
+import { requireAi } from "~/server/services/ai/requireAi";
 import { HumanMessage, SystemMessage } from "@langchain/core/messages";
 import { type IStepExecutor, type StepContext } from "./IStepExecutor";
 import { type GitHubCommit } from "./FetchGitHubCommitsStep";
@@ -46,6 +47,8 @@ export class AiAnalyzeStep implements IStepExecutor {
     if (!commits || commits.length === 0) {
       return { featureGroups: [], featureCount: 0 };
     }
+
+    requireAi("openai", `The "${this.label}" step`);
 
     const model = new ChatOpenAI({
       modelName: (config.modelName as string) ?? "gpt-4o",
