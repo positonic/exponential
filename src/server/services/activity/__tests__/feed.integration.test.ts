@@ -64,7 +64,7 @@ describe("getActivityFeed (integration)", () => {
       metadata: { name: "Second" },
     });
 
-    const { events } = await getActivityFeed(db, { workspaceId: ws.id });
+    const { events } = await getActivityFeed(db, { viewerId: user.id, workspaceId: ws.id });
 
     expect(events).toHaveLength(3);
     expect(events.map((e) => e.entityRef)).toEqual(["Third", "Second", "First"]);
@@ -96,8 +96,8 @@ describe("getActivityFeed (integration)", () => {
       metadata: { name: "B2" },
     });
 
-    const a = await getActivityFeed(db, { workspaceId: wsA.id });
-    const b = await getActivityFeed(db, { workspaceId: wsB.id });
+    const a = await getActivityFeed(db, { viewerId: user.id, workspaceId: wsA.id });
+    const b = await getActivityFeed(db, { viewerId: user.id, workspaceId: wsB.id });
 
     expect(a.events.map((e) => e.entityRef)).toEqual(["A1"]);
     expect(b.events.map((e) => e.entityRef)).toEqual(["B2", "B1"]);
@@ -131,11 +131,12 @@ describe("getActivityFeed (integration)", () => {
       });
     }
 
-    const first = await getActivityFeed(db, { workspaceId: ws.id, limit: 3 });
+    const first = await getActivityFeed(db, { viewerId: user.id, workspaceId: ws.id, limit: 3 });
     expect(first.events).toHaveLength(3);
     expect(first.nextCursor).toBeTruthy();
 
     const second = await getActivityFeed(db, {
+      viewerId: user.id,
       workspaceId: ws.id,
       cursor: first.nextCursor!,
       limit: 3,
@@ -147,6 +148,7 @@ describe("getActivityFeed (integration)", () => {
     expect(ids1.some((id) => ids2.includes(id))).toBe(false);
 
     const third = await getActivityFeed(db, {
+      viewerId: user.id,
       workspaceId: ws.id,
       cursor: second.nextCursor!,
       limit: 3,
@@ -175,12 +177,12 @@ describe("getActivityFeed (integration)", () => {
       });
     }
 
-    const small = await getActivityFeed(db, { workspaceId: ws.id, limit: 5 });
+    const small = await getActivityFeed(db, { viewerId: user.id, workspaceId: ws.id, limit: 5 });
     expect(small.events).toHaveLength(5);
     expect(small.nextCursor).toBeTruthy();
 
     // Limit larger than 12 still works
-    const big = await getActivityFeed(db, { workspaceId: ws.id, limit: 100 });
+    const big = await getActivityFeed(db, { viewerId: user.id, workspaceId: ws.id, limit: 100 });
     expect(big.events).toHaveLength(12);
     expect(big.nextCursor).toBeNull();
   });
@@ -206,7 +208,7 @@ describe("getActivityFeed (integration)", () => {
       metadata: { snippet: "looks good to me" },
     });
 
-    const { events } = await getActivityFeed(db, { workspaceId: ws.id });
+    const { events } = await getActivityFeed(db, { viewerId: user.id, workspaceId: ws.id });
 
     expect(events[0]!.hint.iconKind).toBe("completed");
     expect(events[0]!.hint.template).toContain("completed");

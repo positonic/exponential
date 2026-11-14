@@ -25,6 +25,7 @@ import {
 } from "@mantine/core";
 import { notifications } from "@mantine/notifications";
 import { useMediaQuery } from "@mantine/hooks";
+import { useAiCapabilities } from "~/providers/AiCapabilitiesProvider";
 import { api } from "~/trpc/react";
 import {
   IconMicrophone,
@@ -53,6 +54,7 @@ import { FirefliesWizardModal } from "./integrations/FirefliesWizardModal";
 import type { WeeklyMeetingStatsResult } from "~/server/services/meetings/weeklyMeetingStats";
 import { CreateTranscriptionModal } from "./CreateTranscriptionModal";
 import { ScheduleMeetingModal } from "./calendar/ScheduleMeetingModal";
+import { Panel } from "~/app/_components/ui";
 
 type MeetingType =
   | "all"
@@ -91,9 +93,9 @@ function computeInitials(name: string): string {
 
 function RailCard({ children }: { children: React.ReactNode }) {
   return (
-    <div className="rounded-lg border border-border-subtle bg-background-secondary p-4">
+    <Panel variant="muted">
       {children}
-    </div>
+    </Panel>
   );
 }
 
@@ -424,7 +426,9 @@ export function MeetingsContent({ workspaceId }: MeetingsContentProps = {}) {
         }
       },
     });
+  const { summaries: canSummarize } = useAiCapabilities();
   useEffect(() => {
+    if (!canSummarize) return;
     if (summariesSweptRef.current || isLoading || !transcriptions) return;
     const hasUnsummarized = transcriptions.some(
       (t) => !t.archivedAt && !t.summary?.trim(),
@@ -432,7 +436,7 @@ export function MeetingsContent({ workspaceId }: MeetingsContentProps = {}) {
     if (!hasUnsummarized) return;
     summariesSweptRef.current = true;
     ensureMyMeetingSummaries();
-  }, [isLoading, transcriptions, ensureMyMeetingSummaries]);
+  }, [isLoading, transcriptions, ensureMyMeetingSummaries, canSummarize]);
 
 
   const assignProjectMutation = api.transcription.assignProject.useMutation({

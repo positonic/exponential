@@ -3,23 +3,35 @@
  * the ceremony's project, else its product, else the whole workspace —
  * oldest first, confirmed rows only. An OPEN decision is an open question;
  * "carried N times" is derived from how many occurrences it has sat on.
+ * Only Decisions the whole workspace may read are listed
+ * (`buildWorkspaceAudienceDecisionWhere`), as in `decisions_made`: the
+ * statement and owner are copied into a snapshot every workspace member
+ * sees, so one behind a restricted project or a private recording stays off
+ * the agenda. That holds for a ceremony scoped to a restricted project too:
+ * its occurrence page is readable by every workspace member, so the
+ * project's own pending Decisions are left out.
  */
 import type { AgendaItem, SectionModule } from "../types";
 import { readAgendaSnapshot } from "../types";
+import { buildWorkspaceAudienceDecisionWhere } from "~/server/services/access/resolvers/decisionResolver";
 
 export const decisionsPendingSection: SectionModule = {
   type: "decisions_pending",
   async run(ctx, section) {
     const decisions = await ctx.db.decision.findMany({
       where: {
-        workspaceId: ctx.workspaceId,
-        reviewState: "CONFIRMED",
         status: { in: ["OPEN", "PROPOSED"] },
-        ...(ctx.projectIds.length
-          ? { projectId: { in: ctx.projectIds } }
-          : ctx.ceremony.productId
-            ? { OR: [{ productId: ctx.ceremony.productId }, { productId: null }] }
-            : {}),
+        AND: [
+          // The statement is copied into a snapshot every workspace member
+          // sees, so only Decisions every member may read (confirmed, in
+          // this workspace, not behind a restricted project or private meeting).
+          buildWorkspaceAudienceDecisionWhere(ctx.workspaceId),
+          ctx.projectIds.length
+            ? { projectId: { in: ctx.projectIds } }
+            : ctx.ceremony.productId
+              ? { OR: [{ productId: ctx.ceremony.productId }, { productId: null }] }
+              : {},
+        ],
       },
       select: {
         id: true,

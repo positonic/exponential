@@ -16,6 +16,7 @@ import {
 import { useWorkspace } from "~/providers/WorkspaceProvider";
 import { api } from "~/trpc/react";
 import { PRODUCT_NAME } from "~/lib/brand";
+import { useDocumentTitle } from "~/hooks/useDocumentTitle";
 
 function slugify(input: string): string {
   return input
@@ -29,6 +30,7 @@ export default function NewProductPage() {
   const router = useRouter();
   const { workspace, workspaceId } = useWorkspace();
   const utils = api.useUtils();
+  useDocumentTitle("New product");
 
   const [name, setName] = useState("");
   const [slug, setSlug] = useState("");

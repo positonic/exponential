@@ -354,6 +354,12 @@ export const decisionRouter = createTRPCRouter({
         /** With a real productId: ALSO include null-product decisions. */
         includeWorkspaceWide: z.boolean().optional(),
         projectId: z.string().optional(),
+        /**
+         * Only the decisions logged from this ceremony occurrence. Narrows the
+         * caller's visible set; an occurrence from another workspace matches
+         * nothing, since the resolver already scopes to `workspaceId`.
+         */
+        occurrenceId: z.string().optional(),
         search: z.string().max(200).optional(),
         /** One decision by its workspace sequence number — `D-0003` → 3. */
         number: z.number().int().min(1).optional(),
@@ -372,6 +378,7 @@ export const decisionRouter = createTRPCRouter({
           productId: input.productId,
           includeWorkspaceWide: input.includeWorkspaceWide,
           projectId: input.projectId,
+          occurrenceId: input.occurrenceId,
           search: input.search,
           number: input.number,
           limit: input.limit,

@@ -8,6 +8,7 @@
  */
 import type { Prisma, PrismaClient } from "@prisma/client";
 import type { JSONContent } from "@tiptap/core";
+import { recordPageRevision } from "~/server/services/pages/revisions";
 import { syncPageLinks } from "~/server/services/pages/page-links";
 
 export interface NotesPageOccurrence {
@@ -96,6 +97,15 @@ export async function ensureOccurrenceNotesPage(
       select: { id: true },
     });
     if (opts.seed) await syncPageLinks(tx, created.id, opts.seed.bodyDoc as JSONContent);
+    // Automated: the ceremony owns the page, but no person wrote this text.
+    await recordPageRevision(tx, {
+      pageId: created.id,
+      kind: "create",
+      authorId: null,
+      note: opts.seed
+        ? "Notes page created for this meeting, seeded with its agenda"
+        : "Notes page created for this meeting",
+    });
     return created;
   });
 

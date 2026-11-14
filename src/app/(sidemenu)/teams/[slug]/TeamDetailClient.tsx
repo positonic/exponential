@@ -38,6 +38,7 @@ import { useDisclosure } from '@mantine/hooks';
 import { notifications } from '@mantine/notifications';
 import { api } from "~/trpc/react";
 import Link from 'next/link';
+import { PersonLink } from '~/app/_components/people/PersonLink';
 import { useSearchParams, useRouter, usePathname } from 'next/navigation';
 import { useWorkspace } from '~/providers/WorkspaceProvider';
 import { AddProjectToTeamModal } from '~/app/_components/AddProjectToTeamModal';
@@ -276,7 +277,11 @@ export default function TeamDetailClient({ team: initialTeam, currentUserId }: T
                         />
                         <div>
                           <Group gap="xs">
-                            <Text fw={500}>{member.user.name || member.user.email}</Text>
+                            <Text fw={500}>
+                              <PersonLink userId={member.userId}>
+                                {member.user.name || member.user.email}
+                              </PersonLink>
+                            </Text>
                             {getRoleIcon(member.role)}
                             <Badge
                               size="sm"

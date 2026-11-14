@@ -87,6 +87,7 @@ export {
   buildProjectAccessWhere,
   buildProjectEditWhere,
 } from "./resolvers/projectResolver";
+export { projectAccessDeniedError, type ProjectDeniedAction } from "./projectDenial";
 export {
   getActionAccess,
   canViewAction,

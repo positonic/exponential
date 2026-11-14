@@ -2,6 +2,8 @@ import { Extension } from "@tiptap/core";
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import { Plugin, PluginKey } from "@tiptap/pm/state";
 
+import { youTubeVideoFromAttrs, youTubeWatchUrl } from "./youtube";
+
 /**
  * Puts **plain text** on the clipboard's `text/plain` flavour.
  *
@@ -26,6 +28,11 @@ function leafText(node: ProseMirrorNode): string {
       return ((node.attrs.title as string | null) ?? "") || "Untitled";
     case "image":
       return (node.attrs.alt as string | null) ?? "";
+    case "youtube": {
+      // The video's only text is its link; keep it, start offset included.
+      const video = youTubeVideoFromAttrs(node.attrs);
+      return video ? youTubeWatchUrl(video) : "";
+    }
     default:
       return "";
   }

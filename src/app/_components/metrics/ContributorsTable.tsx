@@ -1,18 +1,24 @@
 'use client';
 
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import {
   Avatar,
+  Button,
   Card,
   Checkbox,
   Group,
+  Popover,
   Progress,
   Stack,
   Table,
   Text,
+  TextInput,
   Tooltip,
+  UnstyledButton,
 } from '@mantine/core';
-import { IconUsers } from '@tabler/icons-react';
+import { notifications } from '@mantine/notifications';
+import { IconBrandGithub, IconUsers } from '@tabler/icons-react';
+import { useWorkspace } from '~/providers/WorkspaceProvider';
 import { api, type RouterOutputs } from '~/trpc/react';
 import { formatMinutes } from './format';
 
@@ -22,10 +28,11 @@ type ContributorRow =
 /**
  * Per-person contributions over all cycles (no `cycleId`) or one cycle.
  *
- * Fetches every row once and narrows to the selected members client-side, so
- * changing the filter never refetches. Each row's checkbox toggles that person
- * in the page-wide member filter. Ticket share is measured against the whole
- * team's completed tickets, so it reads the same filtered or not.
+ * Every row stays listed whatever is selected, so more people can be ticked;
+ * each row's checkbox toggles that person in the page-wide member filter, which
+ * narrows the charts. Ticket share is measured against the whole team's
+ * completed tickets. Owners and admins can set the GitHub username a member's
+ * PRs and commits are matched on, unless the member connected GitHub themselves.
  */
 export function ContributorsTable({
   workspaceId,
@@ -43,21 +50,17 @@ export function ContributorsTable({
     cycleId,
   });
 
+  const { userRole } = useWorkspace();
+  const canSetGithub = userRole === 'owner' || userRole === 'admin';
+
   const selected = useMemo(() => new Set(memberIds), [memberIds]);
-  const isFiltered = selected.size > 0;
 
   const teamCompleted = useMemo(
     () => (data?.rows ?? []).reduce((sum, r) => sum + r.completedTickets, 0),
     [data],
   );
 
-  const rows = useMemo(
-    () =>
-      (data?.rows ?? []).filter((r) =>
-        isFiltered ? r.userId != null && selected.has(r.userId) : true,
-      ),
-    [data, isFiltered, selected],
-  );
+  const rows = data?.rows ?? [];
 
   return (
     <Card
@@ -71,9 +74,9 @@ export function ContributorsTable({
           <Text size="sm" fw={500} className="text-text-secondary">
             Contributors
           </Text>
-          {isFiltered && (
+          {selected.size > 0 && (
             <Text size="xs" className="text-text-muted">
-              ({rows.length} of {data?.rows.length ?? 0})
+              ({selected.size} selected)
             </Text>
           )}
         </Group>
@@ -106,6 +109,8 @@ export function ContributorsTable({
                   <ContributorTableRow
                     key={row.userId ?? 'unassigned'}
                     row={row}
+                    workspaceId={workspaceId}
+                    canSetGithub={canSetGithub}
                     teamCompleted={teamCompleted}
                     isSelected={row.userId != null && selected.has(row.userId)}
                     onToggle={onToggleMember}
@@ -117,9 +122,10 @@ export function ContributorsTable({
         )}
 
         <Text size="xs" className="text-text-muted">
-          Tickets count toward their assignee. PRs and commits are matched
-          through each member&apos;s connected GitHub account (— means none is
-          linked); time is confirmed time logged inside the cycle window.
+          Tickets count toward their assignee. PRs and commits are matched on
+          each member&apos;s GitHub username, from their connected GitHub
+          account or set by a workspace admin (— means none is known); time is
+          confirmed time logged inside the cycle window.
         </Text>
       </Stack>
     </Card>
@@ -128,11 +134,15 @@ export function ContributorsTable({
 
 function ContributorTableRow({
   row,
+  workspaceId,
+  canSetGithub,
   teamCompleted,
   isSelected,
   onToggle,
 }: {
   row: ContributorRow;
+  workspaceId: string;
+  canSetGithub: boolean;
   teamCompleted: number;
   isSelected: boolean;
   onToggle: (userId: string) => void;
@@ -146,7 +156,7 @@ function ContributorTableRow({
     row.githubLinked ? (
       n
     ) : (
-      <Tooltip label="No GitHub account linked" withArrow>
+      <Tooltip label="No GitHub username set" withArrow>
         <span className="text-text-muted">—</span>
       </Tooltip>
     );
@@ -176,6 +186,15 @@ function ContributorTableRow({
               <Text size="xs" className="text-text-muted">
                 Former member
               </Text>
+            )}
+            {userId != null && row.isMember && (
+              <GithubLogin
+                workspaceId={workspaceId}
+                userId={userId}
+                memberName={label}
+                login={row.githubLogin}
+                editable={canSetGithub && row.githubLoginSource !== 'account'}
+              />
             )}
           </div>
         </Group>
@@ -219,5 +238,117 @@ function ContributorTableRow({
         </Text>
       </Table.Td>
     </Table.Tr>
+  );
+}
+
+/**
+ * The member's GitHub username under their name. Admins get a popover to set,
+ * change or clear it; a login from the member's own connected account is shown
+ * read-only. Saving refetches the Metrics queries so the counts update.
+ */
+function GithubLogin({
+  workspaceId,
+  userId,
+  memberName,
+  login,
+  editable,
+}: {
+  workspaceId: string;
+  userId: string;
+  memberName: string;
+  login: string | null;
+  editable: boolean;
+}) {
+  const [opened, setOpened] = useState(false);
+  const [value, setValue] = useState('');
+  const utils = api.useUtils();
+  const setLogin = api.github.setMemberGithubLogin.useMutation({
+    onSuccess: async () => {
+      setOpened(false);
+      await utils.sprintAnalytics.invalidate();
+    },
+    onError: (error) => {
+      notifications.show({
+        color: 'red',
+        title: 'GitHub username not saved',
+        message: error.message,
+      });
+    },
+  });
+
+  if (!editable) {
+    return login ? (
+      <Text size="xs" className="truncate text-text-muted">
+        @{login}
+      </Text>
+    ) : null;
+  }
+
+  const open = () => {
+    setValue(login ?? '');
+    setOpened(true);
+  };
+  const save = (next: string | null) =>
+    setLogin.mutate({ workspaceId, userId, login: next });
+
+  return (
+    <Popover
+      opened={opened}
+      onChange={setOpened}
+      position="bottom-start"
+      withArrow
+      trapFocus
+    >
+      <Popover.Target>
+        <UnstyledButton onClick={open} className="flex items-center gap-1">
+          <IconBrandGithub size={12} className="text-text-muted" />
+          <Text size="xs" className="truncate text-text-muted hover:text-text-primary">
+            {login ? `@${login}` : 'Set GitHub username'}
+          </Text>
+        </UnstyledButton>
+      </Popover.Target>
+      <Popover.Dropdown>
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (value.trim()) save(value.trim());
+          }}
+        >
+          <Stack gap="xs" w={240}>
+            <TextInput
+              size="xs"
+              label={`${memberName}'s GitHub username`}
+              placeholder="octocat"
+              value={value}
+              onChange={(e) => setValue(e.currentTarget.value)}
+              data-autofocus
+            />
+            <Group justify="space-between" gap="xs">
+              {login ? (
+                <Button
+                  size="xs"
+                  variant="subtle"
+                  color="red"
+                  onClick={() => save(null)}
+                  loading={setLogin.isPending && setLogin.variables?.login === null}
+                >
+                  Remove
+                </Button>
+              ) : (
+                <span />
+              )}
+              <Button
+                size="xs"
+                type="submit"
+                disabled={!value.trim()}
+                loading={setLogin.isPending && setLogin.variables?.login !== null}
+              >
+                Save
+              </Button>
+            </Group>
+          </Stack>
+        </form>
+      </Popover.Dropdown>
+    </Popover>
   );
 }

@@ -18,6 +18,7 @@ import { useRefreshOnWikiChange, useWikiBridge } from "~/lib/wiki/useWikiBridge"
 import { WikiCommitList } from "./WikiCommitList";
 import { WikiPageActions } from "./WikiPageActions";
 import styles from "./wiki.module.css";
+import { Panel } from "~/app/_components/ui";
 
 /** Commits shown under a page. Enough to see how it got here, not a full log. */
 const PAGE_HISTORY_LIMIT = 10;
@@ -260,7 +261,7 @@ export function WikiPageView({ path }: { path: string }) {
       ) : null}
 
       {missing && !editing ? (
-        <div className="rounded-lg border border-border-primary bg-background-secondary px-6 py-12 text-center">
+        <Panel variant="muted" padding="none" className="px-6 py-12 text-center">
           <Text className="font-semibold text-text-primary">
             Nobody has written this page yet
           </Text>
@@ -271,7 +272,7 @@ export function WikiPageView({ path }: { path: string }) {
           <Button className="mt-6" onClick={() => setDraft(seedFor(path))}>
             Write it
           </Button>
-        </div>
+        </Panel>
       ) : editing ? (
         <div
           onKeyDown={(e) => {

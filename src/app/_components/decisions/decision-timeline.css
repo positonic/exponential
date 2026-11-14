@@ -299,7 +299,8 @@
 }
 .dtl__card:hover,
 .dtl__card:focus-visible,
-.dtl__card.is-linked {
+.dtl__card.is-linked,
+.dtl__card[data-peeked] {
   border-color: var(--brand-400);
   box-shadow: 0 0 0 3px color-mix(in oklab, var(--brand-400) 14%, transparent);
   opacity: 1;
@@ -312,7 +313,7 @@
 .dtl__card:focus-visible {
   outline: none;
 }
-.dtl.is-focused .dtl__card:not(:hover):not(.is-linked) {
+.dtl.is-focused .dtl__card:not(:hover):not(.is-linked):not([data-peeked]) {
   opacity: 0.55;
 }
 .dtl__card-top {

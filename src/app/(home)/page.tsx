@@ -10,19 +10,22 @@ import { getThemeDomain } from "~/config/site";
 import {
   HeroSection,
   FactsSection,
-  ProblemStatementSection,
-  SolutionIntroSection,
-  ProductDemoSection,
-  HowItWorksSection,
-  KeyFeaturesSection,
-  PersonaSection,
+  ProductPillarsSection,
+  AgentAccessSection,
+  SelfHostSection,
+  MethodSection,
   PricingSection,
   FinalCTASection,
   FooterSection,
   FeaturesMenu,
   ResourcesMenu,
 } from "~/app/_components/home";
-import { PRODUCT_NAME, PRODUCT_SEO_DESCRIPTION, PRODUCT_SEO_TITLE } from "~/lib/brand";
+import {
+  PRODUCT_NAME,
+  PRODUCT_SEO_DESCRIPTION,
+  PRODUCT_SEO_TITLE,
+  SOCIAL_PROFILES,
+} from "~/lib/brand";
 
 // The homepage's search-result title and description. Other (home) pages fall
 // back to the layout's branding copy.
@@ -67,24 +70,44 @@ export default async function Home() {
             </div>
 
             {/* Desktop Navigation */}
-            <nav className="hidden md:flex items-center space-x-8">
+            <nav className="hidden md:flex items-center space-x-5 xl:space-x-8">
               <FeaturesMenu />
               <Link
-                href="#how-it-works"
-                className="text-gray-300 hover:text-white transition-colors text-sm font-medium"
+                href="#self-host"
+                className="text-text-secondary hover:text-text-primary transition-colors text-sm font-medium"
               >
-                How It Works
+                Self-host
+              </Link>
+              <Link
+                href="/docs"
+                className="text-text-secondary hover:text-text-primary transition-colors text-sm font-medium"
+              >
+                Docs
               </Link>
               <Link
                 href="#pricing"
-                className="text-gray-300 hover:text-white transition-colors text-sm font-medium"
+                className="text-text-secondary hover:text-text-primary transition-colors text-sm font-medium"
               >
                 Pricing
               </Link>
               <ResourcesMenu />
+              <Link
+                href={SOCIAL_PROFILES.github}
+                className="hidden xl:inline text-text-secondary hover:text-text-primary transition-colors text-sm font-medium"
+              >
+                GitHub
+              </Link>
             </nav>
 
             <div className="flex items-center gap-3">
+              {!session && (
+                <Link
+                  href="/signin"
+                  className="hidden xl:inline text-text-secondary hover:text-text-primary transition-colors text-sm font-medium"
+                >
+                  Sign in
+                </Link>
+              )}
               <HeaderAuthButtons session={session} />
               <ThemeToggle />
             </div>
@@ -96,38 +119,30 @@ export default async function Home() {
       <div className="h-20" />
 
       <main>
-        {/* Section 1: Hero */}
+        {/* Hero, with the product in the first screen */}
         <HeroSection />
 
-        {/* Section 2: Facts */}
+        {/* Verifiable facts, each linked to what backs it */}
         <FactsSection />
 
-        {/* Section 3: Problem Statement */}
-        <ProblemStatementSection />
+        {/* Goal to action, agents as members, meetings and decisions.
+            Keeps the "features" anchor other pages link to. */}
+        <ProductPillarsSection id="features" />
 
-        {/* Section 4: Solution Introduction */}
-        <SolutionIntroSection />
+        {/* CLI, SDK and MCP */}
+        <AgentAccessSection id="agents" />
 
-        {/* Section 5: Product Demo */}
-        <ProductDemoSection id="demo" />
+        <SelfHostSection id="self-host" />
 
-        {/* Section 6: How It Works */}
-        <HowItWorksSection id="how-it-works" />
+        {/* The method, who it is for, and our own use. Keeps the
+            "how-it-works" anchor other pages link to. */}
+        <MethodSection id="how-it-works" />
 
-        {/* Section 7: Key Features */}
-        <KeyFeaturesSection id="features" />
-
-        {/* Section 8: Who It's For */}
-        <PersonaSection id="personas" />
-
-        {/* Section 9: Pricing */}
         <PricingSection id="pricing" />
 
-        {/* Section 10: Final CTA */}
         <FinalCTASection />
       </main>
 
-      {/* Section 11: Footer */}
       <FooterSection />
     </div>
   );

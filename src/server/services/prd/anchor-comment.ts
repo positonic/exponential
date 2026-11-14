@@ -6,7 +6,9 @@ import {
   carryCommentMarks,
   type CommentAnchorPayload,
   type CommentAnchorResult,
+  type CommentQuote,
 } from "~/lib/prd/comment-anchor";
+import { markdownToDocServer } from "~/server/services/prd/markdown-doc";
 import { reportHandledErrorServer } from "~/server/utils/reportHandledErrorServer";
 
 /**
@@ -30,7 +32,7 @@ export const commentAnchorInput = z.object({
   suffix: z.string().max(200).optional(),
 }) satisfies z.ZodType<CommentAnchorPayload>;
 
-export type { CommentAnchorResult };
+export type { CommentAnchorResult, CommentQuote };
 
 export const NOT_ANCHORED: CommentAnchorResult = { anchored: false, fastForward: false };
 
@@ -100,4 +102,62 @@ export function withCarriedCommentMarks(
     reportHandledErrorServer(error, { area });
     return derived;
   }
+}
+
+/**
+ * Why {@link anchorThreadByQuote} refused: the quote isn't in the body (or is
+ * there more than once with nothing to pick between them), or the body kept
+ * changing under both attempts.
+ */
+export type QuoteAnchorOutcome =
+  | { status: "anchored"; docVersion: number }
+  | { status: "not_found" }
+  | { status: "conflict" };
+
+/**
+ * The stored doc with `threadId`'s mark on the span `quote` names. A host whose
+ * doc was never derived (`doc` null: a Markdown-only page written through the
+ * API) gets it derived from `markdown` here — the same conversion the editor's
+ * lazy migration runs on first open — so the mark has somewhere to live.
+ * `null` when the quote doesn't resolve to exactly one span.
+ */
+export function docWithQuotedThread(
+  stored: { doc: JSONContent | null; markdown: string | null },
+  threadId: string,
+  quote: CommentQuote,
+): JSONContent | null {
+  if (!quote.exact.trim()) return null;
+  const doc =
+    stored.doc ??
+    (stored.markdown?.trim() ? markdownToDocServer(stored.markdown) : null);
+  return doc ? anchorThread(doc, threadId, quote) : null;
+}
+
+/**
+ * Pin a new thread by its quote alone — the path for agents and the CLI, which
+ * have no editor selection to send positions for. Unlike
+ * {@link anchorThreadInStoredDoc} this runs *before* the thread exists and
+ * reports failure, so a caller can refuse to post a thread whose quote went
+ * nowhere instead of leaving it orphaned. `write` should create the thread's
+ * root comment in the same transaction as the doc, so the two land together.
+ */
+export async function anchorThreadByQuote(args: {
+  threadId: string;
+  quote: CommentQuote;
+  read: () => Promise<{ doc: JSONContent | null; markdown: string | null; docVersion: number } | null>;
+  write: (doc: JSONContent, expectedVersion: number) => Promise<boolean>;
+}): Promise<QuoteAnchorOutcome> {
+  const { threadId, quote, read, write } = args;
+  // One retry, as in anchorThreadInStoredDoc: a lost compare-and-set means
+  // another write landed in between, so re-read and re-find the quote.
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const stored = await read();
+    if (!stored) return { status: "not_found" };
+    const next = docWithQuotedThread(stored, threadId, quote);
+    if (!next) return { status: "not_found" };
+    if (await write(next, stored.docVersion)) {
+      return { status: "anchored", docVersion: stored.docVersion + 1 };
+    }
+  }
+  return { status: "conflict" };
 }

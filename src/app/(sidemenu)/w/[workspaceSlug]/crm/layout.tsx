@@ -15,6 +15,7 @@ import {
   IconBroadcast,
 } from '@tabler/icons-react';
 import type { Icon as TablerIcon } from '@tabler/icons-react';
+import { SectionHeader } from "~/app/_components/ui";
 
 interface CrmNavItem {
   title: string;
@@ -114,9 +115,7 @@ export default function CRMLayout({
             <div key={section.title ?? `section-${sectionIndex}`} className="mb-6">
               {/* Section header */}
               {section.title && (
-                <h3 className="mb-2 px-3 text-xs font-semibold uppercase tracking-wider text-text-muted">
-                  {section.title}
-                </h3>
+                <SectionHeader as="h3" size="md" className="mb-2 px-3" title={section.title} />
               )}
 
               {/* Section items */}

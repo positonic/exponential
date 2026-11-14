@@ -442,6 +442,8 @@ export interface ListDecisionsFilter {
   /** With a real productId: ALSO include null-product decisions (product lens). */
   includeWorkspaceWide?: boolean;
   projectId?: string;
+  /** Decisions logged as outputs of one ceremony occurrence (ADR-0059). */
+  occurrenceId?: string;
   /** Free-text search over statement and body. */
   search?: string;
   /** One decision by its workspace sequence number — resolves a `D-0003` label. */
@@ -479,6 +481,7 @@ export async function listForWorkspace(
               : { productId: filter.productId }
           : {},
         filter.projectId ? { projectId: filter.projectId } : {},
+        filter.occurrenceId ? { occurrenceId: filter.occurrenceId } : {},
         filter.number !== undefined ? { number: filter.number } : {},
         search
           ? {

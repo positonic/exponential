@@ -5,11 +5,14 @@
  * (`after()`) and the cron sweep can never send the same post twice. The destination is
  * resolved again at delivery time: a binding switched Off, removed, or moved since the
  * row was enqueued cancels it — enqueue recorded an intent, delivery checks it is still
- * wanted. The provider transaction id is derived from (post, attempt), so a retry of a
- * timed-out send is the same message to a provider that deduplicates on it.
+ * wanted. The provider transaction id is the post id, stable across every attempt, so a
+ * send that reached the homeserver but was never recorded (a timeout, a crash between
+ * the PUT and the status write) is returned by the homeserver as the *same* event on the
+ * next attempt rather than posted twice. Matrix has no un-send; this is the guard.
  *
- * Nothing here throws for an expected outcome; every state is written to the row and
- * reported, and the caller gets a discriminated result.
+ * Nothing here throws: every outcome, expected or not, is written to the row and
+ * reported, and the caller gets a discriminated result. One bad post can never stall
+ * the rows behind it in a sweep.
  */
 
 import type { PrismaClient } from "@prisma/client";
@@ -50,9 +53,14 @@ export interface DeliverDeps {
   now?: () => Date;
 }
 
-/** Deterministic per (post, attempt): a retry of the same attempt is the same message. */
-export function buildOutboundTxnId(postId: string, attempt: number): string {
-  return `expo-post-${postId}-${attempt}`;
+/**
+ * One transaction id per post, for every attempt. A provider that deduplicates on it
+ * (Matrix does, per access token) turns any retry into the original event. There is no
+ * deliberate "post again" for outbound posts — the row's unique forbids it — so nothing
+ * ever needs a fresh id.
+ */
+export function buildOutboundTxnId(postId: string): string {
+  return `expo-post-${postId}`;
 }
 
 export async function deliverOutboundPost(
@@ -96,9 +104,6 @@ export async function deliverOutboundPost(
   });
   if (!post) return { kind: "done" };
 
-  // The claim incremented `attempts`; the transaction id names the attempt we are on.
-  const attempt = post.attempts - 1;
-
   const cancel = async (reason: string): Promise<DeliverOutboundPostResult> => {
     await db.outboundPost.update({
       where: { id: post.id },
@@ -135,6 +140,8 @@ export async function deliverOutboundPost(
     return { kind: "failed", reason, terminal };
   };
 
+  // An arrow, not a hoisted declaration, so TypeScript keeps the `post` narrowing.
+  const attemptDelivery = async (): Promise<DeliverOutboundPostResult> => {
   if (!post.channelLinkId || !post.channelLink) {
     return cancel("The binding this post was enqueued for has been removed.");
   }
@@ -182,7 +189,7 @@ export async function deliverOutboundPost(
     ({ eventId } = await poster.send(
       { link: destination.link, workspaceId: subject.workspaceId },
       message,
-      { txnId: buildOutboundTxnId(post.id, attempt) },
+      { txnId: buildOutboundTxnId(post.id) },
     ));
   } catch (error) {
     // Encryption is irreversible, so no retry will help; everything else might.
@@ -201,6 +208,21 @@ export async function deliverOutboundPost(
   });
 
   return { kind: "sent", eventId };
+  };
+
+  try {
+    return await attemptDelivery();
+  } catch (error) {
+    // Anything unexpected — a producer choking on its subject, a status write that
+    // failed — lands on the row as a retryable failure instead of escaping. The claim
+    // has already spent an attempt, so a row that always throws still exhausts itself.
+    try {
+      return await fail(error, describeSendFailure(error), false);
+    } catch (writeError) {
+      reportHandledError(writeError, { area: "outbound-post", context: { postId: post.id } });
+      return { kind: "failed", reason: describeSendFailure(error), terminal: false };
+    }
+  }
 }
 
 /**
@@ -227,7 +249,16 @@ export async function deliverPendingOutboundPosts(
 
   const counts = { scanned: rows.length, sent: 0, failed: 0, cancelled: 0 };
   for (const row of rows) {
-    const result = await deliverOutboundPost(db, row.id, deps);
+    // `deliverOutboundPost` catches its own failures; this is the guard against the
+    // claim itself throwing (a database hiccup), so one row never stalls the batch.
+    let result: DeliverOutboundPostResult;
+    try {
+      result = await deliverOutboundPost(db, row.id, deps);
+    } catch (error) {
+      reportHandledError(error, { area: "outbound-post-sweep", context: { postId: row.id } });
+      counts.failed += 1;
+      continue;
+    }
     if (result.kind === "sent") counts.sent += 1;
     else if (result.kind === "failed") counts.failed += 1;
     else if (result.kind === "cancelled") counts.cancelled += 1;

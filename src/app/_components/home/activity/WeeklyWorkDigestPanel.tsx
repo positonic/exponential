@@ -20,6 +20,7 @@ import {
 } from 'date-fns';
 import { useMemo, useState } from 'react';
 import { MarkdownRenderer } from '~/app/_components/shared/MarkdownRenderer';
+import { useAiCapabilities } from "~/providers/AiCapabilitiesProvider";
 import { api } from '~/trpc/react';
 
 import './activity-home.css';
@@ -59,6 +60,13 @@ const FMT_DATE = (d: Date) =>
  * a violet accent + left rail mark this as a private artifact. See ADR-0018.
  */
 export function WeeklyWorkDigestPanel() {
+  // The digest is written by a model; without an OpenAI key the panel is left out.
+  const { openai } = useAiCapabilities();
+  if (!openai) return null;
+  return <WeeklyWorkDigest />;
+}
+
+function WeeklyWorkDigest() {
   const utils = api.useUtils();
   const currentWeek = useMemo(() => isoWeekOf(new Date()), []);
   const [selected, setSelected] = useState<IsoWeek>(currentWeek);

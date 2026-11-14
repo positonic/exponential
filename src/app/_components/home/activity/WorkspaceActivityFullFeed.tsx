@@ -98,7 +98,10 @@ export function WorkspaceActivityFullFeed() {
   });
 
   const hasMore = data?.nextCursor != null;
-  const isEmpty = !isLoading && display.length === 0;
+  // An empty page with a cursor is not the end: the reader found nothing the
+  // viewer can see in that stretch (private page activity) and older rows
+  // remain, so Load more must stay reachable.
+  const isEmpty = !isLoading && display.length === 0 && !hasMore;
 
   return (
     <Container size="md" className="py-8">
@@ -181,6 +184,11 @@ export function WorkspaceActivityFullFeed() {
                 />
               ))}
 
+              {display.length === 0 ? (
+                <p className="wsa-feed__empty">
+                  Nothing to show from this stretch. Older activity may follow.
+                </p>
+              ) : null}
               {hasMore ? (
                 <div className="wsa-feed__footer">
                   <Button

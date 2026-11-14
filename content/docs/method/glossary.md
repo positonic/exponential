@@ -4,22 +4,22 @@ description: The vocabulary of the Exponential Method and the Agent principles, 
 section: method
 order: 3
 icon: IconNotebook
-updated: 2026-10-11
+updated: 2026-11-11
 ---
 
 The Exponential Method and the Agent principles use a small vocabulary. Each term below means the same thing in both.
 
-## The operating record
+## The State
 
-- **Operating state** (or just "state"): the recorded understanding. A model of reality, not reality itself.
-- **Drift:** a gap between reality and the record. Staleness is a warning sign, not proof.
-- **Ceremony:** a named, repeatable practice for reviewing state and recording outcomes. It can be individual, assistant-supported, asynchronous or live. **Occurrence:** one run of a ceremony. **Agenda:** an occurrence's starting selection of what needs attention.
+- **State:** the recorded understanding: priorities, work, decisions, commitments, owners, blockers and open questions. A model of reality, not reality itself. Written with a capital S for the whole; a single field, such as a project's status, is a status, never a state.
+- **Drift:** a gap between reality and the State. Staleness is a warning sign, not proof.
+- **Ceremony:** a named, repeatable practice for reviewing the State and recording outcomes. It can be individual, assistant-supported, asynchronous or live. **Occurrence:** one run of a ceremony. **Agenda:** an occurrence's starting selection of what needs attention.
 - **Decision:** an authorized choice with an owner, rationale, date and evidence. **Open question:** something unresolved. **Draft:** proposed, not yet accepted.
 - **Action:** work to perform. **Carry-forward:** the explicit next disposition of unresolved work.
 
 ## The State Loop
 
-- **State Loop** (working name): the five activities the method connects. **Observe** what happened, with evidence and provenance; **interpret** what it means for goals, assumptions and commitments; **decide** the choices and responsibilities that follow; **act** on the authorized work; **reconcile** the results back into the operating record and identify what remains unresolved.
+- **State Loop:** the five activities the method connects. **Observe** what happened, with evidence and provenance; **interpret** what it means for goals, assumptions and commitments; **decide** the choices and responsibilities that follow; **act** on the authorized work; **reconcile** the results back into the State and identify what remains unresolved.
 
 ## Agent guidance
 

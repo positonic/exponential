@@ -199,5 +199,55 @@ describe("pageComment router", () => {
       const stored = await db.knowledgePage.findUniqueOrThrow({ where: { id: page.id } });
       expect(stored.docVersion).toBe(2);
     });
+
+    it("a quote-only thread (CLI/agent) gets a minted threadId and its mark", async () => {
+      const owner = await createUser(db);
+      const ws = await createWorkspace(db, { ownerId: owner.id });
+      const page = await pageWithDoc(owner.id, ws.id);
+
+      const created = await createTestCaller(owner.id).pageComment.create({
+        pageId: page.id,
+        body: "Which indicator?",
+        quotedText: "indicator",
+      });
+
+      expect(created.threadId).toBeTruthy();
+      expect(created.anchor).toEqual({ anchored: true, docVersion: 3, fastForward: false });
+      const stored = await db.knowledgePage.findUniqueOrThrow({ where: { id: page.id } });
+      expect(JSON.stringify(stored.bodyDoc)).toContain(`"threadId":"${created.threadId}"`);
+    });
+
+    it("a Markdown-only page gets its doc derived to hold the mark", async () => {
+      const owner = await createUser(db);
+      const ws = await createWorkspace(db, { ownerId: owner.id });
+      // createPage leaves bodyDoc null with body "hello world".
+      const page = await createPage(db, { createdById: owner.id, workspaceId: ws.id });
+
+      const created = await createTestCaller(owner.id).pageComment.create({
+        pageId: page.id,
+        body: "Hello who?",
+        quotedText: "world",
+      });
+
+      expect(created.anchor).toMatchObject({ anchored: true, docVersion: 1 });
+      const stored = await db.knowledgePage.findUniqueOrThrow({ where: { id: page.id } });
+      expect(stored.body).toBe("hello world");
+      expect(JSON.stringify(stored.bodyDoc)).toContain(`"threadId":"${created.threadId}"`);
+    });
+
+    it("a quote that isn't on the page is refused and nothing is stored", async () => {
+      const owner = await createUser(db);
+      const ws = await createWorkspace(db, { ownerId: owner.id });
+      const page = await pageWithDoc(owner.id, ws.id);
+
+      await expect(
+        createTestCaller(owner.id).pageComment.create({
+          pageId: page.id,
+          body: "?",
+          quotedText: "nowhere",
+        }),
+      ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+      expect(await db.knowledgePageComment.count({ where: { pageId: page.id } })).toBe(0);
+    });
   });
 });

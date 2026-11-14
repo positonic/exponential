@@ -26,8 +26,37 @@ export const env = createEnv({
       process.env.NODE_ENV === "production"
         ? z.string()
         : z.string().optional(),
-    AUTH_DISCORD_ID: z.string(),
-    AUTH_DISCORD_SECRET: z.string(),
+    // Every OAuth provider is optional: it registers only when its id and
+    // secret are both set (src/server/auth/signInMethods.ts).
+    AUTH_DISCORD_ID: z.string().optional(),
+    AUTH_DISCORD_SECRET: z.string().optional(),
+    // Optional everywhere: with no key the app runs as a project and task tool
+    // and each AI feature switches off (src/server/services/ai/capabilities.ts).
+    // LLM clients are built lazily, never at module scope, so a missing key
+    // can't 500 a route at module load (guarded by noModuleScopeLlmClients.test.ts).
+    OPENAI_API_KEY: z.string().optional(),
+    // Plain SMTP for transactional email, beside Postmark (which wins when both
+    // are set). SMTP_HOST counts only together with a sender (EMAIL_FROM, or
+    // AUTH_POSTMARK_FROM); the cross-field rule lives in signInMethods.ts and
+    // the self-host preflight, since t3-env validates each field alone.
+    SMTP_HOST: z.string().optional(),
+    // Default 587. SMTP_SECURE="true" (or "1") means implicit TLS, default only on 465.
+    SMTP_PORT: z.string().regex(/^\d+$/, "SMTP_PORT must be a port number").optional(),
+    SMTP_USER: z.string().optional(),
+    SMTP_PASSWORD: z.string().optional(),
+    SMTP_SECURE: z.enum(["true", "false", "1", "0"]).optional(),
+    // Sender for auth and transactional email. Postmark falls back to
+    // AUTH_POSTMARK_FROM, then noreply@exponential.im; SMTP never falls back
+    // to exponential.im.
+    EMAIL_FROM: z.string().optional(),
+    // Opt-in: with no email transport configured, write the instance admin's
+    // Sign-in codes to the server log ("true" or "1"); nobody else gets a code
+    // (ADR-0081). Anyone who can read the log can sign in as the admin.
+    // Ignored when a transport is configured.
+    AUTH_LOG_SIGN_IN_CODES: z.string().optional(),
+    // Bearer secret the cron routes require (Vercel Cron, or the self-host
+    // scheduler). The routes fail closed without it.
+    CRON_SECRET: z.string().optional(),
     MICROSOFT_ENTRA_ID_CLIENT_ID: z.string().optional(),
     MICROSOFT_ENTRA_ID_CLIENT_SECRET: z.string().optional(),
     MICROSOFT_ENTRA_ID_TENANT_ID: z.string().optional(),
@@ -97,6 +126,15 @@ export const env = createEnv({
     AUTH_SECRET: process.env.AUTH_SECRET,
     AUTH_DISCORD_ID: process.env.AUTH_DISCORD_ID,
     AUTH_DISCORD_SECRET: process.env.AUTH_DISCORD_SECRET,
+    OPENAI_API_KEY: process.env.OPENAI_API_KEY,
+    SMTP_HOST: process.env.SMTP_HOST,
+    SMTP_PORT: process.env.SMTP_PORT,
+    SMTP_USER: process.env.SMTP_USER,
+    SMTP_PASSWORD: process.env.SMTP_PASSWORD,
+    SMTP_SECURE: process.env.SMTP_SECURE,
+    EMAIL_FROM: process.env.EMAIL_FROM,
+    AUTH_LOG_SIGN_IN_CODES: process.env.AUTH_LOG_SIGN_IN_CODES,
+    CRON_SECRET: process.env.CRON_SECRET,
     MICROSOFT_ENTRA_ID_CLIENT_ID: process.env.MICROSOFT_ENTRA_ID_CLIENT_ID,
     MICROSOFT_ENTRA_ID_CLIENT_SECRET: process.env.MICROSOFT_ENTRA_ID_CLIENT_SECRET,
     MICROSOFT_ENTRA_ID_TENANT_ID: process.env.MICROSOFT_ENTRA_ID_TENANT_ID,

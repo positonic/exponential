@@ -15,7 +15,7 @@
  *     design decision observable: 6 tickets exist, the accordion shows 5.
  */
 import { createHash } from "crypto";
-import type { PrismaClient } from "@prisma/client";
+import { Prisma, type PrismaClient } from "@prisma/client";
 import { encryptString } from "../../src/server/utils/encryption";
 import { createAssistantPrincipal } from "../../src/server/services/assistant/principal";
 
@@ -93,6 +93,12 @@ export const FIXTURE = {
   agentRunActionName: "Draft the fixture offsite agenda",
   /** A third, for the mention spec: mentioning an unassigned Assistant offers the assignment. */
   mentionActionName: "Book the fixture offsite dinner",
+  /**
+   * The Person page (`/people/<userId>`): activity events by the colleague, so
+   * their page has rows and the feed has a second actor to click through from.
+   */
+  personActivityEntityPrefix: "dev-fixture-person-activity-",
+  personActivityTitles: ["Draft the handover notes", "Review the venue shortlist"],
   /**
    * A Position (ADR-0068) held by the fixture user's Assistant, so the Assign
    * modal has a title to show under Aria and the settings page has one row.
@@ -173,6 +179,12 @@ export interface SeededFixture {
   projectMeetingsUrl: string;
   /** The project's DRI, a second workspace member — preselected when scheduling. */
   colleagueName: string;
+  /** Their user id, for their Person page (`/people/<id>`). */
+  colleagueUserId: string;
+  /** Titles of the actions the colleague's seeded activity events name, newest last. */
+  colleagueActivityTitles: readonly string[];
+  /** The shadow user of `assistantName` (the fixture user's Assistant). */
+  assistantUserId: string;
   /** A CRM contact in the workspace, invitable as an external attendee. */
   contactName: string;
   /**
@@ -181,6 +193,12 @@ export interface SeededFixture {
    * schedule-meeting spec skips.
    */
   canScheduleWithContact: boolean;
+  /** A page with no database yet, for the database-block spec (ADR-0078). Reset on every seed. */
+  databasePageId: string;
+  databasePageUrl: string;
+  /** A prose-only page for the YouTube embed spec, kept apart from the database one. Reset on every seed. */
+  youtubePageId: string;
+  youtubePageUrl: string;
 }
 
 interface TicketSpec {
@@ -459,6 +477,22 @@ export async function seedDevFixture(db: PrismaClient): Promise<SeededFixture> {
     create: { userId: colleague.id, workspaceId: otherWorkspace.id, role: "member" },
   });
   await db.position.deleteMany({ where: { workspaceId: otherWorkspace.id } });
+  // Activity by the colleague, so their Person page (`/people/<id>`) has rows
+  // and `/activity` has an actor other than the fixture user to click through
+  // from. Re-created on every seed so the rows are always the newest.
+  await db.workspaceActivityEvent.deleteMany({
+    where: { entityId: { startsWith: FIXTURE.personActivityEntityPrefix } },
+  });
+  await db.workspaceActivityEvent.createMany({
+    data: FIXTURE.personActivityTitles.map((title, index) => ({
+      workspaceId: workspace.id,
+      userId: colleague.id,
+      entityType: "action",
+      entityId: `${FIXTURE.personActivityEntityPrefix}${index}`,
+      action: "created",
+      metadata: { title },
+    })),
+  });
   // One Assistant each for the fixture user and the colleague, so the Assign
   // modal has "your assistant" to pin first and a teammate's to group below.
   // Each Assistant owns an External agent whose shadow user is a workspace
@@ -1117,8 +1151,63 @@ export async function seedDevFixture(db: PrismaClient): Promise<SeededFixture> {
     }
   }
 
+  // The database-block spec drives the page editor from a known empty page:
+  // find or create it, and start it clean — no databases, prose only — so
+  // every run inserts the block afresh (ADR-0078).
+  const databasePageTitle = "Database block fixture";
+  const existingDatabasePage = await db.knowledgePage.findFirst({
+    where: { workspaceId: workspace.id, createdById: user.id, title: databasePageTitle, databaseId: null },
+    select: { id: true },
+  });
+  const databasePageBody = "# Database block fixture\n\nA page the e2e suite adds a database to.";
+  const databasePage = existingDatabasePage
+    ? await db.knowledgePage.update({
+        where: { id: existingDatabasePage.id },
+        data: { body: databasePageBody, bodyDoc: Prisma.DbNull, docVersion: { increment: 1 } },
+        select: { id: true },
+      })
+    : await db.knowledgePage.create({
+        data: {
+          workspaceId: workspace.id,
+          createdById: user.id,
+          title: databasePageTitle,
+          body: databasePageBody,
+        },
+        select: { id: true },
+      });
+  await db.pageDatabase.deleteMany({ where: { pageId: databasePage.id } });
+
+  // The YouTube embed spec gets its own page: embeds it leaves behind would
+  // otherwise sit under the database-block spec's clicks (a player iframe
+  // takes focus), and the two specs run in parallel.
+  const youtubePageTitle = "YouTube embed fixture";
+  const youtubePageBody = "# YouTube embed fixture\n\nA page the e2e suite embeds videos in.";
+  const existingYoutubePage = await db.knowledgePage.findFirst({
+    where: { workspaceId: workspace.id, createdById: user.id, title: youtubePageTitle, databaseId: null },
+    select: { id: true },
+  });
+  const youtubePage = existingYoutubePage
+    ? await db.knowledgePage.update({
+        where: { id: existingYoutubePage.id },
+        data: { body: youtubePageBody, bodyDoc: Prisma.DbNull, docVersion: { increment: 1 } },
+        select: { id: true },
+      })
+    : await db.knowledgePage.create({
+        data: {
+          workspaceId: workspace.id,
+          createdById: user.id,
+          title: youtubePageTitle,
+          body: youtubePageBody,
+        },
+        select: { id: true },
+      });
+
   const base = `/w/${FIXTURE.workspaceSlug}/products/${FIXTURE.productSlug}`;
   return {
+    databasePageId: databasePage.id,
+    databasePageUrl: `/w/${FIXTURE.workspaceSlug}/pages/${databasePage.id}`,
+    youtubePageId: youtubePage.id,
+    youtubePageUrl: `/w/${FIXTURE.workspaceSlug}/pages/${youtubePage.id}`,
     tagId: tag.id,
     tagName: FIXTURE.tagName,
     assistantName: FIXTURE.assistantName,
@@ -1142,6 +1231,9 @@ export async function seedDevFixture(db: PrismaClient): Promise<SeededFixture> {
     openQuestionStatement: FIXTURE.openQuestionStatement,
     projectMeetingsUrl: `/w/${FIXTURE.workspaceSlug}/projects/${project.slug}?tab=transcriptions`,
     colleagueName: FIXTURE.colleagueName,
+    colleagueUserId: colleague.id,
+    colleagueActivityTitles: FIXTURE.personActivityTitles,
+    assistantUserId: ariaAssistant.externalAgent.shadowUserId,
     contactName: `${FIXTURE.contactFirstName} ${FIXTURE.contactLastName}`,
     canScheduleWithContact: canEncrypt,
     projectGoalsUrl: `/w/${FIXTURE.workspaceSlug}/projects/${goalProject.slug}?tab=goals`,

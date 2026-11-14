@@ -139,7 +139,7 @@ describe("deliverOutboundPost", () => {
     expect(destination.link.externalId).toBe("!leadership:example.org");
     expect(message.text).toBe("published Bid on the tender?");
     expect(message.html).toContain("Bid on the tender?");
-    expect(opts.txnId).toBe(buildOutboundTxnId("post-1", 0));
+    expect(opts.txnId).toBe(buildOutboundTxnId("post-1"));
     expect(db.outboundPost.update).toHaveBeenLastCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({ status: "sent", providerEventId: "$evt1", sentAt: NOW }),
@@ -274,14 +274,31 @@ describe("deliverOutboundPost", () => {
     );
   });
 
-  it("reuses the transaction id when the same attempt is retried, and advances it on a new claim", async () => {
-    // Attempt 0 (attempts=1 after claim) → "…-0"; the next claim (attempts=2) → "…-1".
+  it("sends every attempt with the same transaction id, so a retry is the same Matrix event", async () => {
+    // A send that reached the homeserver but was never recorded must not become a
+    // second message on the next claim: the id is the post, not the attempt.
     await deliverOutboundPost(db, "post-1", deps());
     db.outboundPost.findUnique.mockResolvedValue(post({ attempts: 2, status: "failed" }) as never);
     await deliverOutboundPost(db, "post-1", deps());
+    db.outboundPost.findUnique.mockResolvedValue(post({ attempts: 3, status: "failed" }) as never);
+    await deliverOutboundPost(db, "post-1", deps());
 
-    expect(poster.send.mock.calls[0]![2].txnId).toBe("expo-post-post-1-0");
-    expect(poster.send.mock.calls[1]![2].txnId).toBe("expo-post-post-1-1");
+    const ids = poster.send.mock.calls.map((c) => c[2].txnId);
+    expect(ids).toEqual(["expo-post-post-1", "expo-post-post-1", "expo-post-post-1"]);
+  });
+
+  it("turns an unexpected throw into a retryable failure on the row instead of escaping", async () => {
+    (producer.render as ReturnType<typeof vi.fn>).mockImplementation(() => {
+      throw new Error("renderer choked");
+    });
+
+    const result = await deliverOutboundPost(db, "post-1", deps());
+
+    expect(result).toEqual({ kind: "failed", reason: "renderer choked", terminal: false });
+    expect(db.outboundPost.update).toHaveBeenCalledWith(
+      expect.objectContaining({ data: { status: "failed", lastError: "renderer choked" } }),
+    );
+    expect(poster.send).not.toHaveBeenCalled();
   });
 
   it("fails terminally when no poster exists for the provider", async () => {
@@ -308,6 +325,21 @@ describe("deliverPendingOutboundPosts", () => {
       }),
     );
     expect(counts).toEqual({ scanned: 2, sent: 2, failed: 0, cancelled: 0 });
+  });
+
+  it("keeps sweeping when one row's claim throws", async () => {
+    db.outboundPost.findMany.mockResolvedValue([{ id: "post-bad" }, { id: "post-1" }] as never);
+    db.outboundPost.updateMany
+      .mockRejectedValueOnce(new Error("db hiccup"))
+      .mockResolvedValue({ count: 1 });
+
+    const counts = await deliverPendingOutboundPosts(db, deps());
+
+    expect(counts).toEqual({ scanned: 2, sent: 1, failed: 1, cancelled: 0 });
+    expect(reportHandledError).toHaveBeenCalledWith(
+      expect.any(Error),
+      expect.objectContaining({ area: "outbound-post-sweep", context: { postId: "post-bad" } }),
+    );
   });
 });
 

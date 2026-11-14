@@ -1,5 +1,6 @@
 import { OpenAIEmbeddings } from "@langchain/openai";
 import type { PrismaClient } from "@prisma/client";
+import { requireAi } from "~/server/services/ai/requireAi";
 
 const SIMILARITY_THRESHOLD = 0.85;
 
@@ -23,6 +24,7 @@ export class EmbeddingService {
    * Generate embedding vector for text
    */
   async generateEmbedding(text: string): Promise<number[]> {
+    requireAi("openai", "Feedback clustering");
     try {
       const embedding = await this.embeddings.embedQuery(text);
       return embedding;

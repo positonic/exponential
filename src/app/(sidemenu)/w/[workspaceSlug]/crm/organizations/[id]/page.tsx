@@ -44,6 +44,7 @@ import { useWorkspace } from '~/providers/WorkspaceProvider';
 import { api } from '~/trpc/react';
 import Link from 'next/link';
 import { notifications } from '@mantine/notifications';
+import { Panel } from "~/app/_components/ui";
 
 function getInitialFromName(name?: string | null) {
   const trimmed = name?.trim();
@@ -651,7 +652,7 @@ export default function OrganizationDetailPage() {
               </div>
 
               {/* Activity Section */}
-              <div className="rounded-lg border border-border-primary bg-surface-secondary">
+              <Panel padding="none">
                 <div className="flex items-center justify-between border-b border-border-primary px-4 py-3">
                   <div className="flex items-center gap-2">
                     <IconBolt size={18} className="text-text-muted" />
@@ -682,10 +683,10 @@ export default function OrganizationDetailPage() {
                     </div>
                   )}
                 </div>
-              </div>
+              </Panel>
 
               {/* Emails Section */}
-              <div className="rounded-lg border border-border-primary bg-surface-secondary">
+              <Panel padding="none">
                 <div className="flex items-center justify-between border-b border-border-primary px-4 py-3">
                   <div className="flex items-center gap-2">
                     <IconMail size={18} className="text-text-muted" />
@@ -705,7 +706,7 @@ export default function OrganizationDetailPage() {
                     No emails yet
                   </Text>
                 </div>
-              </div>
+              </Panel>
             </div>
           )}
 
@@ -714,7 +715,7 @@ export default function OrganizationDetailPage() {
               <Title order={4} className="text-text-primary">
                 All Activity
               </Title>
-              <div className="rounded-lg border border-border-primary bg-surface-secondary">
+              <Panel padding="none">
                 <div className="px-4 divide-y divide-border-primary">
                   {activities.length > 0 ? (
                     activities.map((activity) => (
@@ -735,7 +736,7 @@ export default function OrganizationDetailPage() {
                     </div>
                   )}
                 </div>
-              </div>
+              </Panel>
             </div>
           )}
 
@@ -744,7 +745,7 @@ export default function OrganizationDetailPage() {
               <Title order={4} className="text-text-primary">
                 Emails
               </Title>
-              <div className="rounded-lg border border-border-primary bg-surface-secondary p-12 text-center">
+              <Panel padding="none" className="p-12 text-center">
                 <IconMail size={40} className="text-text-muted mx-auto mb-3" />
                 <Text size="sm" className="text-text-muted">
                   No email communication recorded
@@ -752,7 +753,7 @@ export default function OrganizationDetailPage() {
                 <Button variant="light" size="sm" mt="md" leftSection={<IconMail size={14} />}>
                   Compose Email
                 </Button>
-              </div>
+              </Panel>
             </div>
           )}
 
@@ -797,7 +798,7 @@ export default function OrganizationDetailPage() {
                   ))}
                 </div>
               ) : (
-                <div className="rounded-lg border border-border-primary bg-surface-secondary p-12 text-center">
+                <Panel padding="none" className="p-12 text-center">
                   <IconUsers size={40} className="text-text-muted mx-auto mb-3" />
                   <Text size="sm" className="text-text-muted">
                     No team members yet
@@ -811,7 +812,7 @@ export default function OrganizationDetailPage() {
                   >
                     Add First Contact
                   </Button>
-                </div>
+                </Panel>
               )}
             </div>
           )}
@@ -821,7 +822,7 @@ export default function OrganizationDetailPage() {
               <Title order={4} className="text-text-primary">
                 Notes
               </Title>
-              <div className="rounded-lg border border-border-primary bg-surface-secondary p-12 text-center">
+              <Panel padding="none" className="p-12 text-center">
                 <IconNote size={40} className="text-text-muted mx-auto mb-3" />
                 <Text size="sm" className="text-text-muted">
                   No notes yet
@@ -829,7 +830,7 @@ export default function OrganizationDetailPage() {
                 <Button variant="light" size="sm" mt="md">
                   Add Note
                 </Button>
-              </div>
+              </Panel>
             </div>
           )}
 
@@ -838,7 +839,7 @@ export default function OrganizationDetailPage() {
               <Title order={4} className="text-text-primary">
                 Tasks
               </Title>
-              <div className="rounded-lg border border-border-primary bg-surface-secondary p-12 text-center">
+              <Panel padding="none" className="p-12 text-center">
                 <IconChecklist size={40} className="text-text-muted mx-auto mb-3" />
                 <Text size="sm" className="text-text-muted">
                   No tasks yet
@@ -846,7 +847,7 @@ export default function OrganizationDetailPage() {
                 <Button variant="light" size="sm" mt="md">
                   Add Task
                 </Button>
-              </div>
+              </Panel>
             </div>
           )}
 
@@ -855,7 +856,7 @@ export default function OrganizationDetailPage() {
               <Title order={4} className="text-text-primary">
                 Files
               </Title>
-              <div className="rounded-lg border border-border-primary bg-surface-secondary p-12 text-center">
+              <Panel padding="none" className="p-12 text-center">
                 <IconFile size={40} className="text-text-muted mx-auto mb-3" />
                 <Text size="sm" className="text-text-muted">
                   No files attached
@@ -863,7 +864,7 @@ export default function OrganizationDetailPage() {
                 <Button variant="light" size="sm" mt="md">
                   Upload File
                 </Button>
-              </div>
+              </Panel>
             </div>
           )}
         </div>

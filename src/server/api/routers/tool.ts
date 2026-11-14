@@ -9,7 +9,8 @@ import { gmTool } from "~/server/tools/gmTool";
 import { createVideoSearchTool } from "~/server/tools/videoSearchTool";
 import { createActionTools } from "~/server/tools/actionTools";
 import { createGithubTools } from "~/server/tools/githubTools";
-import OpenAI from "openai";
+import { getOpenAIClient } from "~/server/services/ai/clients";
+import { requireAi } from "~/server/services/ai/requireAi";
 import fs from "fs";
 import path from "path";
 import os from "os";
@@ -34,11 +35,6 @@ const adderSchema = z.object({
     }
   );
 
-// Initialize the OpenAI client
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY // Your API key here
-});
-
 const today = new Date().toISOString().split('T')[0];
 
 export const toolRouter = createTRPCRouter({
@@ -53,6 +49,7 @@ export const toolRouter = createTRPCRouter({
       })).max(200)
     }))
     .mutation(async ({ ctx, input }) => {
+        requireAi("openai", "AI chat");
         try {
             // Fetch user's projects
             const projects = await ctx.db.project.findMany({
@@ -241,6 +238,7 @@ export const toolRouter = createTRPCRouter({
     transcribe: protectedProcedure
     .input(z.object({ audio: z.string() }))
     .mutation(async ({ input }) => {
+      const openai = getOpenAIClient("Transcription");
       try {
         const tmpFilePath = path.join(os.tmpdir(), `audio-${Date.now()}.mp3`);
         await fs.promises.writeFile(tmpFilePath, Buffer.from(input.audio, "base64"));

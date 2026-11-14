@@ -22,6 +22,8 @@ import {
   type DrawerSize,
 } from "~/providers/AgentModalProvider";
 import { useWorkspace } from "~/providers/WorkspaceProvider";
+import { useAiCapabilities } from "~/providers/AiCapabilitiesProvider";
+import { AiNotConfiguredNote } from "~/app/_components/ai/AiNotConfiguredNote";
 import {
   LOCAL_WIKI_AGENT_ID,
   LOCAL_WIKI_AGENT_NAME,
@@ -63,7 +65,7 @@ function getInitials(name: string): string {
   return name.split(" ").map((n) => n[0]).join("").toUpperCase();
 }
 
-export function ZoeDrawer() {
+function ZoeChatDrawer() {
   const {
     isOpen,
     openModal,
@@ -544,7 +546,65 @@ function SparkMark() {
   );
 }
 
+/**
+ * The Assistant drawer. With no Assistant on this install (no Mastra), opening
+ * it — from ⌘J, the command palette or a home-page prompt — shows how to turn
+ * the Assistant on instead of a chat that can only fail.
+ */
+export function ZoeDrawer() {
+  const { assistant } = useAiCapabilities();
+  return assistant ? <ZoeChatDrawer /> : <AssistantOffDrawer />;
+}
+
+function AssistantOffDrawer() {
+  const { isOpen, closeModal } = useAgentModal();
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "Escape") closeModal();
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [isOpen, closeModal]);
+
+  return (
+    <div
+      className={clsx(classes.zoeRoot, isOpen && classes.isOpen)}
+      data-size="s"
+      role="dialog"
+      aria-label="Assistant"
+      aria-hidden={!isOpen}
+    >
+      <div className={classes.zoeBackdrop} onClick={closeModal} />
+      <div className={classes.zoeDrawer}>
+        <div className={classes.zoeHead}>
+          <span className={classes.zoeHeadIdentity}>
+            <span className={classes.zoeHeadAvatar}>
+              <IconSparkles size={13} />
+            </span>
+            <span className={classes.zoeHeadTitle}>Assistant</span>
+          </span>
+          <div className={classes.zoeHeadSpacer} />
+          <button type="button" className={classes.zoeIconBtn} onClick={closeModal} aria-label="Close">
+            <IconX size={14} />
+          </button>
+        </div>
+        <div className="p-4">
+          <AiNotConfiguredNote requirement="assistant" feature="The Assistant" />
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function ZoeFab() {
+  const { assistant } = useAiCapabilities();
+  if (!assistant) return null;
+  return <ZoeFabButton />;
+}
+
+function ZoeFabButton() {
   const { isOpen, openModal, closeModal, pendingNotification, openModalWithNotification } =
     useAgentModal();
 
