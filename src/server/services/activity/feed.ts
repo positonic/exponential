@@ -599,3 +599,62 @@ export async function getAggregatedActivityFeed(
     actorUserId: args.actorUserId,
   });
 }
+
+/** Most distinct pages {@link hasVisibleActivity} will check access for. */
+const MAX_PROBED_PAGES = 500;
+
+/**
+ * Whether `actorUserId` has at least one event in `workspaceIds` that a feed
+ * read by `viewerId` would actually show — the same rules as the readers above:
+ * hidden entity types never count, and a page event counts only if the viewer
+ * can open the page.
+ *
+ * The Person page uses this to decide whether someone the viewer shares no
+ * workspace with is visible at all. Asking "is there any event row?" instead
+ * would name a person whose only trace is something the viewer cannot see.
+ *
+ * As with the readers, the caller passes only workspaces the viewer belongs to.
+ */
+export async function hasVisibleActivity(
+  db: PrismaClient,
+  args: { workspaceIds: string[]; viewerId: string; actorUserId: string },
+): Promise<boolean> {
+  if (args.workspaceIds.length === 0) return false;
+
+  const scope: Prisma.WorkspaceActivityEventWhereInput = {
+    workspaceId: { in: args.workspaceIds },
+    userId: args.actorUserId,
+  };
+
+  // Anything that is neither hidden nor a page is visible to every member.
+  const ordinary = await db.workspaceActivityEvent.findFirst({
+    where: {
+      ...scope,
+      entityType: { notIn: [...HIDDEN_ENTITY_TYPES, PAGE_ENTITY_TYPE] },
+    },
+    select: { id: true },
+  });
+  if (ordinary) return true;
+
+  // Only page events are left: they count if the viewer can open one of the
+  // pages. Bounded, so a long history of private pages stays one cheap query.
+  const pageRows = await db.workspaceActivityEvent.findMany({
+    where: { ...scope, entityType: PAGE_ENTITY_TYPE },
+    select: { entityId: true },
+    distinct: ["entityId"],
+    orderBy: { createdAt: "desc" },
+    take: MAX_PROBED_PAGES,
+  });
+  if (pageRows.length === 0) return false;
+
+  const openable = await db.knowledgePage.findFirst({
+    where: {
+      AND: [
+        { id: { in: pageRows.map((row) => row.entityId) } },
+        buildKnowledgePageAccessWhere(args.viewerId),
+      ],
+    },
+    select: { id: true },
+  });
+  return openable !== null;
+}

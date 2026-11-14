@@ -105,9 +105,13 @@ interface EventFixture {
   createdAt: Date;
   entityType: string;
   title: string;
+  /** Set for page events: the page the event is about. */
+  entityId?: string;
 }
 
 interface World {
+  /** Ids of the pages the VIEWER can open (`buildKnowledgePageAccessWhere`). */
+  openablePages: string[];
   workspaces: WorkspaceFixture[];
   events: EventFixture[];
   users: Array<{ id: string; name: string; image: string | null; isAgent: boolean }>;
@@ -240,7 +244,7 @@ function installWorld(dbMock: DeepMockProxy<PrismaClient>, world: World) {
       id: row.id,
       createdAt: row.createdAt,
       entityType: row.entityType,
-      entityId: `${row.id}-entity`,
+      entityId: row.entityId ?? `${row.id}-entity`,
       action: "created",
       metadata: { title: row.title },
       user,
@@ -267,6 +271,19 @@ function installWorld(dbMock: DeepMockProxy<PrismaClient>, world: World) {
   }) => {
     const first = matching(args?.where)[0];
     return Promise.resolve(first ? { id: first.id } : null);
+  }) as never);
+
+  // Page access, as the feed and the visibility probe ask it: which of these
+  // page ids can the viewer open? The viewer is the only user ever asked about.
+  const openable = (args: { where: { AND: [{ id: { in: string[] } }, unknown] } }) => {
+    expect(JSON.stringify(args.where.AND[1])).toContain(VIEWER);
+    return args.where.AND[0].id.in.filter((id) => world.openablePages.includes(id));
+  };
+  dbMock.knowledgePage.findMany.mockImplementation(((args: Parameters<typeof openable>[0]) =>
+    Promise.resolve(openable(args).map((id) => ({ id })))) as never);
+  dbMock.knowledgePage.findFirst.mockImplementation(((args: Parameters<typeof openable>[0]) => {
+    const [first] = openable(args);
+    return Promise.resolve(first ? { id: first } : null);
   }) as never);
 
   dbMock.user.findUnique.mockImplementation(((args: { where: { id?: string } }) =>
@@ -325,6 +342,7 @@ function baseWorld(): World {
     ],
     agents: [],
     positions: [],
+    openablePages: [],
   };
 }
 
@@ -457,6 +475,20 @@ describe("person router", () => {
         "Beta before leaving",
         "Alpha old",
       ]);
+    });
+
+    it("shows the subject's page edits only for pages the viewer can open", async () => {
+      world.events.push(
+        { ...event("alpha", SUBJECT, "2026-11-14T08:00:00Z", "Public roadmap"), entityType: "page", entityId: "page-open" },
+        { ...event("alpha", SUBJECT, "2026-11-14T08:30:00Z", "Reorg plan"), entityType: "page", entityId: "page-private" },
+      );
+      world.openablePages = ["page-open"];
+
+      const page = await asViewer().person.getFeed({ userId: SUBJECT });
+
+      const titles = page.events.map((e) => e.entityRef);
+      expect(titles).toContain("Public roadmap");
+      expect(titles).not.toContain("Reorg plan");
     });
 
     it("does not count a project-only guest's workspace as visible", async () => {
@@ -594,6 +626,38 @@ describe("person router", () => {
 
       expect(unknown).toEqual({ code: "NOT_FOUND", message: "Person not found" });
       expect(stranger).toEqual(unknown);
+    });
+
+    it("does not name a former member whose only trace is a hidden event kind", async () => {
+      // Sam left alpha and beta; all that remains is a ticket sync run, which
+      // no feed shows.
+      world.workspaces[0]!.members = [VIEWER];
+      world.events = [
+        { ...event("alpha", SUBJECT, "2026-11-10T09:00:00Z", "Synced 12 tickets"), entityType: "ticket_sync_run" },
+      ];
+
+      const result = await errorOf(asViewer().person.get({ userId: SUBJECT }));
+
+      expect(result).toEqual({ code: "NOT_FOUND", message: "Person not found" });
+    });
+
+    it("does not name a former member whose only trace is edits to pages the viewer cannot open", async () => {
+      world.workspaces[0]!.members = [VIEWER];
+      world.events = [
+        { ...event("alpha", SUBJECT, "2026-11-10T09:00:00Z", "Reorg plan"), entityType: "page", entityId: "page-private" },
+      ];
+      const caller = asViewer();
+
+      expect(await errorOf(caller.person.get({ userId: SUBJECT }))).toEqual({
+        code: "NOT_FOUND",
+        message: "Person not found",
+      });
+      expect((await errorOf(caller.person.getFeed({ userId: SUBJECT }))).code).toBe("NOT_FOUND");
+
+      // Once the viewer can open the page, the same history makes Sam visible.
+      world.openablePages = ["page-private"];
+      const visible = await caller.person.get({ userId: SUBJECT });
+      expect(visible.user.id).toBe(SUBJECT);
     });
 
     it("treats a subject seen only as a guest's project-mate as a stranger", async () => {
