@@ -1,0 +1,363 @@
+/* The menu picker. Shape and colour come from the tokens on :root; nothing
+   here is a raw radius, shadow or colour (dev-docs/styling-architecture.md).
+
+   Text that has to be read uses --color-text-secondary, not -muted or -faint:
+   the muted tones fall below 4.5:1 on the dark themes. */
+
+.picker {
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+}
+
+/* An input that is still there for the keyboard and assistive technology,
+   with the card or row around it doing the drawing. */
+.visuallyHidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  border: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* Every line of supporting text shares one tone: the secondary colour pulled
+   a quarter of the way towards the primary. Secondary alone measures 4.45:1
+   on a card in the light theme, just short of the 4.5:1 that small text
+   needs; the mix clears it in all three themes. */
+.hint,
+.cardDesc,
+.cardStarts,
+.status,
+.loading,
+.featureDesc,
+.switchWord,
+.afterList,
+.footnote {
+  color: color-mix(in srgb, var(--color-text-secondary) 75%, var(--color-text-primary));
+}
+
+.hint {
+  margin: 0;
+  max-width: 70ch;
+  font-size: 13.5px;
+  line-height: 1.55;
+}
+
+/* ===== The question ===== */
+.question {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  min-width: 0;
+}
+.questionTitle {
+  padding: 0;
+  margin-bottom: 4px;
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1.4;
+  color: var(--color-text-primary);
+}
+.cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 12px;
+  margin-top: 14px;
+}
+.card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 14px 16px 16px;
+  border: 1px solid var(--color-border-primary);
+  border-radius: var(--radius-lg);
+  background: var(--color-bg-secondary);
+  cursor: pointer;
+}
+.card:hover {
+  border-color: var(--color-border-strong);
+  background: var(--color-bg-hover);
+}
+/* The ring belongs to the keyboard: :focus-visible stays quiet on a click. */
+.card:has(input:focus-visible),
+.feature:has(input:focus-visible) {
+  outline: 2px solid var(--color-border-focus);
+  outline-offset: 2px;
+}
+.cardSelected,
+.cardSelected:hover {
+  border-color: var(--brand-500);
+  background: color-mix(in srgb, var(--brand-500) 9%, var(--color-bg-secondary));
+}
+.question:disabled .card {
+  cursor: default;
+  opacity: 0.6;
+}
+.cardTop {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+.cardIcon {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--color-border-strong);
+  color: var(--color-text-secondary);
+}
+.cardSelected .cardIcon {
+  border-color: var(--brand-500);
+  color: var(--brand-400);
+}
+/* An empty ring until chosen, then a filled tick: the choice reads without
+   relying on the border colour. */
+.cardTick {
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border-radius: var(--radius-full);
+  border: 1.5px solid var(--color-text-muted);
+  color: var(--color-text-inverse);
+}
+.cardSelected .cardTick {
+  border-color: var(--brand-500);
+  background: var(--brand-500);
+}
+.cardTitle {
+  font-size: 14.5px;
+  font-weight: 600;
+  color: var(--color-text-primary);
+}
+.cardDesc {
+  font-size: 13px;
+  line-height: 1.5;
+}
+.cardStarts {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--color-border-subtle);
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+
+/* ===== The list of menu items ===== */
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.listHead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 4px 16px;
+}
+.listTitle {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1.4;
+  color: var(--color-text-primary);
+}
+.status {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 20px;
+  margin: 0;
+  font-size: 12.5px;
+  font-variant-numeric: tabular-nums;
+}
+.saveNote {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.saveNoteError {
+  color: var(--color-brand-error);
+}
+/* The sidebar is a closed drawer on a phone, so there is nothing to watch. */
+.liveHint {
+  display: none;
+}
+@media (min-width: 640px) {
+  .liveHint {
+    display: inline;
+  }
+}
+.loading {
+  margin: 14px 0 0;
+  font-size: 13.5px;
+}
+
+/* Two columns that fill downwards, so reading and Tab order follow the
+   order of the menu itself: top to bottom, then the next column. */
+.features {
+  list-style: none;
+  margin: 12px 0 0;
+  padding: 0;
+  columns: 2 300px;
+  column-gap: 12px;
+}
+.featureItem {
+  break-inside: avoid;
+  padding-bottom: 6px;
+}
+.feature {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  position: relative;
+  min-height: 56px;
+  padding: 9px 12px;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-lg);
+  background: var(--color-bg-secondary);
+  cursor: pointer;
+}
+.feature:hover {
+  border-color: var(--color-border-strong);
+  background: var(--color-bg-hover);
+}
+.featureIcon {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-md);
+  color: var(--color-text-muted);
+}
+.featureOn .featureIcon {
+  color: var(--brand-400);
+}
+.featureText {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+}
+.featureName {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--color-text-primary);
+}
+.featureDesc {
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+.switch {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  width: 36px;
+  height: 20px;
+  padding: 2px;
+  border-radius: var(--radius-full);
+  background: var(--color-text-muted);
+}
+.featureOn .switch {
+  background: var(--brand-500);
+}
+.switchKnob {
+  width: 16px;
+  height: 16px;
+  border-radius: var(--radius-full);
+  background: var(--color-text-inverse);
+}
+.featureOn .switchKnob {
+  transform: translateX(16px);
+}
+.switchWord {
+  flex-shrink: 0;
+  width: 22px;
+  font-size: 12px;
+  font-weight: 500;
+}
+.featureOn .switchWord {
+  color: var(--color-text-primary);
+}
+.afterList {
+  margin: 6px 0 0;
+  max-width: 70ch;
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+
+/* ===== The way out (heading and button belong to the host page) =====
+   The list below the question is optional reading, so the way forward must
+   not be at the far end of it: on a screen tall enough to spare the room the
+   footer stays in view while the page scrolls behind it. */
+.footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+  margin-top: 20px;
+  padding: 12px 0;
+  background: var(--color-bg-primary);
+  border-top: 1px solid var(--color-border-subtle);
+}
+@media (min-height: 560px) {
+  .footer {
+    position: sticky;
+    bottom: 0;
+    z-index: 5;
+  }
+  /* Tabbing to a row at the bottom edge must not park it under the footer. */
+  .feature input {
+    scroll-margin-bottom: 120px;
+  }
+}
+.footnote {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+/* A phone has no room for a second line in a bar that stays on screen, and
+   the same reassurance is already under the question and under the list. */
+@media (max-width: 639px) {
+  .footnote {
+    display: none;
+  }
+}
+
+/* Movement is a nicety, and only for people who have not asked for less. */
+@media (prefers-reduced-motion: no-preference) {
+  .card,
+  .feature,
+  .switch {
+    transition:
+      background-color 0.15s,
+      border-color 0.15s;
+  }
+  .switchKnob {
+    transition: transform 0.15s;
+  }
+}
+
+/* Windows high-contrast mode drops backgrounds, which is all the switch is
+   made of; give both parts an outline so its state survives. */
+@media (forced-colors: active) {
+  .switch,
+  .cardTick {
+    border: 1px solid CanvasText;
+  }
+  .switchKnob {
+    background: CanvasText;
+  }
+  .cardSelected {
+    outline: 2px solid Highlight;
+    outline-offset: -2px;
+  }
+}

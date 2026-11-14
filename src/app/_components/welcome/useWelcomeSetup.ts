@@ -118,6 +118,9 @@ export function useWelcomeSetup() {
       void utils.user.getWelcomeProgress.invalidate();
     },
   });
+  const setUseCase = api.welcome.setUseCase.useMutation({
+    onSuccess: (nextState) => applyState(nextState),
+  });
   const completedRef = useRef(false);
   const completeWelcome = api.user.completeWelcome.useMutation({
     onSuccess: () => {
@@ -226,6 +229,18 @@ export function useWelcomeSetup() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data, allDone]);
 
+  /**
+   * Leave the menu picker step. A person who carried on without choosing is
+   * recorded as `unsure`, so a reload does not put the question in front of
+   * them again; an answer already given is left alone. Best-effort: a failed
+   * write only means they may be asked once more.
+   */
+  const finishMenuStep = useCallback(() => {
+    if (state && state.useCase === null) {
+      setUseCase.mutate({ useCase: "unsure" });
+    }
+  }, [state, setUseCase]);
+
   const goToToday = useCallback(() => {
     router.push("/today");
   }, [router]);
@@ -286,6 +301,7 @@ export function useWelcomeSetup() {
     allDone,
     answerStep,
     isAnswerPending,
+    finishMenuStep,
     goToToday,
     completeAndNavigate,
     exploreOnOwn,

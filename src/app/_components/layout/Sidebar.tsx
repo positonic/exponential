@@ -196,7 +196,7 @@ export default function Sidebar({ session, domain = 'forceflow.com' }: { session
           <GlobalNavLinks />
           <FavouritesNav />
           <RecentsNav />
-          <NavLinks />
+          <NavLinks onCustomize={canCustomize ? () => setIsCustomizing(true) : undefined} />
           <RecentsRecorder />
         </nav>
 

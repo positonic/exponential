@@ -22,8 +22,12 @@ import {
   IconLink,
   IconChevronDown,
   IconChevronRight,
+  IconDots,
+  IconListCheck,
+  IconAdjustmentsHorizontal,
   type Icon,
 } from "@tabler/icons-react";
+import { Menu } from "@mantine/core";
 import { InboxCount } from "./InboxCount";
 import { TodayCount } from "./TodayCount";
 import { useSidebarMode } from "./sidebarMode";
@@ -33,6 +37,7 @@ import { WIKI_ROUTE } from "~/lib/wiki/wikiLinks";
 import { useWorkspace } from "~/providers/WorkspaceProvider";
 import { api } from "~/trpc/react";
 import {
+  MENU_PICKER_HREF,
   NAV_ITEM_CONFIG,
   SHORTCUTS_SECTION_ID,
   isCustomNavItem,
@@ -305,6 +310,81 @@ function NavSectionBlock({
 }
 
 /**
+ * The last row of the workspace nav: "More". The default sidebar is short on
+ * purpose, so this is the standing answer to "where did that page go?" and
+ * "how do I change this?". It lists the built-in pages that are not in the
+ * person's menu (each a link, so a hidden page is still one click away),
+ * then the menu picker and, where the sidebar can be rearranged, the
+ * customiser. That last entry matters beyond convenience: the customiser was
+ * otherwise reachable only by right-click, which a touch screen does not have
+ * and a keyboard user would not think to try.
+ */
+function MoreNavMenu({
+  hiddenItemIds,
+  workspaceSlug,
+  onCustomize,
+}: {
+  hiddenItemIds: string[];
+  workspaceSlug: string;
+  onCustomize?: () => void;
+}): React.ReactElement {
+  return (
+    <div className="sb-section">
+      <div className="sb-group">
+        <Menu shadow="md" width={250} position="top-start" withinPortal>
+          <Menu.Target>
+            <button
+              type="button"
+              className="sb-nav-item sb-nav-item--button"
+              title="Pages not in your menu, and menu settings"
+            >
+              <span className="sb-nav-item__icon">
+                <IconDots size={16} />
+              </span>
+              <span className="sb-nav-item__label">More</span>
+            </button>
+          </Menu.Target>
+          <Menu.Dropdown>
+            {hiddenItemIds.length > 0 && <Menu.Label>Not in your menu</Menu.Label>}
+            {hiddenItemIds.map((id) => {
+              const config = NAV_ITEM_CONFIG[id];
+              if (!config) return null;
+              const Glyph = ITEM_ICONS[id] ?? IconLink;
+              return (
+                <Menu.Item
+                  key={id}
+                  component={Link}
+                  href={config.href(workspaceSlug)}
+                  leftSection={<Glyph size={16} />}
+                >
+                  {config.label}
+                </Menu.Item>
+              );
+            })}
+            {hiddenItemIds.length > 0 && <Menu.Divider />}
+            <Menu.Item
+              component={Link}
+              href={MENU_PICKER_HREF}
+              leftSection={<IconListCheck size={16} />}
+            >
+              Choose what&apos;s in my menu
+            </Menu.Item>
+            {onCustomize && (
+              <Menu.Item
+                leftSection={<IconAdjustmentsHorizontal size={16} />}
+                onClick={onCustomize}
+              >
+                Rearrange my menu
+              </Menu.Item>
+            )}
+          </Menu.Dropdown>
+        </Menu>
+      </div>
+    </div>
+  );
+}
+
+/**
  * The global rows every signed-in person gets: Inbox, Today, Time, and the
  * local wiki in the desktop shell.
  */
@@ -337,9 +417,11 @@ export function GlobalNavLinks(): React.ReactElement {
  * current workspace (see {@link useWorkspaceNavLayout}): pinned shortcuts,
  * then the configurable sections/items, with plugin gating and a reduced
  * guest view. The global rows (Inbox/Today/Time) are {@link GlobalNavLinks},
- * so the shell can place Favourites and Recents between the two.
+ * so the shell can place Favourites and Recents between the two. Ends with
+ * the "More" row; `onCustomize`, when the shell can open the customiser, adds
+ * that entry to it.
  */
-export function NavLinks(): React.ReactElement {
+export function NavLinks({ onCustomize }: { onCustomize?: () => void } = {}): React.ReactElement {
   const { workspaceSlug, workspaceId, userRole } = useWorkspace();
   const isGuest = userRole === 'guest';
 
@@ -377,6 +459,20 @@ export function NavLinks(): React.ReactElement {
     );
   }
 
+  // Built-in pages this workspace offers that the menu does not show: hidden
+  // themselves, or sitting in a hidden section.
+  const hiddenItemIds = layout.flatMap((section) =>
+    section.items
+      .filter((item) => {
+        if (isCustomNavItem(item)) return false;
+        if (!section.hidden && !item.hidden) return false;
+        const config = NAV_ITEM_CONFIG[item.id];
+        if (!config) return false;
+        return !config.requiresPlugin || (enabledPlugins?.includes(config.requiresPlugin) ?? false);
+      })
+      .map((item) => item.id),
+  );
+
   return (
     <>
       {layout.map((section) => {
@@ -404,6 +500,11 @@ export function NavLinks(): React.ReactElement {
           />
         );
       })}
+      <MoreNavMenu
+        hiddenItemIds={hiddenItemIds}
+        workspaceSlug={workspaceSlug}
+        onCustomize={onCustomize}
+      />
     </>
   );
 }

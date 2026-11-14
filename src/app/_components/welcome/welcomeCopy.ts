@@ -1,4 +1,5 @@
 import { PRODUCT_NAME } from "~/lib/brand";
+import { type NavUseCase } from "~/lib/navLayout";
 
 /**
  * Copy + step model for the "Getting started" welcome page.
@@ -149,13 +150,57 @@ export const COPY = {
   invited: {
     title: (workspaceName: string) => `You've joined ${workspaceName}`,
     subtitleWithInviter: (inviterName: string) =>
-      `${inviterName} invited you — you're in.`,
-    subtitle: "You're in.",
-    calTitle: "Connect your calendar",
-    calDesc: "Optional — meetings and the team's work in one place",
-    calConnected: "Connected",
-    calSkipped: "Skipped",
+      `${inviterName} invited you, and you're in. One quick question before you look around.`,
+    subtitle: "You're in. One quick question before you look around.",
     cta: (workspaceName: string) => `Take me to ${workspaceName}`,
+  },
+  /**
+   * The menu picker. Written to be read once by anyone: short sentences, no
+   * idioms, no product jargon, and "menu" for the list of pages on the left
+   * (the word "sidebar" appears only where it names the existing command).
+   */
+  menu: {
+    firstRunTitle: (firstName: string | null) =>
+      firstName ? `Welcome, ${firstName}` : "Welcome",
+    firstRunSubtitle: "One quick question first, so your menu only has what you need.",
+    firstRunCta: "Continue",
+    settingsTitle: "Set up your menu",
+    settingsSubtitle:
+      "Choose what shows in the menu on the left. This applies in every workspace you belong to.",
+    settingsCta: "Done",
+    question: `What would you like to use ${PRODUCT_NAME} for?`,
+    questionHint:
+      "Pick the closest fit. It only decides what your menu starts with, and you can change it whenever you like.",
+    startsWith: "Starts with",
+    listTitle: "Your menu",
+    listHint:
+      "Switch on what you want to see. Anything you switch off is still there, under More at the bottom of the menu.",
+    liveHint: "Watch the menu on the left change as you choose.",
+    afterList:
+      "Inbox, Today and Time are always there. To change your menu later, choose More at the bottom of the menu.",
+    on: "On",
+    off: "Off",
+    count: (on: number, total: number) => `${on} of ${total} switched on`,
+    saving: "Saving…",
+    saved: "Saved",
+    saveFailed: "Not saved. Your menu was put back as it was.",
+    changeLater: "You can change this at any time.",
+  },
+};
+
+/** The three answers to the menu picker's question, in the order they are offered. */
+export const USE_CASE_COPY: Record<NavUseCase, { title: string; desc: string }> = {
+  personal: {
+    title: "My own to-do list",
+    desc: "Keep track of your tasks and what is due today.",
+  },
+  team: {
+    title: "Working with a team",
+    desc: "Follow shared goals, projects and decisions.",
+  },
+  both: {
+    title: "Both",
+    desc: "Your own tasks and your team's work, side by side.",
   },
 };
 

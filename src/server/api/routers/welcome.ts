@@ -2,15 +2,26 @@ import { z } from "zod";
 import type { Prisma, PrismaClient } from "@prisma/client";
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 import { isGoogleOAuthTester } from "~/lib/googleAuth";
+import { NAV_USE_CASES } from "~/lib/navLayout";
+
+/**
+ * What a person said they are here for on the menu picker: one of the sidebar
+ * use cases, or `unsure` when they carried on without choosing (so the picker
+ * is not put in front of them a second time).
+ */
+export const WELCOME_USE_CASES = [...NAV_USE_CASES, "unsure"] as const;
 
 /**
  * Per-user "Getting started" setup state, persisted on `User.welcomeSetupState`.
  *
- * The welcome page walks new users through four sequential steps
- * (goal → action → plan → calendar); both the Chat and Checklist views read
- * and write this same record so progress is shared and resumable mid-flow.
+ * The welcome page opens with the menu picker (`useCase`), then walks new
+ * users through four sequential steps (goal → action → plan → calendar); both
+ * the Chat and Checklist views read and write this same record so progress is
+ * shared and resumable mid-flow.
  */
 const setupStateSchema = z.object({
+  /** The menu picker's answer; null until the person has been past it. */
+  useCase: z.enum(WELCOME_USE_CASES).nullable().default(null),
   goal: z.string().nullable().default(null),
   goalId: z.number().nullable().default(null),
   /** Index into the goal suggestion chips (-1 = free text) — drives which action chips are offered. */
@@ -207,6 +218,20 @@ export const welcomeRouter = createTRPCRouter({
       state: parseSetupState(user?.welcomeSetupState),
     };
   }),
+
+  /**
+   * The menu picker's answer to "what would you like to use this for?". Only
+   * the answer is recorded here; the sidebar itself is written by
+   * `navigationPreference.setVisibleItems`, so a person can change their menu
+   * later without it rewriting what they said they came for.
+   */
+  setUseCase: protectedProcedure
+    .input(z.object({ useCase: z.enum(WELCOME_USE_CASES) }))
+    .mutation(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+      const state = await loadSetupState(ctx.db, userId);
+      return saveSetupState(ctx.db, userId, { ...state, useCase: input.useCase });
+    }),
 
   /** Step 1 — creates a real Goal and records it in the setup state. */
   createGoal: protectedProcedure
