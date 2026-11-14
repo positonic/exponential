@@ -371,9 +371,60 @@ export function findRawValues(file: string, text: string): Finding[] {
   return out;
 }
 
+/** Index just past the string literal that opens at `start` (a `'`, `"` or `` ` ``). */
+function skipString(text: string, start: number): number {
+  const quote = text[start];
+  let i = start + 1;
+  while (i < text.length) {
+    const ch = text[i];
+    if (ch === "\\") i += 2;
+    else if (ch === quote) return i + 1;
+    // Only a template literal spans lines; an unclosed '…' ends with its line.
+    else if (ch === "\n" && quote !== "`") return i;
+    else i++;
+  }
+  return text.length;
+}
+
+/**
+ * Blank out every comment in TS/JS source, keeping line numbers and string
+ * literals. Unlike stripComments this reads the source left to right, so it
+ * also removes a trailing `// …` after code, leaves `//` inside a string
+ * alone (`'https://…'`), and is not thrown by an apostrophe in a comment.
+ */
+export function stripCodeComments(text: string): string {
+  let out = "";
+  let i = 0;
+  while (i < text.length) {
+    const ch = text[i]!;
+    const next = text[i + 1];
+    let end = -1;
+    if (ch === '"' || ch === "'" || ch === "`") {
+      end = skipString(text, i);
+      out += text.slice(i, end);
+    } else if (ch === "/" && next === "/") {
+      const newline = text.indexOf("\n", i);
+      end = newline === -1 ? text.length : newline;
+      out += " ".repeat(end - i);
+    } else if (ch === "/" && next === "*") {
+      const close = text.indexOf("*/", i + 2);
+      end = close === -1 ? text.length : close + 2;
+      out += text.slice(i, end).replace(/[^\n]/g, " ");
+    }
+    if (end === -1) {
+      out += ch;
+      i++;
+    } else {
+      i = end;
+    }
+  }
+  return out;
+}
+
 // Tailwind theme keys whose values are shadows: `shadow-*` reads `boxShadow`,
-// `drop-shadow-*` reads `dropShadow`.
-const THEME_SHADOW_MAP = /\b(boxShadow|dropShadow)\s*:\s*\{/g;
+// `drop-shadow-*` reads `dropShadow`. The key may be quoted (`'boxShadow': {`).
+const THEME_SHADOW_MAP =
+  /(?:\b(boxShadow|dropShadow)|(["'`])(boxShadow|dropShadow)\2)\s*:\s*\{/g;
 
 /**
  * Shadows a Tailwind theme paints with a colour literal:
@@ -386,13 +437,19 @@ const THEME_SHADOW_MAP = /\b(boxShadow|dropShadow)\s*:\s*\{/g;
  */
 export function findThemeShadowLiterals(file: string, text: string): Finding[] {
   const out: Finding[] = [];
-  const clean = stripComments(text);
+  const clean = stripCodeComments(text);
   for (const m of clean.matchAll(THEME_SHADOW_MAP)) {
+    const mapName = m[1] ?? m[3]!;
     const open = (m.index ?? 0) + m[0].length;
     let depth = 1;
     let i = open;
     while (i < clean.length && depth > 0) {
       const ch = clean[i];
+      if (ch === '"' || ch === "'" || ch === "`") {
+        // A brace inside a string is not structure.
+        i = skipString(clean, i);
+        continue;
+      }
       if (ch === "{") depth++;
       else if (ch === "}") depth--;
       i++;
@@ -410,7 +467,7 @@ export function findThemeShadowLiterals(file: string, text: string): Finding[] {
         file,
         line: lineOf(text, open + (v.index ?? 0)),
         kind: "raw-shadow",
-        detail: `${m[1]} theme value painted with a colour literal (${value.trim().slice(0, 40)}) — declare a --shadow-* token in globals.css and reference it`,
+        detail: `${mapName} theme value painted with a colour literal (${value.trim().slice(0, 40)}) — declare a --shadow-* token in globals.css and reference it`,
       });
     }
   }

@@ -13,6 +13,7 @@ import {
   isTokenRadius,
   isTokenShadow,
   loadSources,
+  stripCodeComments,
 } from "../check-design-tokens";
 
 describe("collectDefinitions", () => {
@@ -242,6 +243,22 @@ describe("findRawValues", () => {
   });
 });
 
+describe("stripCodeComments", () => {
+  it("blanks line, trailing and block comments and keeps every line in place", () => {
+    const src = ["a: 1, // one", "// whole line", "b: 2, /* two", "   lines */ c: 3,"].join("\n");
+    const out = stripCodeComments(src);
+    expect(out.split("\n").map((l) => l.trimEnd())).toEqual(["a: 1,", "", "b: 2,", "            c: 3,"]);
+    expect(out).toHaveLength(src.length);
+  });
+
+  it("leaves comment markers inside strings alone", () => {
+    const src = "a: 'https://x.test/*y*/', b: \"it's // fine\", c: `t // ${1}`, // gone";
+    expect(stripCodeComments(src).trimEnd()).toBe(
+      "a: 'https://x.test/*y*/', b: \"it's // fine\", c: `t // ${1}`,",
+    );
+  });
+});
+
 describe("findThemeShadowLiterals", () => {
   const config = (body: string[]) =>
     ["export default { theme: { extend: {", ...body, "} } };"].join("\n");
@@ -286,6 +303,48 @@ describe("findThemeShadowLiterals", () => {
       "  },",
     ]);
     expect(findThemeShadowLiterals("tailwind.config.ts", text).map((f) => f.line)).toEqual([5]);
+  });
+
+  it("does not read a trailing comment as a value", () => {
+    const text = config([
+      "  boxShadow: {",
+      "    sm: 'var(--shadow-sm)', // Previously '0 1px 2px rgba(0,0,0,.1)'",
+      "    md: 'var(--shadow-md)', /* was \"0 2px 4px #0003\" */",
+      "  },",
+    ]);
+    expect(findThemeShadowLiterals("tailwind.config.ts", text)).toEqual([]);
+  });
+
+  it("is not thrown by an apostrophe in a trailing comment", () => {
+    const text = config([
+      "  boxShadow: {",
+      "    sm: 'var(--shadow-sm)', // Don't change this one",
+      "    card: '0 4px 6px rgba(0, 0, 0, 0.1)',",
+      "  },",
+    ]);
+    expect(findThemeShadowLiterals("tailwind.config.ts", text).map((f) => f.line)).toEqual([4]);
+  });
+
+  it("reads a shadow map whose key is quoted", () => {
+    const text = config([
+      "  'boxShadow': { card: '0 1px 2px rgba(0,0,0,.1)' },",
+      '  "dropShadow": { glow: "0 0 2px hsl(0 0% 0% / 0.4)" },',
+    ]);
+    const out = findThemeShadowLiterals("tailwind.config.ts", text);
+    expect(out.map((f) => [f.line, f.detail.split(" ")[0]])).toEqual([
+      [2, "boxShadow"],
+      [3, "dropShadow"],
+    ]);
+  });
+
+  it("does not end the map at a brace inside a string", () => {
+    const text = config([
+      "  boxShadow: {",
+      "    odd: 'var(--shadow-sm) /* } */',",
+      "    card: '0 4px 6px rgba(0, 0, 0, 0.1)',",
+      "  },",
+    ]);
+    expect(findThemeShadowLiterals("tailwind.config.ts", text).map((f) => f.line)).toEqual([4]);
   });
 
   it("ignores colour literals outside the shadow maps, in keys and in comments", () => {
