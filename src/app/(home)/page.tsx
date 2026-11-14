@@ -68,8 +68,11 @@ export default async function Home() {
               <LogoDisplay theme={theme} href="/" className="text-xl" imageSize={36} />
             </div>
 
-            {/* Desktop Navigation */}
-            <nav className="hidden lg:flex items-center space-x-6 xl:space-x-8 whitespace-nowrap">
+            {/* Desktop Navigation. Only the top-level links are kept on one
+                line ("Self-host" breaks at its hyphen otherwise); putting
+                nowrap on the nav itself would be inherited by the Product
+                and Resources dropdowns and stop their descriptions wrapping. */}
+            <nav className="hidden lg:flex items-center space-x-6 xl:space-x-8 [&>a]:whitespace-nowrap">
               <FeaturesMenu />
               <Link
                 href="#self-host"
