@@ -1,0 +1,94 @@
+# Self-host images: build the app and scheduler images and publish them to the
+# GitHub Container Registry, so a Railway template (or any Docker host) pulls a
+# ready image instead of building one.
+#
+#   ghcr.io/positonic/exponential-app        (Dockerfile)
+#   ghcr.io/positonic/exponential-scheduler  (docker/scheduler.Dockerfile)
+#
+# Tags: `latest` and `sha-<short sha>` on every push to main; `vX.Y.Z` (and
+# `X.Y`) on a version tag. Pin a sha or version tag for a repeatable install;
+# `latest` follows main.
+#
+# Why publish rather than let Railway build: the app's `next build` needs about
+# 10 GB (OOM-killed at 8 GB, see the Dockerfile), more than a Railway builder
+# reliably gives, and every installer would pay a 10-15 minute build. Decided
+# by James 2026-11-14 (rose.fox).
+#
+# Visibility: the repo is public, and a package first published from it with
+# GITHUB_TOKEN inherits that visibility, so Railway and `docker pull` need no
+# registry credentials. If a package ever shows as private, change it under
+# the package's settings on GitHub; the workflow can't.
+#
+# linux/amd64 only: what Railway and most servers run. An arm64 build under
+# QEMU would take hours at this size; Apple-silicon Compose users build
+# locally (docker-compose.yml builds from the Dockerfiles).
+#
+# Runner: ubuntu-latest for a public repo has 16 GB, which fits the build. Do
+# not move it to a smaller runner. Layer cache goes to the registry
+# (`:buildcache` tags), not the Actions cache, which is capped at 10 GB for the
+# repo and is needed by cache-warm.yml.
+#
+# NEVER A REQUIRED CHECK: it runs on main and tags only.
+name: Self-host images
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*.*.*"]
+  workflow_dispatch:
+
+concurrency:
+  group: selfhost-images-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  publish:
+    name: ${{ matrix.image }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - image: exponential-app
+            dockerfile: Dockerfile
+          - image: exponential-scheduler
+            dockerfile: docker/scheduler.Dockerfile
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository_owner }}/${{ matrix.image }}
+          tags: |
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=sha,prefix=sha-
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+          labels: |
+            org.opencontainers.image.title=${{ matrix.image }}
+            org.opencontainers.image.licenses=AGPL-3.0-or-later
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ${{ matrix.dockerfile }}
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=registry,ref=ghcr.io/${{ github.repository_owner }}/${{ matrix.image }}:buildcache
+          cache-to: type=registry,ref=ghcr.io/${{ github.repository_owner }}/${{ matrix.image }}:buildcache,mode=max

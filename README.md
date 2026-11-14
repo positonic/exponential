@@ -170,20 +170,20 @@ from [positonic/mastra](https://github.com/positonic/mastra)'s
 `docker/Dockerfile` and shares the database (schema `mastra`).
 
 **Memory.** Building the app image needs a Docker host with at least 10 GB of
-memory (see below). On a smaller server, build elsewhere and run the images.
+memory (see below). On a smaller server, use the prebuilt images instead.
 
-**Prebuilt images.** Compose builds every image from source. If you have
-images in a registry, point Compose at them with a
+**Prebuilt images.** Compose builds every image from source. To skip the
+build (on an x86-64 host), use the images published from `main`, with a
 `docker-compose.override.yml` next to `docker-compose.yml`, which Compose
 merges in automatically:
 
 ```yaml
 services:
   app:
-    image: registry.example.com/exponential-app:latest
+    image: ghcr.io/positonic/exponential-app:latest
     build: !reset null
   scheduler:
-    image: registry.example.com/exponential-scheduler:latest
+    image: ghcr.io/positonic/exponential-scheduler:latest
     build: !reset null
 ```
 
@@ -199,6 +199,18 @@ fails.
 
 Two images, both built from the repo root. Neither bakes in any
 configuration: every variable is read when the container starts.
+
+Both are published to the GitHub Container Registry by
+`.github/workflows/selfhost-images.yml` (linux/amd64): `latest` and
+`sha-<short sha>` on every push to `main`, plus a version tag on each release.
+Pin a `sha-` or version tag for a repeatable install.
+
+```bash
+docker pull ghcr.io/positonic/exponential-app:latest
+docker pull ghcr.io/positonic/exponential-scheduler:latest
+```
+
+To build them yourself:
 
 ```bash
 docker build -t exponential-app .                                          # the app
