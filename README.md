@@ -202,8 +202,12 @@ configuration: every variable is read when the container starts.
 
 Both are published to the GitHub Container Registry by
 `.github/workflows/selfhost-images.yml` (linux/amd64): `latest` and
-`sha-<short sha>` on every push to `main`, plus a version tag on each release.
-Pin a `sha-` or version tag for a repeatable install.
+`sha-<short sha>` for each `main` commit that gets built, plus a version tag on
+each release. When several commits land while a build runs, only the newest
+is built next, so not every commit has a `sha-` tag. For a repeatable install,
+pin a version tag or a `sha-` tag listed on the package page
+([app](https://github.com/positonic/exponential/pkgs/container/exponential-app),
+[scheduler](https://github.com/positonic/exponential/pkgs/container/exponential-scheduler)).
 
 ```bash
 docker pull ghcr.io/positonic/exponential-app:latest

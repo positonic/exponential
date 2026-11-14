@@ -7,6 +7,7 @@
 import { describe, expect, it } from "vitest";
 import {
   checkPgvector,
+  checkPublicUrl,
   explainMigrationFailure,
   formatSetupTokenBanner,
   preflightEnv,
@@ -64,7 +65,37 @@ describe("explainMigrationFailure", () => {
   });
 });
 
+describe("checkPublicUrl", () => {
+  it("stops on a URL with no host, as a Railway domain reference gives before the domain exists", () => {
+    const error = checkPublicUrl({ NEXTAUTH_URL: "https://" });
+    expect(error).toMatch(/NEXTAUTH_URL is "https:\/\/"/);
+    expect(error).toMatch(/public domain/);
+  });
+
+  it("stops on a value that is not an http(s) URL", () => {
+    expect(checkPublicUrl({ NEXTAUTH_URL: "exponential.example.test" })).toMatch(/NEXTAUTH_URL/);
+    expect(checkPublicUrl({ AUTH_URL: "ftp://exponential.example.test" })).toMatch(/AUTH_URL/);
+  });
+
+  it("passes a URL with a host, and passes when neither is set", () => {
+    expect(checkPublicUrl({ NEXTAUTH_URL: "https://app-production.up.railway.app" })).toBeNull();
+    expect(checkPublicUrl({ NEXTAUTH_URL: "http://localhost:3000" })).toBeNull();
+    expect(checkPublicUrl({})).toBeNull();
+    expect(checkPublicUrl({ NEXTAUTH_URL: "" })).toBeNull();
+  });
+
+  it("checks only AUTH_URL when both are set, since it wins", () => {
+    expect(checkPublicUrl({ AUTH_URL: "https://ok.example.test", NEXTAUTH_URL: "https://" })).toBeNull();
+    expect(checkPublicUrl({ AUTH_URL: "https://", NEXTAUTH_URL: "https://ok.example.test" })).toMatch(/AUTH_URL/);
+  });
+});
+
 describe("preflightEnv", () => {
+  it("stops on a public URL with no host, before anything else", () => {
+    const result = preflightEnv({ NEXTAUTH_URL: "https://" });
+    expect(result.error).toMatch(/not a URL with a host/);
+  });
+
   it("stops on SMTP_HOST without a sender", () => {
     const result = preflightEnv({ SMTP_HOST: "smtp.example.test" });
     expect(result.error).toMatch(/EMAIL_FROM/);
