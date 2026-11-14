@@ -20,11 +20,17 @@ import {
  * writes time that belongs to its OWNER, records itself as author, and is
  * forced to `PROPOSED` whatever it asked for. This carve-out exists only for
  * the explicit-bounds procedures below; `start`/`stop` stay principal-owned.
+ *
+ * Zoe's tokens carry the person as session user, so the entry is theirs and
+ * no External agent is the author — but Zoe acting for someone is not that
+ * person acting (ADR-0070), so it is forced to `PROPOSED` too and waits for
+ * them to confirm it.
  */
 interface TimeEntryPrincipal {
   ownerUserId: string;
   createdByAgentId: string | null;
-  isAgent: boolean;
+  /** An agent is writing (an External agent, or Zoe for the person): never `CONFIRMED`. */
+  mustPropose: boolean;
 }
 
 async function resolveTimeEntryPrincipal(
@@ -33,7 +39,11 @@ async function resolveTimeEntryPrincipal(
   tokenType: string | undefined,
 ): Promise<TimeEntryPrincipal> {
   if (tokenType !== "agent-key") {
-    return { ownerUserId: callerUserId, createdByAgentId: null, isAgent: false };
+    return {
+      ownerUserId: callerUserId,
+      createdByAgentId: null,
+      mustPropose: isAgentActorToken(tokenType),
+    };
   }
   const agent = await db.externalAgent.findUnique({
     where: { shadowUserId: callerUserId },
@@ -45,7 +55,7 @@ async function resolveTimeEntryPrincipal(
       message: "Agent key is not bound to an external agent",
     });
   }
-  return { ownerUserId: agent.ownerId, createdByAgentId: agent.id, isAgent: true };
+  return { ownerUserId: agent.ownerId, createdByAgentId: agent.id, mustPropose: true };
 }
 
 /**
@@ -105,7 +115,8 @@ export const timeEntryRouter = createTRPCRouter({
   /**
    * Create a completed entry with explicit bounds. Never touches the running
    * Timer. Under an agent key the entry belongs to the agent's owner and is
-   * `PROPOSED`; a human's entry defaults to `CONFIRMED`.
+   * `PROPOSED`; under a Zoe token it is the person's and `PROPOSED`; a
+   * human's entry defaults to `CONFIRMED`.
    */
   create: apiKeyMiddleware
     .input(explicitEntryInput)
@@ -124,7 +135,7 @@ export const timeEntryRouter = createTRPCRouter({
         startedAt: input.startedAt,
         endedAt: input.endedAt,
         source: input.source,
-        status: principal.isAgent ? "PROPOSED" : (input.status ?? "CONFIRMED"),
+        status: principal.mustPropose ? "PROPOSED" : (input.status ?? "CONFIRMED"),
         sourceRef: input.sourceRef,
         note: input.note,
         createdByAgentId: principal.createdByAgentId,
@@ -231,7 +242,7 @@ export const timeEntryRouter = createTRPCRouter({
         startedAt: input.startedAt,
         endedAt: input.endedAt,
         source: input.source,
-        status: principal.isAgent ? "PROPOSED" : (input.status ?? "CONFIRMED"),
+        status: principal.mustPropose ? "PROPOSED" : (input.status ?? "CONFIRMED"),
         sourceRef: input.sourceRef,
         note: input.note,
         createdByAgentId: principal.createdByAgentId,
@@ -390,12 +401,15 @@ export const timeEntryRouter = createTRPCRouter({
         }
       }
       const service = new TimeEntryService(ctx.db);
+      // Editing Proposed time confirms it (ADR-0061) — a person's act. Zoe
+      // can correct it for them, but it stays PROPOSED (ADR-0070).
       return service.update({
         userId: ctx.userId,
         entryId: input.entryId,
         startedAt: input.startedAt,
         endedAt: input.endedAt,
         actionId: input.actionId,
+        keepProposed: isAgentActorToken(ctx.tokenType),
       });
     }),
 
