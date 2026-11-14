@@ -391,7 +391,7 @@ async function dropInaccessiblePageRows<T extends FeedRow>(
   db: PrismaClient,
   viewerId: string,
   rows: T[],
-): Promise<T[]> {
+): Promise<{ visible: T[]; inaccessiblePageIds: string[] }> {
   const pageIds = [
     ...new Set(
       rows
@@ -399,7 +399,7 @@ async function dropInaccessiblePageRows<T extends FeedRow>(
         .map((row) => row.entityId),
     ),
   ];
-  if (pageIds.length === 0) return rows;
+  if (pageIds.length === 0) return { visible: rows, inaccessiblePageIds: [] };
 
   const accessible = await db.knowledgePage.findMany({
     where: {
@@ -409,10 +409,13 @@ async function dropInaccessiblePageRows<T extends FeedRow>(
   });
   const accessibleIds = new Set(accessible.map((page) => page.id));
 
-  return rows.filter(
-    (row) =>
-      row.entityType !== PAGE_ENTITY_TYPE || accessibleIds.has(row.entityId),
-  );
+  return {
+    visible: rows.filter(
+      (row) =>
+        row.entityType !== PAGE_ENTITY_TYPE || accessibleIds.has(row.entityId),
+    ),
+    inaccessiblePageIds: pageIds.filter((id) => !accessibleIds.has(id)),
+  };
 }
 
 /** The feed's "strictly older than the cursor" clause, or nothing. */
@@ -444,8 +447,14 @@ function olderThan(
  * The cursor always points at the last row *fetched*, not the last row shown,
  * so filtering never skips or repeats a row. A filtered page can therefore
  * come back short. If it comes back empty while older rows remain, the reader
- * fetches again (up to {@link MAX_FILTER_ROUNDS} times) so the UI is not left
- * showing nothing above a "Load more" button.
+ * fetches again (up to {@link MAX_FILTER_ROUNDS} times), and each further fetch
+ * leaves out every row of the pages it has already found the viewer cannot
+ * open. So one private page with a long run of edits is stepped over in a
+ * single hop rather than a page of rows at a time.
+ *
+ * It can still give up: an empty `events` with a non-null `nextCursor` means
+ * "nothing visible in this stretch, older rows remain". Callers must keep
+ * offering the next page in that case instead of treating it as the end.
  */
 async function readFeedPage(
   db: PrismaClient,
@@ -466,6 +475,8 @@ async function readFeedPage(
 
   let cursor = args.cursor ? decodeCursor(args.cursor) : null;
   let nextCursor: string | null = null;
+  /** Pages this read has found the viewer cannot open. */
+  const inaccessible = new Set<string>();
 
   for (let round = 0; round <= MAX_FILTER_ROUNDS; round++) {
     const where: Prisma.WorkspaceActivityEventWhereInput = {
@@ -473,6 +484,19 @@ async function readFeedPage(
       ...sourceWhere(args.source),
       ...(args.actorUserId ? { userId: args.actorUserId } : {}),
       ...olderThan(cursor),
+      // `AND` so it composes with the `NOT` the source filter may carry.
+      ...(inaccessible.size > 0
+        ? {
+            AND: [
+              {
+                NOT: {
+                  entityType: PAGE_ENTITY_TYPE,
+                  entityId: { in: [...inaccessible] },
+                },
+              },
+            ],
+          }
+        : {}),
     };
 
     // Fetch one extra row so we can decide whether nextCursor should be set
@@ -505,12 +529,17 @@ async function readFeedPage(
       : null;
     nextCursor = hasMore && lastCursor ? encodeCursor(lastCursor) : null;
 
-    const visible = await dropInaccessiblePageRows(db, args.viewerId, page);
+    const { visible, inaccessiblePageIds } = await dropInaccessiblePageRows(
+      db,
+      args.viewerId,
+      page,
+    );
     if (visible.length > 0 || !hasMore) {
       return { events: await toFeedEvents(db, visible), nextCursor };
     }
     // Every row on this page was a page the viewer cannot open. Keep going
-    // from where this fetch ended.
+    // from where this fetch ended, skipping those pages' other rows.
+    for (const pageId of inaccessiblePageIds) inaccessible.add(pageId);
     cursor = lastCursor;
   }
 

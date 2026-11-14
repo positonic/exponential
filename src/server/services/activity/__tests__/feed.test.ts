@@ -518,6 +518,42 @@ describe("page rows — read-time access filter", () => {
     expect(secondWhere.OR[1].AND[1]).toEqual({ id: { lt: hidden[1]!.id } });
   });
 
+  it("steps over every other row of a page it found the viewer cannot open", async () => {
+    // One private page with a long run of edits must not cost a fetch per
+    // page of rows: the next fetch leaves all of its rows out.
+    db.workspaceActivityEvent.findMany
+      .mockResolvedValueOnce([
+        pageRow("page-private", "Hidden"),
+        pageRow("page-other-private", "Hidden too"),
+        pageRow("page-private", "Hidden"),
+      ] as never)
+      .mockResolvedValueOnce([actionRow("Older, visible")] as never);
+    viewerCanOpen();
+
+    const { events } = await getAggregatedActivityFeed(db, {
+      viewerId: VIEWER_ID,
+      workspaceIds: [WORKSPACE_ID],
+      limit: 2,
+      source: "internal",
+    });
+
+    expect(events.map((e) => e.entityRef)).toEqual(["Older, visible"]);
+    const [firstCall, secondCall] = db.workspaceActivityEvent.findMany.mock.calls;
+    expect(firstCall![0]!.where).not.toHaveProperty("AND");
+    expect(secondCall![0]!.where).toMatchObject({
+      AND: [
+        {
+          NOT: {
+            entityType: "page",
+            entityId: { in: ["page-private", "page-other-private"] },
+          },
+        },
+      ],
+      // It composes with the source filter's own NOT rather than replacing it.
+      NOT: { entityType: { startsWith: "github" } },
+    });
+  });
+
   it("gives up after a few all-filtered fetches and returns the cursor to continue from", async () => {
     // Every fetch is a full page of private pages with more behind it.
     db.workspaceActivityEvent.findMany.mockImplementation((() =>
@@ -534,6 +570,8 @@ describe("page rows — read-time access filter", () => {
       limit: 2,
     });
 
+    // Empty with a cursor means "nothing visible in this stretch, older rows
+    // remain" — the feed surfaces keep Load more on screen for it.
     expect(events).toEqual([]);
     expect(nextCursor).not.toBeNull();
     // The first fetch plus three more rounds.
