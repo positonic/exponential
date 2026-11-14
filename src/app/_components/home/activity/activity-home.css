@@ -1116,6 +1116,13 @@ a.wsa-feed__avatar {
   padding: 24px 26px;
 }
 
+/* The Person week summary reuses the digest's layout but not its accent: the
+   violet rail marks the private Weekly work digest, and this is a different
+   artifact (written only from what the viewer can see of someone else). */
+.wsa-digest--summary {
+  --wsa-digest-accent: var(--color-brand-primary);
+}
+
 .wsa-digest__head {
   display: flex;
   align-items: center;

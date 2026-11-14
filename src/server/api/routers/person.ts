@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { TRPCError } from "@trpc/server";
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 import {
   FEED_PAGE_SIZE,
@@ -8,6 +9,10 @@ import {
   getPersonSummary,
   resolvePersonScope,
 } from "~/server/services/person/personPage";
+import {
+  getPersonWeekSummary,
+  PersonSummaryRateLimitError,
+} from "~/server/services/person/weekSummary/summary";
 
 /**
  * Person page (`/people/<userId>`): one page per person, human or agent,
@@ -65,5 +70,44 @@ export const personRouter = createTRPCRouter({
         source: input.source,
         actorUserId: input.userId,
       });
+    }),
+
+  /**
+   * An AI-written summary of one week of the subject's work, built only from
+   * the events the viewer can see on this page and stored per viewer, subject
+   * and ISO week. `isoYear`/`isoWeek` page back to an earlier week; `force`
+   * regenerates (rate-limited). Never available for your own page: that shows
+   * your Weekly work digest instead.
+   */
+  getWeekSummary: protectedProcedure
+    .input(
+      z.object({
+        userId: z.string().min(1),
+        isoYear: z.number().int().optional(),
+        isoWeek: z.number().int().min(1).max(53).optional(),
+        force: z.boolean().optional(),
+      }),
+    )
+    .query(async ({ ctx, input }) => {
+      const target =
+        input.isoYear != null && input.isoWeek != null
+          ? { isoYear: input.isoYear, isoWeek: input.isoWeek }
+          : undefined;
+      try {
+        return await getPersonWeekSummary(ctx.db, {
+          viewerId: ctx.session.user.id,
+          subjectId: input.userId,
+          target,
+          force: input.force,
+        });
+      } catch (err) {
+        if (err instanceof PersonSummaryRateLimitError) {
+          throw new TRPCError({
+            code: "TOO_MANY_REQUESTS",
+            message: "Too many summaries were written recently — try again shortly.",
+          });
+        }
+        throw err;
+      }
     }),
 });

@@ -466,6 +466,7 @@ async function readFeedPage(
     limit?: number;
     source?: string;
     actorUserId?: string;
+    window?: { from: Date; to: Date };
   },
 ): Promise<ActivityFeedPage> {
   const limit = Math.max(
@@ -483,6 +484,9 @@ async function readFeedPage(
       ...args.scope,
       ...sourceWhere(args.source),
       ...(args.actorUserId ? { userId: args.actorUserId } : {}),
+      ...(args.window
+        ? { createdAt: { gte: args.window.from, lte: args.window.to } }
+        : {}),
       ...olderThan(cursor),
       // `AND` so it composes with the `NOT` the source filter may carry.
       ...(inaccessible.size > 0
@@ -612,6 +616,8 @@ export async function getAggregatedActivityFeed(
     source?: string;
     /** Only events this user performed (the "Mine" filter). */
     actorUserId?: string;
+    /** Only events inside this time range, both ends included. */
+    window?: { from: Date; to: Date };
   },
 ): Promise<ActivityFeedPage> {
   if (args.workspaceIds.length === 0) {
@@ -626,6 +632,7 @@ export async function getAggregatedActivityFeed(
     limit: args.limit,
     source: args.source,
     actorUserId: args.actorUserId,
+    window: args.window,
   });
 }
 
