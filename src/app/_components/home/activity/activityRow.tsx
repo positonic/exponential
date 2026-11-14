@@ -106,8 +106,12 @@ interface SentenceProps {
   entityRef: string;
   /** Renders the "agent" chip after the actor name (ADR-0049). */
   actorIsAgent?: boolean;
-  /** When set, `{entityRef}` renders as an external link to this URL. */
+  /** When set, the actor name links to this in-app URL (their Person page). */
+  actorHref?: string | null;
+  /** When set, `{entityRef}` renders as a link to this URL. */
   entityHref?: string | null;
+  /** `entityHref` is an in-app route (client navigation, same tab). */
+  entityIsInternal?: boolean;
 }
 
 /**
@@ -119,7 +123,9 @@ function Sentence({
   actor,
   entityRef,
   actorIsAgent = false,
+  actorHref = null,
   entityHref = null,
+  entityIsInternal = false,
 }: SentenceProps) {
   const parts: Array<{ kind: 'text' | 'actor' | 'entity'; value: string }> = [];
   const regex = /\{(actor|entityRef)\}/g;
@@ -145,7 +151,13 @@ function Sentence({
         if (part.kind === 'actor') {
           return (
             <span key={i} className="wsa-feed__actor">
-              {part.value}
+              {actorHref ? (
+                <Link href={actorHref} className="wsa-feed__actor-link">
+                  {part.value}
+                </Link>
+              ) : (
+                part.value
+              )}
               {actorIsAgent && (
                 <span className="ml-1 inline-flex items-center gap-0.5 rounded border border-border-primary px-1 align-middle text-[10px] text-text-muted">
                   <IconRobotFace size={10} aria-hidden="true" />
@@ -156,9 +168,21 @@ function Sentence({
           );
         }
         if (part.kind === 'entity') {
+          // In-app targets (the OKR drawer) navigate client-side in this tab.
+          if (entityHref && entityIsInternal) {
+            return (
+              <Link
+                key={i}
+                href={entityHref}
+                className="wsa-feed__entity wsa-feed__entity--link"
+              >
+                {part.value}
+              </Link>
+            );
+          }
           // External sources (GitHub) pass a href so the title itself is the
-          // link out. Internal rows keep a plain span — the feed is not a
-          // navigation surface for entities it already renders in-app.
+          // link out. Other internal rows keep a plain span — the feed is not
+          // a navigation surface for entities it already renders in-app.
           if (entityHref) {
             return (
               <a
@@ -182,6 +206,11 @@ function Sentence({
       })}
     </span>
   );
+}
+
+/** The Person page of a user (`/people/<userId>`). */
+export function personHref(userId: string): string {
+  return `/people/${encodeURIComponent(userId)}`;
 }
 
 export interface FeedRowEvent {
@@ -320,6 +349,9 @@ export function ActivityRow({
   const github = event.github ?? null;
   const actorName =
     event.actor?.name ?? github?.author ?? 'Someone';
+  // Only a real user has a Person page. A deleted actor (null) and a GitHub
+  // login with no mapped user stay plain text.
+  const actorHref = event.actor ? personHref(event.actor.id) : null;
 
   if (github) {
     const href = github.prUrl ?? github.commitUrl ?? github.repoUrl;
@@ -344,6 +376,7 @@ export function ActivityRow({
             actor={actorName}
             entityRef={event.entityRef}
             actorIsAgent={event.actor?.isAgent ?? false}
+            actorHref={actorHref}
             entityHref={href}
           />
           <span className="wsa-feed__meta">
@@ -398,36 +431,46 @@ export function ActivityRow({
       ? `/w/${slug}/goals?tab=okrs&drawer=${encodeURIComponent(event.drawerParam)}`
       : null;
 
-  const sentence = (
-    <Sentence
-      template={event.hint.template}
-      actor={actorName}
-      entityRef={event.entityRef}
-      actorIsAgent={event.actor?.isAgent ?? false}
-    />
+  const avatar = event.actor?.image ? (
+    // eslint-disable-next-line @next/next/no-img-element
+    <img src={event.actor.image} alt="" />
+  ) : (
+    initialsOf(event.actor?.name ?? null)
   );
 
   return (
     <div className="wsa-feed__row" data-kind={event.hint.iconKind}>
-      <div
-        className={`wsa-feed__avatar${event.actor ? '' : ' wsa-feed__avatar--anonymous'}`}
-        aria-hidden="true"
-      >
-        {event.actor?.image ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img src={event.actor.image} alt="" />
-        ) : (
-          initialsOf(event.actor?.name ?? null)
-        )}
-      </div>
+      {actorHref ? (
+        // The name beside it is the accessible link; the avatar is a second,
+        // pointer-only target for the same page.
+        <Link
+          href={actorHref}
+          className="wsa-feed__avatar"
+          aria-hidden="true"
+          tabIndex={-1}
+        >
+          {avatar}
+        </Link>
+      ) : (
+        <div
+          className="wsa-feed__avatar wsa-feed__avatar--anonymous"
+          aria-hidden="true"
+        >
+          {avatar}
+        </div>
+      )}
       <div className="wsa-feed__body">
-        {drawerHref ? (
-          <Link href={drawerHref} className="wsa-feed__drawer-link">
-            {sentence}
-          </Link>
-        ) : (
-          sentence
-        )}
+        {/* Two links in one sentence: the actor goes to their Person page, the
+            entity (OKR rows only) opens its drawer. */}
+        <Sentence
+          template={event.hint.template}
+          actor={actorName}
+          entityRef={event.entityRef}
+          actorIsAgent={event.actor?.isAgent ?? false}
+          actorHref={actorHref}
+          entityHref={drawerHref}
+          entityIsInternal
+        />
         {meta}
       </div>
       <span
