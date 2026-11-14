@@ -348,7 +348,11 @@ and Pill rely on `xl` meaning "fully round", and ~200 call sites pass
   **ratcheted** against `scripts/design-tokens-baseline.json`: a file may never
   have more than its baseline, a new file must have none. When you clear some,
   run `npm run tokens:check -- --update-baseline` so the ceiling drops with
-  you. Runs in the pre-commit hook and the CI lint job.
+  you. Runs in the pre-commit hook and the CI lint job. It also reads
+  `tailwind.config.ts`: every `var()` the theme references must be declared,
+  and an entry in the theme's `boxShadow` / `dropShadow` map painted with a
+  colour literal is a raw shadow (the config has no baseline, so it may have
+  none). Add the shadow as a `--shadow-*` token on `:root` and reference it.
 
 ## Primitives
 
