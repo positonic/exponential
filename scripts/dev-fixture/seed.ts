@@ -98,6 +98,12 @@ export const FIXTURE = {
    * modal has a title to show under Aria and the settings page has one row.
    * The fixture user and the colleague hold none, so their rows warn.
    */
+  /**
+   * The Person page (`/people/<userId>`): activity events by the colleague, so
+   * their page has rows and the feed has a second actor to click through from.
+   */
+  personActivityEntityPrefix: "dev-fixture-person-activity-",
+  personActivityTitles: ["Draft the handover notes", "Review the venue shortlist"],
   positionTitle: "Travel researcher",
   positionRemit:
     "Research and shortlist travel options: flights, hotels near the venue, local transport. Posts options as a comment and asks before anything is booked.",
@@ -173,6 +179,12 @@ export interface SeededFixture {
   projectMeetingsUrl: string;
   /** The project's DRI, a second workspace member — preselected when scheduling. */
   colleagueName: string;
+  /** Their user id, for their Person page (`/people/<id>`). */
+  colleagueUserId: string;
+  /** Titles of the actions the colleague's seeded activity events name, newest last. */
+  colleagueActivityTitles: readonly string[];
+  /** The shadow user of `assistantName` (the fixture user's Assistant). */
+  assistantUserId: string;
   /** A CRM contact in the workspace, invitable as an external attendee. */
   contactName: string;
   /**
@@ -465,6 +477,22 @@ export async function seedDevFixture(db: PrismaClient): Promise<SeededFixture> {
     create: { userId: colleague.id, workspaceId: otherWorkspace.id, role: "member" },
   });
   await db.position.deleteMany({ where: { workspaceId: otherWorkspace.id } });
+  // Activity by the colleague, so their Person page (`/people/<id>`) has rows
+  // and `/activity` has an actor other than the fixture user to click through
+  // from. Re-created on every seed so the rows are always the newest.
+  await db.workspaceActivityEvent.deleteMany({
+    where: { entityId: { startsWith: FIXTURE.personActivityEntityPrefix } },
+  });
+  await db.workspaceActivityEvent.createMany({
+    data: FIXTURE.personActivityTitles.map((title, index) => ({
+      workspaceId: workspace.id,
+      userId: colleague.id,
+      entityType: "action",
+      entityId: `${FIXTURE.personActivityEntityPrefix}${index}`,
+      action: "created",
+      metadata: { title },
+    })),
+  });
   // One Assistant each for the fixture user and the colleague, so the Assign
   // modal has "your assistant" to pin first and a teammate's to group below.
   // Each Assistant owns an External agent whose shadow user is a workspace
@@ -1203,6 +1231,9 @@ export async function seedDevFixture(db: PrismaClient): Promise<SeededFixture> {
     openQuestionStatement: FIXTURE.openQuestionStatement,
     projectMeetingsUrl: `/w/${FIXTURE.workspaceSlug}/projects/${project.slug}?tab=transcriptions`,
     colleagueName: FIXTURE.colleagueName,
+    colleagueUserId: colleague.id,
+    colleagueActivityTitles: FIXTURE.personActivityTitles,
+    assistantUserId: ariaAssistant.externalAgent.shadowUserId,
     contactName: `${FIXTURE.contactFirstName} ${FIXTURE.contactLastName}`,
     canScheduleWithContact: canEncrypt,
     projectGoalsUrl: `/w/${FIXTURE.workspaceSlug}/projects/${goalProject.slug}?tab=goals`,

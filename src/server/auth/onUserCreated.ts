@@ -1,6 +1,7 @@
 import { db } from "~/server/db";
 import { acceptPendingInvitationsForUser } from "~/server/auth/acceptPendingInvitations";
 import { sendFirstLoginWelcomeEmail } from "~/server/services/EmailService";
+import { resolveEnvEmailTransport } from "~/server/auth/signInMethods";
 import { resolveWelcomeEmailContext, type WelcomeEmailContext } from "~/server/auth/welcomeEmailContext";
 
 /**
@@ -90,6 +91,14 @@ export async function onUserCreated(user: { id?: string; email?: string | null; 
   // send can't block account creation. Not routed through
   // `reportHandledError` for the same Edge-bundle reason as in
   // `deliverSignInCode`.
+  // The welcome email carries no workspace, so only an env transport can send
+  // it. A self-hosted install with no email set up (codes in the log) would
+  // otherwise log a stack trace for every new user, starting with the claim.
+  if (!resolveEnvEmailTransport(process.env)) {
+    console.log("[Auth] No email transport configured; skipping the welcome email.");
+    return;
+  }
+
   const context: WelcomeEmailContext = firstAcceptedWorkspaceId
     ? await resolveWelcomeEmailContext(db, firstAcceptedWorkspaceId, user.email)
     : {};

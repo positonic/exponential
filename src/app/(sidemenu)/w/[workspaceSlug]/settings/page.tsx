@@ -57,6 +57,7 @@ import { useRouter } from 'next/navigation';
 import { useRef, useState } from 'react';
 import { useWorkspace } from '~/providers/WorkspaceProvider';
 import { api } from '~/trpc/react';
+import { PersonLink } from '~/app/_components/people/PersonLink';
 import { InviteMemberModal } from '~/app/_components/InviteMemberModal';
 import { EditMemberRoleModal } from '~/app/_components/EditMemberRoleModal';
 import { PendingInvitationsTable } from '~/app/_components/PendingInvitationsTable';
@@ -993,7 +994,9 @@ export default function WorkspaceSettingsPage() {
                       </Avatar>
                       <div className="min-w-0">
                         <div className="flex min-w-0 flex-wrap items-center gap-x-1.5 text-[13px] font-medium text-text-primary">
-                          <span className="max-w-full truncate">{member.user.name ?? 'Unknown'}</span>
+                          <PersonLink userId={member.userId} className="max-w-full truncate">
+                            {member.user.name ?? 'Unknown'}
+                          </PersonLink>
                           {member.user.isAgent && (
                             <span className="inline-flex shrink-0 items-center gap-0.5 rounded border border-border-primary px-1 text-[10px] font-normal text-text-muted">
                               <IconRobotFace size={10} aria-hidden="true" />

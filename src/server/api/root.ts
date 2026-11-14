@@ -51,6 +51,7 @@ import { wheelOfLifeRouter } from "./routers/wheelOfLife";
 import { navigationPreferenceRouter } from "./routers/navigationPreference";
 import { habitRouter } from "./routers/habit";
 import { workspaceRouter } from "./routers/workspace";
+import { personRouter } from "./routers/person";
 import { externalAgentRouter } from "./routers/externalAgent";
 import { positionRouter } from "./routers/position";
 import { resourceRouter } from "./routers/resource";
@@ -163,6 +164,7 @@ export const appRouter = createTRPCRouter({
   navigationPreference: navigationPreferenceRouter,
   habit: habitRouter,
   workspace: workspaceRouter,
+  person: personRouter,
   resource: resourceRouter,
   knowledgeChunk: knowledgeChunkRouter,
   transcriptionSessionParticipant: transcriptionSessionParticipantRouter,
