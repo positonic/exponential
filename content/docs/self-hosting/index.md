@@ -5,14 +5,20 @@ section: self-hosting
 order: 1
 icon: IconSettings
 sidebarTitle: Overview
-updated: 2026-10-23
+updated: 2026-11-14
 ---
 
 Exponential is open source and can run on your own infrastructure. Everything in the rest of these docs describes the product as a user sees it; this page is for the person operating an installation. If you use exponential.im, you can skip it.
 
+## Deploy on Railway
+
+[![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/deploy/exponential)
+
+The [Railway template](https://railway.com/deploy/exponential) runs your own installation in one click: Postgres with pgvector, the app and the scheduler, with every secret generated for you. When the deploy finishes, open the **app** service's logs, find the block that starts `This install has no admin yet`, and redeem the setup token at the `/setup` link it gives. You become the instance admin and sign-up turns invite-only. Until you add email (SMTP or Postmark) or an OAuth provider, your sign-in codes are written to the same logs, so keep them to yourself.
+
 ## Where to find it
 
-The code is at [github.com/positonic/exponential](https://github.com/positonic/exponential). The operator guides live in the repository under `dev-docs/`, starting with `PRODUCTION_DEPLOYMENT_GUIDE.md`.
+The code is at [github.com/positonic/exponential](https://github.com/positonic/exponential). The README's "Self-hosting" section covers Railway, Docker Compose and running from source; the deeper operator guides live under `dev-docs/`, starting with `PRODUCTION_DEPLOYMENT_GUIDE.md`.
 
 ## What an installation consists of
 
