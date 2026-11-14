@@ -73,6 +73,11 @@ jobs:
         uses: docker/metadata-action@v5
         with:
           images: ghcr.io/${{ github.repository_owner }}/${{ matrix.image }}
+          # Only the raw rule below makes `latest` (main). By default the
+          # semver rules add it too, so a release tag on an older commit would
+          # move `latest` backwards.
+          flavor: |
+            latest=false
           tags: |
             type=raw,value=latest,enable={{is_default_branch}}
             type=sha,prefix=sha-
