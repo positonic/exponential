@@ -1905,8 +1905,11 @@ export const pageRouter = createTRPCRouter({
       assertNotRow(page, "sharing");
       const access = await ensureCanShare(ctx.db, userId, page);
 
+      // The owner always has access; and nobody grants themselves — a
+      // self-grant would outlive the route that let them share (a project
+      // editor removed from the project would keep the page).
       const userIds = [...new Set(input.userIds)].filter(
-        (id) => id !== page.createdById,
+        (id) => id !== page.createdById && id !== userId,
       );
       if (userIds.length === 0) return { added: 0, updated: 0, unchanged: 0 };
       const members = await filterWorkspaceMembers(

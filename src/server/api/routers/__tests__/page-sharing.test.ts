@@ -202,6 +202,14 @@ describe("page sharing rules (ADR-0080)", () => {
     );
   });
 
+  it("nobody grants themselves", async () => {
+    const caller = createMockCaller({ userId: EDITOR, db });
+    await expect(
+      caller.page.invite({ id: PAGE_ID, userIds: [EDITOR, OTHER], role: "editor" }),
+    ).resolves.toEqual({ added: 1, updated: 0, unchanged: 0 });
+    expect(grants.find((g) => g.userId === EDITOR)).toBeUndefined();
+  });
+
   it("someone who can only view cannot share", async () => {
     const caller = createMockCaller({ userId: WS_VIEWER, db });
     const error = await errorOf(caller.page.invite({ id: PAGE_ID, userIds: [OTHER], role: "viewer" }));

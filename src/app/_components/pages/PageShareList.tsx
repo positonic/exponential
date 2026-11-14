@@ -16,6 +16,7 @@ import {
   Tooltip,
 } from "@mantine/core";
 import { notifications } from "@mantine/notifications";
+import { useSession } from "next-auth/react";
 import {
   IconBuilding,
   IconFolder,
@@ -64,6 +65,7 @@ interface PageShareListProps {
  */
 export function PageShareList({ pageId, workspaceId }: PageShareListProps) {
   const utils = api.useUtils();
+  const { data: session } = useSession();
   const { data: sharing, isError } = api.page.sharing.useQuery({ id: pageId });
   const canShare = sharing?.canShare ?? false;
   const { data: members = [] } = api.workspace.listMembers.useQuery(
@@ -131,8 +133,10 @@ export function PageShareList({ pageId, workspaceId }: PageShareListProps) {
   });
 
   const memberOptions = useMemo(() => {
-    // The owner always has access; people already listed are shown below.
+    // The owner always has access, nobody shares with themselves, and people
+    // already listed are shown below.
     const seen = new Set<string>(sharing ? [sharing.ownerId] : []);
+    if (session?.user.id) seen.add(session.user.id);
     for (const person of sharing?.invitees ?? []) seen.add(person.id);
     return members
       .filter((m) => {
@@ -141,7 +145,7 @@ export function PageShareList({ pageId, workspaceId }: PageShareListProps) {
         return true;
       })
       .map((m) => ({ value: m.id, label: m.name ?? m.email ?? "Unnamed user" }));
-  }, [members, sharing]);
+  }, [members, sharing, session?.user.id]);
 
   if (isError) {
     return (
