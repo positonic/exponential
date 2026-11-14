@@ -44,7 +44,7 @@ export function PersonHeader({
     .filter((group) => group.titles.length > 0);
 
   return (
-    <header className="flex flex-col gap-5">
+    <header data-testid="person-header" className="flex flex-col gap-5">
       <div className="flex items-center gap-4">
         <Avatar src={user.image} alt="" size={56} radius="xl" color="brand">
           {initialsOf(name)}
