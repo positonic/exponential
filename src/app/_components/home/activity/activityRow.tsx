@@ -1,6 +1,7 @@
 'use client';
 
 import {
+  IconAlertTriangle,
   IconBrandGithub,
   IconBrandSlack,
   IconBrandTelegram,
@@ -32,6 +33,7 @@ export const ICON_BY_KIND: Record<IconKind, TablerIcon> = {
   milestone: IconTrophy,
   tracked: IconClock,
   deleted: IconTrash,
+  failed: IconAlertTriangle,
   channel_summary: IconMessages,
   github: IconBrandGithub,
   shipped: IconGitMerge,
@@ -227,6 +229,8 @@ export interface FeedRowEvent {
     projectSlug: string | null;
     projectName: string | null;
   } | null;
+  /** Agent-run detail: the run's summary renders under the sentence. */
+  agentRun?: { actionId: string; summary: string | null } | null;
   github?: {
     kind: string;
     repoFullName: string;
@@ -467,6 +471,11 @@ export function ActivityRow({
           entityHref={drawerHref}
           entityIsInternal
         />
+        {event.agentRun?.summary ? (
+          <span className="wsa-feed__summary" data-testid="agent-run-summary">
+            {event.agentRun.summary}
+          </span>
+        ) : null}
         {meta}
       </div>
       <span

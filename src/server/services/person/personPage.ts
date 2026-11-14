@@ -1,6 +1,7 @@
 import { TRPCError } from "@trpc/server";
 import type { PrismaClient } from "@prisma/client";
 import { buildWorkspaceAccessWhere } from "~/server/services/access";
+import { hasVisibleActivity } from "~/server/services/activity/feed";
 
 /**
  * Person page (`/people/<userId>`): who the viewer may look at, and through
@@ -76,12 +77,15 @@ export async function resolvePersonScope(
 
   if (sharedWorkspaces.length === 0) {
     // No shared workspace today. The subject is still visible if they left
-    // behind events in a workspace the viewer belongs to.
-    const visibleEvent = await db.workspaceActivityEvent.findFirst({
-      where: { userId: subjectId, workspaceId: { in: visibleIds } },
-      select: { id: true },
+    // behind an event the viewer's own feed would show — not merely any event
+    // row: a hidden kind, or an edit to a page the viewer cannot open, is
+    // nothing the viewer can already see.
+    const visible = await hasVisibleActivity(db, {
+      workspaceIds: visibleIds,
+      viewerId,
+      actorUserId: subjectId,
     });
-    if (!visibleEvent) throw personNotFound();
+    if (!visible) throw personNotFound();
   }
 
   return { visibleWorkspaces, sharedWorkspaces, isSelf };

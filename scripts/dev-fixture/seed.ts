@@ -94,16 +94,16 @@ export const FIXTURE = {
   /** A third, for the mention spec: mentioning an unassigned Assistant offers the assignment. */
   mentionActionName: "Book the fixture offsite dinner",
   /**
-   * A Position (ADR-0068) held by the fixture user's Assistant, so the Assign
-   * modal has a title to show under Aria and the settings page has one row.
-   * The fixture user and the colleague hold none, so their rows warn.
-   */
-  /**
    * The Person page (`/people/<userId>`): activity events by the colleague, so
    * their page has rows and the feed has a second actor to click through from.
    */
   personActivityEntityPrefix: "dev-fixture-person-activity-",
   personActivityTitles: ["Draft the handover notes", "Review the venue shortlist"],
+  /**
+   * A Position (ADR-0068) held by the fixture user's Assistant, so the Assign
+   * modal has a title to show under Aria and the settings page has one row.
+   * The fixture user and the colleague hold none, so their rows warn.
+   */
   positionTitle: "Travel researcher",
   positionRemit:
     "Research and shortlist travel options: flights, hotels near the venue, local transport. Posts options as a comment and asks before anything is booked.",

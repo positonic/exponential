@@ -44,6 +44,7 @@ import {
 } from "~/server/services/databases/projection";
 import { syncPageDatabases } from "~/server/services/databases/sync";
 import { stripProjectedTables } from "~/lib/databases/marker";
+import { recordPageActivity } from "~/server/services/pages/pageActivity";
 import {
   diffRevisionBodies,
   recordPageRevision,
@@ -930,6 +931,12 @@ export const pageRouter = createTRPCRouter({
         return created;
       });
 
+      await recordPageActivity(ctx.db, {
+        pageId: page.id,
+        action: "created",
+        authorId: userId,
+      });
+
       // Index any seeded body (e.g. agent-authored pages) — no-op when empty.
       if (input.body?.trim()) {
         getEmbeddingTriggerService(ctx.db).triggerPageEmbedding(page.id);
@@ -1106,6 +1113,10 @@ export const pageRouter = createTRPCRouter({
         }
         // The WHERE on docVersion closes the read→write race so two concurrent
         // saves can't both bump from the same base.
+        // Autosaves inside history's fold window are one revision — one
+        // editing session — and only a new revision is an activity event.
+        // (A holder, because the flag is set inside the transaction callback.)
+        const session = { started: false };
         const written = await writePageBodyIfVersion(ctx.db, {
           pageId: id,
           expectedVersion: baseVersion,
@@ -1116,13 +1127,15 @@ export const pageRouter = createTRPCRouter({
             ...(projectIdProvided ? { projectId: projectId ?? null } : {}),
             ...(body !== undefined ? { body } : {}),
           },
-          afterWrite: (tx) =>
-            recordPageRevision(tx, {
+          afterWrite: async (tx) => {
+            const revision = await recordPageRevision(tx, {
               pageId: id,
               kind: "editor",
               authorId: userId,
               note,
-            }),
+            });
+            session.started = !revision.folded;
+          },
         });
         if (!written) {
           throw await conflictAfterMiss({
@@ -1135,6 +1148,13 @@ export const pageRouter = createTRPCRouter({
               "This page was updated concurrently. Reload to get the latest version.",
           });
         }
+        if (session.started) {
+          await recordPageActivity(ctx.db, {
+            pageId: id,
+            action: "updated",
+            authorId: userId,
+          });
+        }
         // Body changed → re-index after a settle delay (embeds, or clears when
         // includeInSearch is off / body emptied). Fire-and-forget.
         getEmbeddingTriggerService(ctx.db).triggerPageEmbedding(id);
@@ -1145,6 +1165,8 @@ export const pageRouter = createTRPCRouter({
       // re-derivation), so its links are re-derived with it; a metadata-only
       // update leaves the doc and its links alone.
       const guardedBase = markdownBaseVersion;
+      // Set when this write produced a new revision (never for a folded one).
+      const history = { newRevision: false };
       const updated = markdownSourceWrite
         ? await ctx.db.$transaction(async (tx) => {
             // With a base version the update is a compare-and-set: a save
@@ -1173,12 +1195,13 @@ export const pageRouter = createTRPCRouter({
             await syncPageLinks(tx, id, carriedDoc);
             // No doc to read blocks from on this path: the markers decide.
             await syncPageDatabases(tx, id, { doc: carriedDoc, body });
-            await recordPageRevision(tx, {
+            const revision = await recordPageRevision(tx, {
               pageId: id,
               kind: "markdown",
               authorId: userId,
               note,
             });
+            history.newRevision = !revision.folded;
             return row;
           })
         : (await metadataChangesHistory(ctx.db, id, {
@@ -1192,15 +1215,23 @@ export const pageRouter = createTRPCRouter({
             // session; from the CLI, MCP or an agent it is its own revision.
             await ctx.db.$transaction(async (tx) => {
               const row = await tx.knowledgePage.update({ where: { id }, data });
-              await recordPageRevision(tx, {
+              const revision = await recordPageRevision(tx, {
                 pageId: id,
                 kind: revisionKindForWriter(ctx.tokenType),
                 authorId: userId,
                 note,
               });
+              history.newRevision = !revision.folded;
               return row;
             })
           : await ctx.db.knowledgePage.update({ where: { id }, data });
+      if (history.newRevision) {
+        await recordPageActivity(ctx.db, {
+          pageId: id,
+          action: "updated",
+          authorId: userId,
+        });
+      }
       // Re-index when the content or its search inclusion changed. A Markdown
       // `body` set without `bodyDoc` is a non-editor write (the Zoe agent) that
       // doesn't take the bodyDoc save path above, so cover it here too.
@@ -1542,6 +1573,16 @@ export const pageRouter = createTRPCRouter({
         }
         return created;
       });
+
+      // One "created" event, for the copy the caller asked for. Its copied
+      // sub-pages come with it and would only flood the feed.
+      if (copies[0]) {
+        await recordPageActivity(ctx.db, {
+          pageId: copies[0].id,
+          action: "created",
+          authorId: userId,
+        });
+      }
 
       // Index every copied body like create does for seeded bodies.
       for (const { source, id } of copies) {
@@ -2289,7 +2330,7 @@ export const pageRouter = createTRPCRouter({
       }
       const doc = (revision.bodyDoc as JSONContent | null) ?? null;
 
-      const result = await ctx.db.$transaction(async (tx) => {
+      const restored = await ctx.db.$transaction(async (tx) => {
         const expectedVersion = input.baseVersion ?? page.docVersion;
         const { count } = await tx.knowledgePage.updateMany({
           where: { id: input.id, docVersion: expectedVersion },
@@ -2338,8 +2379,22 @@ export const pageRouter = createTRPCRouter({
             input.note ??
             `Restored the version from ${revision.createdAt.toISOString()}`,
         });
-        return { docVersion: expectedVersion + 1, revisionId: recorded.id };
+        return {
+          docVersion: expectedVersion + 1,
+          revisionId: recorded.id,
+          newRevision: !recorded.folded,
+        };
       });
+      const { newRevision, ...result } = restored;
+
+      // Restoring a version is an edit by whoever restored it.
+      if (newRevision) {
+        await recordPageActivity(ctx.db, {
+          pageId: input.id,
+          action: "updated",
+          authorId: userId,
+        });
+      }
 
       getEmbeddingTriggerService(ctx.db).triggerPageEmbedding(input.id);
       return { id: input.id, ...result };

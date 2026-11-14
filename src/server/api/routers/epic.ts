@@ -9,6 +9,10 @@ import {
   hasMinimumWorkspaceRole,
 } from "~/server/services/access";
 import { TEXT_LIMITS, boundedText } from "~/lib/text-limits";
+import {
+  recordActivity,
+  type ActivityAction,
+} from "~/server/services/activity/recordActivity";
 
 const epicStatusSchema = z.enum(["OPEN", "IN_PROGRESS", "DONE", "CANCELLED"]);
 const epicPrioritySchema = z.enum(["HIGH", "MEDIUM", "LOW", "NONE"]);
@@ -37,6 +41,32 @@ async function assertProductInWorkspace(
       code: "NOT_FOUND",
       message: "Product not found in this workspace",
     });
+  }
+}
+
+/**
+ * Record an epic change for the activity feed. The epic's name rides in
+ * metadata so the row names it, including after it has been deleted. Epics
+ * have no access rules beyond their workspace, so the feed shows these rows to
+ * every member. Instrumentation only: it never fails the mutation.
+ */
+async function recordEpicActivity(
+  db: PrismaClient,
+  userId: string,
+  epic: { id: string; name: string; workspaceId: string },
+  action: Extract<ActivityAction, "created" | "updated" | "deleted">,
+) {
+  try {
+    await recordActivity(db, {
+      workspaceId: epic.workspaceId,
+      userId,
+      entityType: "epic",
+      entityId: epic.id,
+      action,
+      metadata: { title: epic.name },
+    });
+  } catch {
+    /* instrumentation failure is non-fatal */
   }
 }
 
@@ -171,7 +201,7 @@ export const epicRouter = createTRPCRouter({
       await assertWorkspaceWriteRole(ctx.db, ctx.session.user.id, input.workspaceId);
       await assertProductInWorkspace(ctx.db, input.productId, input.workspaceId);
 
-      return ctx.db.epic.create({
+      const created = await ctx.db.epic.create({
         data: {
           name: input.name,
           description: input.description,
@@ -183,6 +213,8 @@ export const epicRouter = createTRPCRouter({
           ownerId: ctx.session.user.id,
         },
       });
+      await recordEpicActivity(ctx.db, ctx.session.user.id, created, "created");
+      return created;
     }),
 
   // Update an epic
@@ -250,10 +282,12 @@ export const epicRouter = createTRPCRouter({
         );
       }
 
-      return ctx.db.epic.update({
+      const updated = await ctx.db.epic.update({
         where: { id },
         data: { ...updateData, ...(ownerId ? { ownerId } : {}) },
       });
+      await recordEpicActivity(ctx.db, ctx.session.user.id, updated, "updated");
+      return updated;
     }),
 
   // Delete an epic
@@ -293,6 +327,7 @@ export const epicRouter = createTRPCRouter({
       await ctx.db.epic.delete({
         where: { id: input.id },
       });
+      await recordEpicActivity(ctx.db, ctx.session.user.id, epic, "deleted");
 
       return { success: true };
     }),

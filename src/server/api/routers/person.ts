@@ -57,6 +57,9 @@ export const personRouter = createTRPCRouter({
 
       return getAggregatedActivityFeed(ctx.db, {
         workspaceIds,
+        // Page rows are shown only if the viewer (never the subject) can open
+        // the page — the same read-time check as every other feed.
+        viewerId: ctx.session.user.id,
         cursor: input.cursor,
         limit: input.limit ?? FEED_PAGE_SIZE,
         source: input.source,
