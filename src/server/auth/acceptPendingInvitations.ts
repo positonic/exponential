@@ -22,8 +22,11 @@ export async function acceptPendingInvitationsForUser(
   let firstAcceptedWorkspaceId: string | null = null;
 
   try {
+    // Case-insensitive: Auth.js lowercases the sign-in address, but an
+    // invitation keeps the case the inviter typed. Invite-only sign-up
+    // (signUpPolicy) admits on the same match, so the two must agree.
     const pendingWorkspaceInvites = await db.workspaceInvitation.findMany({
-      where: { email, status: "pending", expiresAt: { gt: now } },
+      where: { email: { equals: email, mode: "insensitive" }, status: "pending", expiresAt: { gt: now } },
       orderBy: { createdAt: "asc" },
     });
 
@@ -91,7 +94,7 @@ export async function acceptPendingInvitationsForUser(
     }
 
     const pendingTeamInvites = await db.teamInvitation.findMany({
-      where: { email, status: "pending", expiresAt: { gt: now } },
+      where: { email: { equals: email, mode: "insensitive" }, status: "pending", expiresAt: { gt: now } },
     });
 
     for (const invitation of pendingTeamInvites) {

@@ -49,9 +49,10 @@ export const env = createEnv({
     // AUTH_POSTMARK_FROM, then noreply@exponential.im; SMTP never falls back
     // to exponential.im.
     EMAIL_FROM: z.string().optional(),
-    // Opt-in, single-user installs only: with no email transport configured,
-    // write each Sign-in code to the server log ("true" or "1"). Anyone who can
-    // read the log can sign in. Ignored when a transport is configured.
+    // Opt-in: with no email transport configured, write the instance admin's
+    // Sign-in codes to the server log ("true" or "1"); nobody else gets a code
+    // (ADR-0081). Anyone who can read the log can sign in as the admin.
+    // Ignored when a transport is configured.
     AUTH_LOG_SIGN_IN_CODES: z.string().optional(),
     // Bearer secret the cron routes require (Vercel Cron, or the self-host
     // scheduler). The routes fail closed without it.

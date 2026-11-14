@@ -113,15 +113,42 @@ export function preflightEnv(env: SignInEnv): EnvPreflight {
     methods.microsoft && "Microsoft",
     methods.emailDelivery === "postmark" && "email codes (Postmark)",
     methods.emailDelivery === "smtp" && "email codes (SMTP)",
-    methods.emailDelivery === "log" && "sign-in codes in the server log",
+    methods.emailDelivery === "log" && "sign-in codes in the server log (instance admin only)",
   ].filter((method): method is string => typeof method === "string");
 
   const lines =
     active.length > 0
       ? [`[selfhost] Sign-in methods: ${active.join(", ")}`]
       : [
-          `[selfhost] WARNING: no sign-in method is configured, so nobody can sign in. /signin will show a setup error. Set one of: ${methods.missing.join(", ")}.`,
+          `[selfhost] WARNING: no sign-in method is configured. An unclaimed install can still be claimed once at /setup with the setup token, but once that admin signs out nobody can sign in, and /signin shows a setup error. Set one of: ${methods.missing.join(", ")}.`,
         ];
 
   return { error: null, lines: [...lines, ...signInMethodWarnings(env), ...aiCapabilityLines(env)] };
+}
+
+/**
+ * The boot-log block that hands the operator the one-time **Setup token**
+ * while the install has no instance admin. Every line carries the `[selfhost]`
+ * prefix so a platform log search finds the whole block.
+ */
+export function formatSetupTokenBanner(input: {
+  token: string;
+  expiresAt: Date;
+  /** The install's public URL (AUTH_URL / NEXTAUTH_URL), when the operator set one. */
+  baseUrl: string | undefined;
+}): string[] {
+  const where = input.baseUrl
+    ? `${input.baseUrl.replace(/\/+$/, "")}/setup`
+    : "/setup on this install";
+  return [
+    "[selfhost] ================================================================",
+    "[selfhost] This install has no admin yet. To claim it, open",
+    `[selfhost]   ${where}`,
+    "[selfhost] and enter your email address with this setup token:",
+    `[selfhost]   ${input.token}`,
+    `[selfhost] It works once, and only until ${input.expiresAt.toISOString()} or the next restart,`,
+    "[selfhost] whichever comes first. Whoever claims it becomes the instance admin and",
+    "[selfhost] sign-up becomes invite-only.",
+    "[selfhost] ================================================================",
+  ];
 }

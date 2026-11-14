@@ -2,6 +2,8 @@ import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { auth } from "~/server/auth";
 import { resolveSignInMethods } from "~/server/auth/signInMethods";
+import { db } from "~/server/db";
+import { isSetupOpen } from "~/server/services/instance/instanceSettings";
 import { PRODUCT_NAME } from "~/lib/brand";
 import { SignInLandingPage } from "./SignInLandingPage";
 import { SignInSetupError } from "./SignInSetupError";
@@ -19,6 +21,12 @@ export default async function SignIn() {
   const session = await auth();
   if (session?.user) {
     redirect("/home");
+  }
+
+  // A self-host install nobody has claimed yet: the first person in uses the
+  // setup token (ADR-0081). Never true on exponential.im (admins, no token).
+  if (await isSetupOpen(db)) {
+    redirect("/setup");
   }
 
   const methods = resolveSignInMethods(process.env);

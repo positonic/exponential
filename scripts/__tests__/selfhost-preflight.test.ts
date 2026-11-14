@@ -8,6 +8,7 @@ import { describe, expect, it } from "vitest";
 import {
   checkPgvector,
   explainMigrationFailure,
+  formatSetupTokenBanner,
   preflightEnv,
   PGVECTOR_MISSING_MESSAGE,
 } from "../selfhost/preflight";
@@ -107,5 +108,28 @@ describe("preflightEnv", () => {
     const result = preflightEnv({});
     expect(result.error).toBeNull();
     expect(result.lines.join("\n")).toMatch(/no sign-in method is configured.*AUTH_LOG_SIGN_IN_CODES/);
+  });
+});
+
+describe("formatSetupTokenBanner", () => {
+  const expiresAt = new Date("2026-11-13T10:00:00Z");
+
+  it("prints the token, where to enter it and when it stops working", () => {
+    const text = formatSetupTokenBanner({ token: "ABCDE-FGHJK-MNPQR-STVWX", expiresAt, baseUrl: "https://ops.example.test/" }).join("\n");
+    expect(text).toContain("ABCDE-FGHJK-MNPQR-STVWX");
+    expect(text).toContain("https://ops.example.test/setup");
+    expect(text).toContain("2026-11-13T10:00:00.000Z");
+    expect(text).toMatch(/once/);
+  });
+
+  it("falls back to the path when the public URL isn't known", () => {
+    const text = formatSetupTokenBanner({ token: "T", expiresAt, baseUrl: undefined }).join("\n");
+    expect(text).toContain("/setup on this install");
+  });
+
+  it("prefixes every line so it is easy to find in a platform log", () => {
+    for (const line of formatSetupTokenBanner({ token: "T", expiresAt, baseUrl: undefined })) {
+      expect(line.startsWith("[selfhost]")).toBe(true);
+    }
   });
 });

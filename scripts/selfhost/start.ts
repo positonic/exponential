@@ -18,7 +18,9 @@
  *      (LifeDomains, system Tags, default Differentiators and Audiences),
  *      which no migration inserts and first-run screens rely on. Never the
  *      whole of `prisma/seed.ts`.
- *   6. Serve (`next start`, which honours PORT, default 3000).
+ *   6. Setup token — while no instance admin exists, print a fresh one-time
+ *      token for `/setup` (ADR-0081). Once the install is claimed, nothing.
+ *   7. Serve (`next start`, which honours PORT, default 3000).
  *
  * exponential.im never runs this: Vercel builds with `vercel.json`'s
  * buildCommand, migrations run from `.github/workflows/prisma-migrate.yml`, and
@@ -29,9 +31,11 @@ import { spawn } from "node:child_process";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { seedReferenceData } from "../../prisma/referenceData";
+import { issueSetupToken } from "../../src/server/services/instance/instanceSettings";
 import {
   checkPgvector,
   explainMigrationFailure,
+  formatSetupTokenBanner,
   preflightEnv,
   type PgvectorRow,
 } from "./preflight";
@@ -162,6 +166,26 @@ async function ensureReferenceData(): Promise<void> {
   }
 }
 
+/**
+ * Print a fresh setup token while the install is unclaimed. Each boot replaces
+ * the previous token, so an old log line stops working after a restart.
+ */
+async function printSetupTokenIfUnclaimed(): Promise<void> {
+  const { PrismaClient } = await import("@prisma/client");
+  const prisma = new PrismaClient();
+  try {
+    const issued = await issueSetupToken(prisma);
+    if (!issued) return;
+    const baseUrl = process.env.AUTH_URL ?? process.env.NEXTAUTH_URL;
+    for (const line of formatSetupTokenBanner({ ...issued, baseUrl })) console.log(line);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new StartupError(`Could not issue a setup token: ${message}`);
+  } finally {
+    await prisma.$disconnect();
+  }
+}
+
 /** Load `.env*` with Next's own loader and precedence, in production mode. */
 async function loadEnvFiles(): Promise<void> {
   // `@next/env` is CJS: under tsx the namespace may carry it on `default`.
@@ -181,6 +205,7 @@ export async function main(): Promise<number> {
   await preflightPgvector();
   await migrate();
   await ensureReferenceData();
+  await printSetupTokenIfUnclaimed();
   console.log(`[selfhost] Starting Exponential on port ${process.env.PORT ?? "3000"}…`);
   return run("next", ["start"]);
 }
