@@ -26,7 +26,7 @@ function formatEyebrowDate(now: Date): string {
 }
 
 /**
- * Hero strip for the Activity home: greeting on the left, and on the right a
+ * Hero strip for the Activity home: greeting on top, and beneath it a
  * "This week's focus" widget ({@link WeeklyFocusSummary}) surfacing the goals
  * the user pinned in their weekly review. Greeting is hour-of-day derived; the
  * workspace label comes from the active `WorkspaceProvider`.

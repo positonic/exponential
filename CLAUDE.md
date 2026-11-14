@@ -38,6 +38,11 @@ errors, and a `var(--x)` that is declared nowhere fails `npm run tokens:check`. 
 stylesheet must never declare its own `--radius-*`. See `/dev-docs/styling-architecture.md`,
 "Shape tokens".
 
+**Draw boxes with the primitives, not with classes.** `Panel`, `SectionHeader`, `Pill`,
+`Toolbar` and `EmptyState` from `~/app/_components/ui` own radius, border and surface.
+A `className` that composes `rounded-* border bg-surface-*` by hand is ratcheted by
+`npm run tokens:check` (counts may only go down). See "Primitives" in the styling doc.
+
 ## Development Commands
 
 ### Core Development
@@ -214,8 +219,10 @@ HOME=/Users/james/.config/agent-homes/claude exponential actions kanban --json
 # List all projects in the workspace
 HOME=/Users/james/.config/agent-homes/claude exponential projects list --workspace exponential --json
 
-# Check auth status — also the fastest way to confirm which identity you are
-HOME=/Users/james/.config/agent-homes/claude exponential auth status
+# Who am I — prints the account's name and id, and its owner when it is an agent.
+# Run this first on a FORBIDDEN: the account it names is the one James must add
+# to the restricted project (project → Members tab, search by name).
+HOME=/Users/james/.config/agent-homes/claude exponential auth whoami
 ```
 
 The CLI outputs JSON when piped or when `--json` is passed, making it easy to parse programmatically. In a terminal it uses colored pretty output.

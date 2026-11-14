@@ -9,6 +9,7 @@ import {
   IconHistory,
 } from "@tabler/icons-react";
 import { api } from "~/trpc/react";
+import { Panel } from "~/app/_components/ui";
 
 interface RunItemView {
   externalId: string | null;
@@ -344,7 +345,7 @@ export function SyncRunHistory({ productId }: { productId: string }) {
     .map((run) => run.id);
 
   return (
-    <div className="rounded-lg border border-border-primary bg-surface-secondary px-5 py-4">
+    <Panel padding="none" className="px-5 py-4">
       <div className="flex items-center gap-2">
         <IconHistory size={16} className="text-text-secondary" />
         <Text size="sm" fw={600} className="text-text-primary">
@@ -389,6 +390,6 @@ export function SyncRunHistory({ productId }: { productId: string }) {
           onClose={() => setRevertTarget(null)}
         />
       )}
-    </div>
+    </Panel>
   );
 }

@@ -49,6 +49,7 @@ import { api } from "~/trpc/react";
 import { notifications } from "@mantine/notifications";
 import { useWorkspace } from "~/providers/WorkspaceProvider";
 import { getAvatarColor, getInitial, getColorSeed, getTextColor } from "~/utils/avatarColors";
+import { Panel } from "~/app/_components/ui";
 
 interface PipelineStage {
   id: string;
@@ -599,7 +600,7 @@ export function DealDetailDrawer({
 
           {/* Description */}
           {deal.description && (
-            <div className="rounded-lg border border-border-primary bg-surface-secondary p-4">
+            <Panel >
               <div className="flex items-center gap-2 mb-2">
                 <IconNote size={16} className="text-text-muted" />
                 <Text size="sm" className="font-medium text-text-primary">
@@ -609,11 +610,11 @@ export function DealDetailDrawer({
               <Text size="sm" className="text-text-secondary">
                 {deal.description}
               </Text>
-            </div>
+            </Panel>
           )}
 
           {/* Activity */}
-          <div className="rounded-lg border border-border-primary bg-surface-secondary">
+          <Panel padding="none">
             <div className="flex items-center justify-between border-b border-border-primary px-4 py-3">
               <div className="flex items-center gap-2">
                 <IconBolt size={16} className="text-text-muted" />
@@ -721,7 +722,7 @@ export function DealDetailDrawer({
                 </Button>
               </Group>
             </div>
-          </div>
+          </Panel>
 
           {/* Record Details */}
           <div>

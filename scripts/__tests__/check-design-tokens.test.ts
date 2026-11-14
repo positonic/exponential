@@ -5,6 +5,7 @@ import {
   findRawValues,
   findScopedShapeTokens,
   findUndefinedVars,
+  isHandRolledSurface,
   isTokenRadius,
   isTokenShadow,
 } from "../check-design-tokens";
@@ -104,6 +105,17 @@ describe("isTokenShadow", () => {
   });
 });
 
+describe("isHandRolledSurface", () => {
+  it("needs border, a radius step and a surface background together", () => {
+    expect(isHandRolledSurface("rounded-lg border border-border-primary bg-surface-secondary p-4")).toBe(true);
+    expect(isHandRolledSurface("mb-4 rounded-xl border border-border-secondary bg-background-primary")).toBe(true);
+    expect(isHandRolledSurface("rounded-lg border-b border-border-primary")).toBe(false);
+    expect(isHandRolledSurface("border border-border-primary bg-surface-secondary")).toBe(false);
+    expect(isHandRolledSurface("rounded-full bg-surface-muted")).toBe(false);
+    expect(isHandRolledSurface("rounded-t-lg border-2 border-border-primary bg-surface-secondary")).toBe(true);
+  });
+});
+
 describe("findRawValues", () => {
   it("reports raw CSS radius and shadow, not token-based ones", () => {
     const css = [
@@ -121,6 +133,39 @@ describe("findRawValues", () => {
 
   it("lets the token definition files paint shadows with literals", () => {
     expect(findRawValues("src/styles/globals.css", "--shadow-sm: 0 1px 2px rgba(0,0,0,.1); .x { box-shadow: 0 0 0 1px rgba(0,0,0,.1) }")).toEqual([]);
+  });
+
+  it("reports a hand-rolled surface in TSX, except inside the primitives folder", () => {
+    const tsx = '<div className="rounded-lg border border-border-primary bg-surface-secondary p-4" />';
+    expect(findRawValues("src/app/x.tsx", tsx).map((f) => f.kind)).toEqual(["raw-surface"]);
+    expect(findRawValues("src/app/_components/ui/Panel.tsx", tsx)).toEqual([]);
+  });
+
+  it("reports a surface built in a className expression (cx, ternary, template literal)", () => {
+    const tsx = [
+      '<div className={active ? "rounded-lg border bg-surface-secondary" : "opacity-50"} />',
+      '<div className={cx("rounded-md border", isOn && "bg-background-secondary")} />',
+      '<div className={`rounded-lg border ${x} bg-surface-primary`} />',
+      '<div className={cx("rounded-lg", "px-2")} />',
+    ].join("\n");
+    expect(findRawValues("src/app/x.tsx", tsx).map((f) => `${f.kind}@${f.line}`)).toEqual([
+      "raw-surface@1",
+      "raw-surface@2",
+      "raw-surface@3",
+    ]);
+  });
+
+  it("flags p-* in a Panel className unless padding is none", () => {
+    const tsx = [
+      '<Panel className="p-12 text-center">',
+      '<Panel padding="lg" className="px-5 py-4">',
+      '<Panel padding="none" className="p-12 text-center">',
+      '<Panel className="mb-4 text-center">',
+    ].join("\n");
+    expect(findRawValues("src/app/x.tsx", tsx).map((f) => `${f.kind}@${f.line}`)).toEqual([
+      "panel-padding-conflict@1",
+      "panel-padding-conflict@2",
+    ]);
   });
 
   it("reports TSX style objects, arbitrary Tailwind values and numeric Mantine radius", () => {

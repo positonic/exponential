@@ -5,6 +5,14 @@
 Accepted — 2026-08-03
 
 Amended by [ADR-0061](0061-time-entries-belong-to-the-owner.md): for `TimeEntry` only, an agent may write a row owned by its owner, recording itself as author.
+Amended by [ADR-0079](0079-agents-keep-their-owners-reading-list.md): an agent saves `Resource`s to its owner's Reading list, inside its delegated workspaces, recording itself as author.
+
+Amended 2026-11-09 (ticket alpha.shark): the delegation invariant extends to **project
+membership**. A project admin may add an agent's shadow user to a project (this is how an agent
+enters a restricted project, which the member role never reaches) only while the agent already
+belongs to the project's workspace and its owner has access to the project; the role is capped at
+`editor`; removing the owner from the project removes their agents too. Refusals from a project
+name the account, its owner and the missing access rather than saying "Access denied".
 
 ## Context
 

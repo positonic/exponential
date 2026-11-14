@@ -4,7 +4,7 @@ description: Connect third-party AI agents to Exponential as first-class team me
 icon: IconRobotFace
 order: 2
 sidebarTitle: External agents
-updated: 2026-10-11
+updated: 2026-11-09
 ---
 
 External agents let you connect autonomous AI software — [Hermes Agent](https://hermes-agent.nousresearch.com/), MCP clients, custom scripts, anything that can send an HTTP request — to Exponential **as its own identity**, not as you. When your agent creates an action, the action says the *agent* created it, and the workspace's activity feed and members list show it with an **agent** badge. This is different from Zoe, who works *with* you in a conversation and acts as you with your confirmation.
@@ -35,6 +35,18 @@ Authorization: Bearer exp_agent_...
 
 For agent software that runs shell commands (like Hermes), the simplest path is the Exponential CLI with the agent key as its token — see [API tokens](/docs/developers/api-tokens#how-to-use-a-token).
 
+## How to give an agent access to a restricted project
+
+Joining a workspace makes the agent an ordinary **member**, so it sees what members see. A [restricted project](/docs/collaborate/members-and-access#how-to-open-or-close-a-project) is the exception: only the project's creator, its project members and workspace admins can see it and the pages, meetings and actions inside it. An agent is never a workspace admin, so a restricted project refuses it until a project admin adds it:
+
+1. Find out which account the agent is. Run `exponential auth whoami` with the agent's key — it prints the account's name and id and says it is an agent, and who owns it. The same account appears in the workspace **Members** list with an **agent** badge.
+2. Open the project, go to its **Members** tab and search for the agent by name. Agents in the project's workspace are listed with an **Agent** badge.
+3. Add it as **Editor** (to create and edit pages and actions in the project) or **Viewer** (read only). Agents can't be project admins.
+
+Three rules keep this safe. The agent's owner must already have access to the project — a project admin can't let someone's agent in around them — and an agent can be an editor only if its owner can edit the project. When the owner is removed from the project, their agents leave with them. And when the agent loses the workspace (its owner revokes it, or leaves or is demoted), it loses every project membership in that workspace too.
+
+If the agent is refused, the error says why. A refusal on a restricted project reads like `Access denied: Claude Desktop (cmsf…, an agent owned by James) can't read this page. "Manage Syntrofi" is a restricted project and Claude Desktop is not one of its members. A project admin can add Claude Desktop under the project's Members tab.`
+
 ## How to rotate or revoke a key
 
 - Each agent can hold up to 10 keys. Create a second key, move your software to it, then revoke the first — no downtime.
@@ -46,7 +58,7 @@ For agent software that runs shell commands (like Hermes), the simplest path is 
 
 External agents are deliberately more limited than human members:
 
-- **Member role only.** An agent is always a workspace *member* — never an owner or admin. It cannot manage members, change workspace settings or manage other agents.
+- **Member role only.** An agent is always a workspace *member* — never an owner or admin. It cannot manage members, change workspace settings or manage other agents. In a restricted project it is at most an *editor*, and only once a project admin adds it (see above).
 - **Your access is the ceiling.** If you leave a workspace or are changed to viewer, your agents lose that workspace immediately.
 - **No credential minting.** Agents cannot create API tokens, connect integrations or generate other credentials.
 - **Admins can remove it.** A workspace admin can remove an agent from the **Members** list at any time without touching your keys.

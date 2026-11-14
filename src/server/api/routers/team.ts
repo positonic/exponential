@@ -52,8 +52,11 @@ export const teamRouter = createTRPCRouter({
     }),
 
   // Get all teams for the current user
+  // The caller's teams; `workspaceId` narrows them to one workspace on the
+  // server, so a workspace-scoped picker never ships other workspaces' teams.
   list: protectedProcedure
-    .query(async ({ ctx }) => {
+    .input(z.object({ workspaceId: z.string().optional() }).optional())
+    .query(async ({ ctx, input }) => {
       const teams = await ctx.db.team.findMany({
         where: {
           members: {
@@ -61,6 +64,7 @@ export const teamRouter = createTRPCRouter({
               userId: ctx.session.user.id,
             },
           },
+          ...(input?.workspaceId ? { workspaceId: input.workspaceId } : {}),
         },
         include: {
           members: {

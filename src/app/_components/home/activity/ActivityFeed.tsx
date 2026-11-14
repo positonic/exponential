@@ -75,7 +75,9 @@ export function ActivityFeed() {
             </div>
           ))}
         </>
-      ) : display.length === 0 ? (
+      ) : display.length === 0 && !hasMore ? (
+        // With older rows remaining this is not "no activity": the newest
+        // stretch held nothing this viewer can see, and the link below leads on.
         <p className="wsa-feed__empty">
           No activity yet. Mutations from now on will show up here.
         </p>

@@ -266,6 +266,9 @@ export async function listWaitingOnMe(
           shortId: true,
           number: true,
           title: true,
+          // Always QA when read; carried so the tab's status pill and picker
+          // render the row's real value after an optimistic change.
+          status: true,
           prUrl: true,
           updatedAt: true,
           product: {

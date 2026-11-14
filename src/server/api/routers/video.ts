@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { OpenAIEmbeddings } from "@langchain/openai";
+import { requireAi } from "~/server/services/ai/requireAi";
 import { describeAndSave, summarizeAndSaveSummary, getSetups } from "~/server/services/videoService";
 import {
   createTRPCRouter,
@@ -60,6 +61,7 @@ export const videoRouter = createTRPCRouter({
       })
     )
     .query(async ({ ctx, input }) => {
+      requireAi("openai", "Video search");
       const embeddings = new OpenAIEmbeddings({
         openAIApiKey: process.env.OPENAI_API_KEY,
       });

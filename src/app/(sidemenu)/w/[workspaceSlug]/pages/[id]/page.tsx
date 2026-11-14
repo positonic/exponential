@@ -3,18 +3,22 @@
 import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
-import { Skeleton, Text, TextInput } from '@mantine/core';
+import { Skeleton, Text, Textarea } from '@mantine/core';
 import { useLocalStorage } from '@mantine/hooks';
 import { IconCalendarEvent } from '@tabler/icons-react';
-import { formatDistanceToNow } from 'date-fns';
+import { format, formatDistanceToNow } from 'date-fns';
 import type { JSONContent } from '@tiptap/core';
 import { api } from '~/trpc/react';
 import { PageDocument } from '~/app/_components/pages/PageDocument';
 import { PageShareMenu } from '~/app/_components/pages/PageShareMenu';
 import { PageSubpages } from '~/app/_components/pages/PageSubpages';
+import { RowPropertiesHeader } from '~/app/_components/databases/RowPropertiesHeader';
+import { DetachedDatabases } from '~/app/_components/databases/DetachedDatabases';
+import { rowValues } from '~/lib/databases/display';
 import { PageCommentsSection } from '~/app/_components/pages/PageCommentsSection';
 import { PageProjectPicker } from '~/app/_components/pages/PageProjectPicker';
 import { PageDetailsModal } from '~/app/_components/pages/PageDetailsModal';
+import { PageHistoryModal } from '~/app/_components/pages/PageHistoryModal';
 import { PageOutline } from '~/app/_components/pages/PageOutline';
 import { UpdateReviewBanner } from '~/app/_components/pages/UpdateReviewBanner';
 import { FavoriteButton } from '~/app/_components/shared/FavoriteButton';
@@ -71,10 +75,14 @@ function PageTitle({
     );
   }
 
+  // A textarea, not an input, so a long title wraps onto new lines like the
+  // read-only heading does instead of being clipped by the reading column.
+  // Titles are still single-line: Enter commits and pasted newlines become
+  // spaces.
   return (
-    <TextInput
+    <Textarea
       value={title}
-      onChange={(e) => setTitle(e.currentTarget.value)}
+      onChange={(e) => setTitle(e.currentTarget.value.replace(/\r?\n/g, ' '))}
       onBlur={commit}
       onKeyDown={(e) => {
         if (e.key === 'Enter') {
@@ -82,9 +90,14 @@ function PageTitle({
           e.currentTarget.blur();
         }
       }}
+      autosize
+      minRows={1}
       variant="unstyled"
       placeholder="Untitled"
       aria-label="Page title"
+      // `minHeight` lives on a class, not in `styles.input`: react-textarea-autosize
+      // throws in development when it is passed as an inline style.
+      classNames={{ input: 'min-h-0' }}
       styles={{
         input: {
           fontSize: TITLE_FONT_SIZE,
@@ -92,8 +105,9 @@ function PageTitle({
           lineHeight: 1.2,
           letterSpacing: '-0.01em',
           height: 'auto',
-          minHeight: 0,
           padding: 0,
+          resize: 'none',
+          overflow: 'hidden',
         },
       }}
     />
@@ -119,6 +133,10 @@ function PageEditorContent({
     defaultValue: false,
   });
   const [detailsOpen, setDetailsOpen] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  // Bumped after a restore so the editor remounts on the restored content
+  // instead of keeping the doc it loaded (the engine owns its doc after mount).
+  const [editorEpoch, setEditorEpoch] = useState(0);
   const widthClass = fullWidth ? 'w-full' : 'mx-auto w-full max-w-3xl';
   const utils = api.useUtils();
   const editorHandleRef = useRef<RichDocEditorHandle | null>(null);
@@ -208,6 +226,20 @@ function PageEditorContent({
           >
             Pages
           </Link>
+          {page.database ? (
+            <>
+              <span className="text-text-muted">/</span>
+              <Link
+                href={`/w/${workspaceSlug}/pages/${page.database.pageId}`}
+                className="truncate text-text-muted transition-colors hover:text-text-primary"
+                data-testid="page-database-crumb"
+              >
+                {page.database.pageTitle || 'Untitled'}
+              </Link>
+              <span className="text-text-muted">/</span>
+              <span className="shrink-0 text-text-muted">{page.database.name}</span>
+            </>
+          ) : null}
           <span className="text-text-muted">/</span>
           <span className="truncate text-text-primary">{page.title || 'Untitled'}</span>
         </nav>
@@ -238,6 +270,13 @@ function PageEditorContent({
             // updaters, which would persist the toggle a second time and
             // land back on the old value.
             onToggleFullWidth={() => setFullWidth(!fullWidth)}
+            onOpenHistory={() => {
+              // Land pending autosaves first, so the history (and the version
+              // a restore pins) includes the edits on screen.
+              void (editorHandleRef.current?.flushSave() ?? Promise.resolve()).finally(() =>
+                setHistoryOpen(true),
+              );
+            }}
           />
         </div>
       </header>
@@ -264,7 +303,23 @@ function PageEditorContent({
         <UpdateReviewBanner pageId={page.id} />
         <div className="group mb-6">
           <PageTitle pageId={page.id} initialTitle={page.title} editable={page.canEdit} />
-          <div className={`mt-2 flex min-h-6 items-center gap-2 ${metaRowClass}`}>
+          {page.database ? (
+            <RowPropertiesHeader
+              row={{
+                id: page.id,
+                title: page.title,
+                values: rowValues(page.properties),
+                relations: page.database.relations,
+                createdById: page.createdById,
+                createdAt: page.createdAt,
+                updatedAt: page.updatedAt,
+              }}
+              database={page.database}
+              workspaceId={page.workspaceId}
+              editable={page.canEdit}
+            />
+          ) : null}
+          <div className={`mt-2 flex min-h-6 items-center gap-2 ${metaRowClass}`} hidden={!!page.database}>
             <PageProjectPicker
               pageId={page.id}
               workspaceId={page.workspaceId}
@@ -282,15 +337,68 @@ function PageEditorContent({
                 Move…
               </button>
             ) : null}
+            {page.canEdit && !page.source && !page.asOf ? (
+              <button
+                type="button"
+                className="rounded px-1 py-0.5 text-xs text-text-muted hover:bg-surface-hover hover:text-text-primary"
+                onClick={() => setDetailsOpen(true)}
+                data-testid="page-add-provenance"
+              >
+                Add source / as-of…
+              </button>
+            ) : null}
           </div>
+          {page.source || page.asOf ? (
+            // Provenance (ADR-0074): where the facts come from and when they
+            // were true. Always visible once set — it is what makes the page
+            // trustworthy — and a click opens the details to change it.
+            <button
+              type="button"
+              className={`mt-1 flex flex-wrap items-center gap-1 text-left text-xs text-text-muted ${
+                page.canEdit ? 'hover:text-text-primary' : 'cursor-default'
+              }`}
+              onClick={page.canEdit ? () => setDetailsOpen(true) : undefined}
+              disabled={!page.canEdit}
+              data-testid="page-provenance"
+            >
+              {page.asOf ? <span>As of {format(new Date(page.asOf), 'd MMM yyyy')}</span> : null}
+              {page.asOf && page.source ? <span>·</span> : null}
+              {page.source ? (
+                /^https?:\/\//i.test(page.source) ? (
+                  <span>
+                    Source:{' '}
+                    <a
+                      href={page.source}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="underline hover:text-text-primary"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      {page.source.replace(/^https?:\/\//i, '')}
+                    </a>
+                  </span>
+                ) : (
+                  <span>Source: {page.source}</span>
+                )
+              ) : null}
+            </button>
+          ) : null}
           <PageDetailsModal
             page={detailsOpen ? page : null}
             workspaceSlug={workspaceSlug}
             followMove
             onClose={() => setDetailsOpen(false)}
           />
+          <PageHistoryModal
+            pageId={page.id}
+            opened={historyOpen}
+            canEdit={page.canEdit}
+            onClose={() => setHistoryOpen(false)}
+            onRestored={() => setEditorEpoch((n) => n + 1)}
+          />
         </div>
         <PageDocument
+          key={editorEpoch}
           pageId={page.id}
           bodyDoc={(page.bodyDoc as JSONContent | null) ?? null}
           body={page.body ?? null}
@@ -310,6 +418,9 @@ function PageEditorContent({
           editable={page.canEdit}
           onDetach={page.canEdit ? detachChild : undefined}
         />
+        {!page.database ? (
+          <DetachedDatabases pageId={page.id} editable={page.canEdit} editorHandle={editorHandle} />
+        ) : null}
         <PageCommentsSection pageId={page.id} />
       </div>
       <PageOutline editor={editorHandle?.editor ?? null} />

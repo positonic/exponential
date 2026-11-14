@@ -44,6 +44,7 @@ import { api } from '~/trpc/react';
 import type { RouterOutputs } from '~/trpc/react';
 import { useWorkspace } from '~/providers/WorkspaceProvider';
 import { useAgentModal } from '~/providers/AgentModalProvider';
+import { useAiCapabilities } from '~/providers/AiCapabilitiesProvider';
 import { reportHandledError } from '~/lib/reportHandledError';
 import { useWikiBridge } from '~/lib/wiki/useWikiBridge';
 import { pageTitle, wikiHref, WIKI_ROUTE } from '~/lib/wiki/wikiLinks';
@@ -245,7 +246,9 @@ export function CommandPalette() {
   // rather than quietly searching just one of them.
   const [knowledgeQuery] = useDebouncedValue(trimmedQuery, KNOWLEDGE_DEBOUNCE_MS);
   const knowledgeWorkspaceId = allWorkspaces ? null : workspaceId ?? null;
-  const knowledgeEnabled = isOpen && mode === 'all' && !!knowledgeWorkspaceId;
+  // Semantic search needs an embeddings provider; without one the palette is title search only.
+  const { openai: hasEmbeddings, assistant: hasAssistant } = useAiCapabilities();
+  const knowledgeEnabled = isOpen && mode === 'all' && !!knowledgeWorkspaceId && hasEmbeddings;
   const { data: knowledgeData, isFetching: knowledgeFetching } = api.search.knowledge.useQuery(
     { query: knowledgeQuery, workspaceId: knowledgeWorkspaceId ?? '', limit: KNOWLEDGE_RESULT_LIMIT },
     {
@@ -728,7 +731,7 @@ export function CommandPalette() {
     >
       <TextInput
         ref={inputRef}
-        placeholder="Search, command, or ask Zoe…"
+        placeholder={hasAssistant ? "Search, command, or ask Zoe…" : "Search or run a command…"}
         value={query}
         onChange={(e) => setQuery(e.currentTarget.value)}
         onKeyDown={handleKeyDown}
@@ -757,7 +760,8 @@ export function CommandPalette() {
       />
 
       <Group gap={6} mt={12} wrap="wrap">
-        {MODES.map(({ id, label, icon: Icon }) => {
+        {/* No Assistant on this install: no "Ask Zoe" mode or Zoe suggestions. */}
+        {MODES.filter((m) => hasAssistant || m.id !== 'ai').map(({ id, label, icon: Icon }) => {
           const isActive = mode === id;
           return (
             <UnstyledButton
@@ -852,14 +856,15 @@ export function CommandPalette() {
         ) : showNoResults ? (
           <div style={{ textAlign: 'center', padding: '24px 0' }}>
             <Text c="dimmed" size="sm">
-              No matches —{' '}
+              No matches{hasAssistant && <>
+              {' '}—{' '}
               <Text
                 span
                 style={{ color: 'var(--brand-400)', cursor: 'pointer' }}
                 onClick={handleAskZoe}
               >
                 ask Zoe?
-              </Text>
+              </Text></>}
             </Text>
           </div>
         ) : q.length === 0 ? (
@@ -894,7 +899,7 @@ export function CommandPalette() {
             <div className={styles.colHeading} style={{ marginTop: filteredPages.length > 0 ? 16 : 0 }}>
               Suggested
             </div>
-            {SUGGESTED.map((item) => {
+            {SUGGESTED.filter((item) => hasAssistant || !item.sub.includes('Zoe')).map((item) => {
               const Icon = item.icon;
               return (
                 <UnstyledButton key={item.label} className={styles.resultRow}>

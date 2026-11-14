@@ -6,6 +6,7 @@
  * one line with a count. Completed Actions (their own section), time entries
  * (the time section) and ceremony bookkeeping are left out.
  */
+import { PAGE_ENTITY_TYPE } from "~/server/services/activity/pageActivity";
 import { describeEntityRef } from "~/server/services/activity/feedRenderHints";
 import { summaryWindow } from "~/server/services/notifications/emit/dailySummary/calendar";
 import type { AgendaItem, SectionModule } from "../types";
@@ -13,7 +14,18 @@ import { briefPeople, briefWorkspaceIds, personPrefix } from "./dailyBrief";
 
 const EVENT_LIMIT = 200;
 const ITEM_LIMIT = 30;
-const SKIPPED_ENTITIES = new Set(["time_entry", "ceremony_occurrence", "channel_summary", "ticket_sync_run"]);
+/**
+ * Left out of the brief. `page` is here for a different reason from the rest:
+ * an agenda is read by every participant, so it has no single viewer to check
+ * page access against, and a page event names a page that may be private.
+ */
+const SKIPPED_ENTITIES = new Set([
+  "time_entry",
+  "ceremony_occurrence",
+  "channel_summary",
+  "ticket_sync_run",
+  PAGE_ENTITY_TYPE,
+]);
 
 const VERBS: Record<string, string> = {
   created: "Created",

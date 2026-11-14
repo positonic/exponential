@@ -15,9 +15,9 @@ interface SourceSwitcherProps {
 /**
  * Activity-source segmented control (ADR-0023). Grows one chip per provider
  * present, derived read-side from `metadata.provider`, so adding Slack later
- * needs no redesign. Hidden entirely when there is nothing to filter (no
- * provider sources beyond the default Exponential stream). State is owned by
- * the parent and persisted in the URL as `?source=`.
+ * needs no redesign. Hidden when there is nothing to filter (no provider
+ * sources beyond the default Exponential stream) and no filter is active.
+ * State is owned by the parent and persisted in the URL as `?source=`.
  */
 export function SourceSwitcher({
   value,
@@ -25,12 +25,17 @@ export function SourceSwitcher({
   hasInternal,
   providers,
 }: SourceSwitcherProps) {
-  // Nothing to filter — don't show a one-option control.
-  if (providers.length === 0) return null;
+  // Nothing to filter — don't show a one-option control. While a filter is
+  // active the control stays, even if the filtered rows name no provider:
+  // hiding it would leave no way back to "All" (e.g. `?source=internal`, whose
+  // rows are all internal by definition).
+  if (providers.length === 0 && value === 'all') return null;
 
   const options: Array<{ key: string; label: string; provider?: string }> = [
     { key: 'all', label: 'All' },
-    ...(hasInternal ? [{ key: 'internal', label: 'Exponential' }] : []),
+    ...(hasInternal || value === 'internal'
+      ? [{ key: 'internal', label: 'Exponential' }]
+      : []),
     ...providers.map((p) => ({ key: p, label: providerLabel(p), provider: p })),
   ];
 

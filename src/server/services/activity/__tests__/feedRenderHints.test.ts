@@ -189,6 +189,32 @@ describe("resolveFeedHint", () => {
     expect(statusChanged.iconKind).toBe("status_changed");
   });
 
+  it("renders a finished agent run as a run on the action, never as 'touched'", () => {
+    const completed = resolveFeedHint("agent_run", "completed");
+    expect(completed).toEqual({
+      template: "{actor} completed a run on {entityRef}",
+      iconKind: "completed",
+    });
+
+    const failed = resolveFeedHint("agent_run", "failed");
+    expect(failed).toEqual({
+      template: "{actor}'s run failed on {entityRef}",
+      iconKind: "failed",
+    });
+  });
+
+  it("has sentences for insight, meeting-update and occurrence-update events", () => {
+    for (const [entityType, action] of [
+      ["insight", "updated"],
+      ["insight", "status_changed"],
+      ["insight_comment", "created"],
+      ["meeting", "updated"],
+      ["ceremony_occurrence", "updated"],
+    ] as const) {
+      expect(resolveFeedHint(entityType, action).iconKind).not.toBe("fallback");
+    }
+  });
+
   it("falls back to a neutral hint for unknown pairs", () => {
     const hint = resolveFeedHint("nonsense", "nonsense");
     expect(hint.iconKind).toBe("fallback");

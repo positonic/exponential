@@ -309,6 +309,26 @@ describe("decision router", () => {
       where = db.decision.findMany.mock.calls[0]![0]!.where as { AND: unknown[] };
       expect(where.AND).toContainEqual({ productId: null });
     });
+
+    it("narrows to one ceremony occurrence server-side, inside the resolver's scope", async () => {
+      withWorkspaceRole(db, "member");
+      db.decision.findMany.mockResolvedValue([] as never);
+
+      await caller(db).decision.list({ workspaceId: WORKSPACE_ID, occurrenceId: "occ-1" });
+
+      const where = db.decision.findMany.mock.calls[0]![0]!.where as { AND: Array<Record<string, unknown>> };
+      // Still the caller's visible set: the access clause comes first, the
+      // occurrence only narrows it. Callers used to fetch the whole log and
+      // filter client-side.
+      expect((where.AND[0] as { workspaceId: string }).workspaceId).toBe(WORKSPACE_ID);
+      expect(where.AND).toContainEqual({ occurrenceId: "occ-1" });
+
+      // Absent, no occurrence clause is added.
+      db.decision.findMany.mockClear();
+      await caller(db).decision.list({ workspaceId: WORKSPACE_ID });
+      const unfiltered = db.decision.findMany.mock.calls[0]![0]!.where as { AND: Array<Record<string, unknown>> };
+      expect(unfiltered.AND.some((clause) => "occurrenceId" in clause)).toBe(false);
+    });
   });
 
   describe("create", () => {

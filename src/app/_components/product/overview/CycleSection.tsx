@@ -4,6 +4,8 @@ import { useState } from "react";
 import Link from "next/link";
 import { Skeleton } from "@mantine/core";
 import { IconCheck, IconCopy, IconSparkles } from "@tabler/icons-react";
+import { useAiCapabilities } from "~/providers/AiCapabilitiesProvider";
+import { AiNotConfiguredNote } from "~/app/_components/ai/AiNotConfiguredNote";
 import { api } from "~/trpc/react";
 import {
   buildMarkdown,
@@ -42,9 +44,12 @@ export function SummaryCard({
   productName: string;
 }) {
   const [copied, setCopied] = useState(false);
+  // The summary is written by a model; without an OpenAI key the card says how
+  // to turn it on (Copy as Markdown still works from the facts).
+  const { openai: canSummarize } = useAiCapabilities();
   const summaryQ = api.product.product.getOverviewSummary.useQuery(
     { productId },
-    { staleTime: 5 * 60_000, refetchOnWindowFocus: false, retry: 1 },
+    { staleTime: 5 * 60_000, refetchOnWindowFocus: false, retry: 1, enabled: canSummarize },
   );
   const ai = summaryQ.data ?? null;
 
@@ -71,7 +76,9 @@ export function SummaryCard({
           {copied ? "Copied" : "Copy as Markdown"}
         </button>
       </header>
-      {summaryQ.isLoading ? (
+      {!canSummarize ? (
+        <AiNotConfiguredNote requirement="openai" feature="The product summary" />
+      ) : summaryQ.isLoading ? (
         <div className="mo-summary" aria-busy="true" aria-label="Writing summary">
           <Skeleton height={13} width="92%" mt={6} />
           <Skeleton height={13} width="64%" mt={12} />

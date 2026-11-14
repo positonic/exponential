@@ -11,6 +11,7 @@ import {
   IconRoute,
 } from '@tabler/icons-react';
 import { useWorkspace } from '~/providers/WorkspaceProvider';
+import { useDocumentTitle } from '~/hooks/useDocumentTitle';
 import styles from './ProductsViewTabs.module.css';
 
 const VIEW_TABS = [
@@ -48,6 +49,13 @@ export function ProductsViewTabs({ actions }: ProductsViewTabsProps) {
     if (pathname.endsWith('/products-roadmap')) return 'roadmap';
     return 'list';
   }, [pathname]);
+
+  // List and Grid are the same set of products, so both tabs read "Products".
+  useDocumentTitle(
+    activeTab === 'list' || activeTab === 'grid'
+      ? 'Products'
+      : VIEW_TABS.find((t) => t.value === activeTab)?.label,
+  );
 
   return (
     <div className={styles.topBar}>

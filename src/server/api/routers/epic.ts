@@ -3,11 +3,16 @@ import type { PrismaClient } from "@prisma/client";
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 import { TRPCError } from "@trpc/server";
 import {
+  assertAssignableUser,
   assertWorkspaceMembership,
   assertWorkspaceWriteRole,
   hasMinimumWorkspaceRole,
 } from "~/server/services/access";
 import { TEXT_LIMITS, boundedText } from "~/lib/text-limits";
+import {
+  recordActivity,
+  type ActivityAction,
+} from "~/server/services/activity/recordActivity";
 
 const epicStatusSchema = z.enum(["OPEN", "IN_PROGRESS", "DONE", "CANCELLED"]);
 const epicPrioritySchema = z.enum(["HIGH", "MEDIUM", "LOW", "NONE"]);
@@ -35,6 +40,37 @@ async function assertProductInWorkspace(
     throw new TRPCError({
       code: "NOT_FOUND",
       message: "Product not found in this workspace",
+    });
+  }
+}
+
+/**
+ * Record an epic change for the activity feed. The epic's name rides in
+ * metadata so the row names it, including after it has been deleted. Epics
+ * have no access rules beyond their workspace, so the feed shows these rows to
+ * every member. Instrumentation only: it never fails the mutation.
+ */
+async function recordEpicActivity(
+  db: PrismaClient,
+  userId: string,
+  epic: { id: string; name: string; workspaceId: string },
+  action: Extract<ActivityAction, "created" | "updated" | "deleted">,
+) {
+  try {
+    await recordActivity(db, {
+      workspaceId: epic.workspaceId,
+      userId,
+      entityType: "epic",
+      entityId: epic.id,
+      action,
+      metadata: { title: epic.name },
+    });
+  } catch (error) {
+    // Non-fatal, but never silent: a missing feed row should leave a trace.
+    console.error("[recordEpicActivity] failed", {
+      epicId: epic.id,
+      action,
+      error: error instanceof Error ? error.message : String(error),
     });
   }
 }
@@ -170,7 +206,7 @@ export const epicRouter = createTRPCRouter({
       await assertWorkspaceWriteRole(ctx.db, ctx.session.user.id, input.workspaceId);
       await assertProductInWorkspace(ctx.db, input.productId, input.workspaceId);
 
-      return ctx.db.epic.create({
+      const created = await ctx.db.epic.create({
         data: {
           name: input.name,
           description: input.description,
@@ -182,6 +218,8 @@ export const epicRouter = createTRPCRouter({
           ownerId: ctx.session.user.id,
         },
       });
+      await recordEpicActivity(ctx.db, ctx.session.user.id, created, "created");
+      return created;
     }),
 
   // Update an epic
@@ -201,10 +239,18 @@ export const epicRouter = createTRPCRouter({
          * in another product show up as foreign on the detail page.
          */
         productId: z.string().optional(),
+        /**
+         * Hand the epic to someone else — how an agent that created it on a
+         * person's behalf gives it to them. The new owner must already be
+         * able to read the epic (a member of its workspace), the same rule as
+         * a ticket's assignee. `Epic.ownerId` is NOT NULL, so `null` is
+         * refused: an epic always has an owner.
+         */
+        ownerId: z.string().nullable().optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
-      const { id, ...updateData } = input;
+      const { id, ownerId, ...updateData } = input;
 
       const epic = await ctx.db.epic.findUnique({
         where: { id },
@@ -219,6 +265,20 @@ export const epicRouter = createTRPCRouter({
 
       await assertWorkspaceWriteRole(ctx.db, ctx.session.user.id, epic.workspaceId);
 
+      // There is no "no owner" to move to: refuse `null` outright rather than
+      // drop it, which would leave the caller believing they cleared it.
+      if (ownerId === null) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message:
+            "An epic always has an owner. Pass the new owner's user id instead of null.",
+        });
+      }
+      // Only someone who can already read the epic may own it: the owner's
+      // name and email come back through `getById`'s include, so a foreign id
+      // here would be the ticket-assignee PII leak reopened one entity over.
+      await assertAssignableUser(ctx.db, epic.workspaceId, ownerId, "Owner");
+
       if (updateData.productId) {
         await assertProductInWorkspace(
           ctx.db,
@@ -227,10 +287,12 @@ export const epicRouter = createTRPCRouter({
         );
       }
 
-      return ctx.db.epic.update({
+      const updated = await ctx.db.epic.update({
         where: { id },
-        data: updateData,
+        data: { ...updateData, ...(ownerId ? { ownerId } : {}) },
       });
+      await recordEpicActivity(ctx.db, ctx.session.user.id, updated, "updated");
+      return updated;
     }),
 
   // Delete an epic
@@ -270,6 +332,7 @@ export const epicRouter = createTRPCRouter({
       await ctx.db.epic.delete({
         where: { id: input.id },
       });
+      await recordEpicActivity(ctx.db, ctx.session.user.id, epic, "deleted");
 
       return { success: true };
     }),

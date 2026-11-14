@@ -81,6 +81,7 @@ export const ACTION_SOURCES = [
   "telegram",
   "matrix",
   "agent",
+  "ceremony",
 ] as const;
 
 export const actionSourceSchema = z.enum(ACTION_SOURCES);
@@ -128,6 +129,12 @@ export const createActionInputSchema = actionWriteSchema.extend({
   sourceId: z.string().optional(),
   lastUpdatedBy: z.string().optional(),
   lastUpdatedSource: z.string().optional(),
+  /**
+   * The ceremony occurrence the Action was added from as an agenda item
+   * (ADR-0059, V9). The caller resolves the occurrence inside the target
+   * workspace before passing it; this module only writes the column.
+   */
+  occurrenceId: z.string().optional(),
 });
 
 export type CreateActionInput = z.input<typeof createActionInputSchema>;

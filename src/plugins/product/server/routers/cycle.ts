@@ -5,6 +5,10 @@ import { assertWorkspaceAccess, type WorkspaceAccessLevel } from "./product";
 import type { PrismaClient } from "@prisma/client";
 import { canEditWorkspaceContent } from "~/server/services/access";
 import { TEXT_LIMITS, boundedText } from "~/lib/text-limits";
+import {
+  CHANGELOG_MAX_CYCLES,
+  loadWorkspaceChangelog,
+} from "../cycleChangelogLoader";
 
 /**
  * Cycles are thin wrappers around the existing `List` model with
@@ -344,6 +348,27 @@ export const cycleRouter = createTRPCRouter({
           _count: { select: { tickets: true, retrospectives: true } },
         },
       });
+    }),
+
+  // The workspace change-log page: one product's started cycles, newest
+  // first, each with what shipped in it. Read-only — unlike `list` it never
+  // reconciles statuses or auto-creates upcoming cycles.
+  changelog: protectedProcedure
+    .input(
+      z.object({
+        workspaceId: z.string(),
+        productId: z.string().optional(),
+        limit: z.number().int().min(1).max(CHANGELOG_MAX_CYCLES).optional(),
+      }),
+    )
+    .query(async ({ ctx, input }) => {
+      await assertWorkspaceAccess(
+        ctx.db,
+        ctx.session.user.id,
+        input.workspaceId,
+        "view",
+      );
+      return loadWorkspaceChangelog(ctx.db, input);
     }),
 
   getById: protectedProcedure

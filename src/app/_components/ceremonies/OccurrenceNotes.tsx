@@ -1,8 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { Group, Paper, Skeleton, Text } from "@mantine/core";
-import { IconExternalLink } from "@tabler/icons-react";
+import { useState } from "react";
+import { Button, Group, Paper, Skeleton, Text } from "@mantine/core";
+import { IconExternalLink, IconPlus } from "@tabler/icons-react";
 import type { JSONContent } from "@tiptap/core";
 import { api } from "~/trpc/react";
 import { PageDocument } from "~/app/_components/pages/PageDocument";
@@ -24,9 +25,15 @@ interface OccurrenceNotesProps {
  * is read and autosaved through `page.get` / `page.update`, so who may see
  * or edit it is decided by the page access resolver, not by this component:
  * a restricted project's notes come back FORBIDDEN and render as a hint.
+ *
+ * A page nobody has written in (blank body, `docVersion` 0) renders
+ * collapsed — a header and "Add notes" — so an empty editor does not sit
+ * under every agenda. It expands on click, and stays open once it has text
+ * (a person's notes, or the recording's summary appended after capture).
  */
 export function OccurrenceNotes({ pageId, workspaceSlug, readOnly = false }: OccurrenceNotesProps) {
   const { data: page, isLoading, error } = api.page.get.useQuery({ id: pageId });
+  const [expanded, setExpanded] = useState(false);
 
   if (isLoading) {
     return (
@@ -53,6 +60,31 @@ export function OccurrenceNotes({ pageId, workspaceSlug, readOnly = false }: Occ
   }
 
   const editable = page.canEdit && !readOnly;
+  const blank = page.docVersion === 0 && !page.body?.trim();
+  if (blank && !expanded) {
+    return (
+      <Paper withBorder radius="md" p="md" data-testid="occurrence-notes" data-collapsed="true">
+        <Group justify="space-between" align="center">
+          <Text fw={600}>Notes</Text>
+          {editable ? (
+            <Button
+              size="compact-sm"
+              variant="subtle"
+              leftSection={<IconPlus size={14} />}
+              onClick={() => setExpanded(true)}
+              data-testid="occurrence-notes-expand"
+            >
+              Add notes
+            </Button>
+          ) : (
+            <Text size="xs" className="text-text-muted">
+              No notes yet.
+            </Text>
+          )}
+        </Group>
+      </Paper>
+    );
+  }
   return (
     <Paper withBorder radius="md" p="lg" data-testid="occurrence-notes">
       <Group justify="space-between" align="center" mb="sm">

@@ -17,7 +17,7 @@ const HEALTH_CLASS: Record<GoalHealth, string> = {
 const MAX_VISIBLE = 3;
 
 /**
- * Hero right-column widget for the Activity home. Surfaces the goals the user
+ * Goals row under the Activity home greeting. Surfaces the goals the user
  * pinned to focus on this week (from the portfolio weekly review). When no
  * focus is set, it falls back to an at-a-glance summary of active goals and a
  * CTA into the portfolio review (`/weekly-plan`) where focus is chosen.
@@ -34,9 +34,8 @@ export function WeeklyFocusSummary() {
   if (isLoading || !data) {
     return (
       <div className="wsa-hero__focus">
-        <Skeleton height={11} width={120} />
-        <Skeleton height={18} width={200} mt={12} />
-        <Skeleton height={18} width={170} mt={8} />
+        <Skeleton height={11} width={90} />
+        <Skeleton height={14} width={260} />
       </div>
     );
   }
@@ -102,12 +101,10 @@ export function WeeklyFocusSummary() {
         <IconTarget size={13} stroke={1.8} />
         Goals
       </span>
-      <div className="wsa-hero__focus-glance">
+      <span className="wsa-hero__focus-glance">
         <span className="wsa-hero__focus-count">{activeCount}</span>
-        <span className="wsa-hero__focus-count-label">
-          {activeCount === 1 ? 'active goal' : 'active goals'}
-        </span>
-      </div>
+        {activeCount === 1 ? 'active goal' : 'active goals'}
+      </span>
       <span className="wsa-hero__focus-breakdown">
         {activeCount === 0
           ? 'No active goals this period'

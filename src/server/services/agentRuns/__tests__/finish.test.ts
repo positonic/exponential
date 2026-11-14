@@ -29,7 +29,7 @@ const base = {
   finishedAt: finished,
   summary: "Found two venues.\nDetails below.",
   agent: { id: "agent-1", ownerId: "owner-1", shadowUserId: "shadow-1" },
-  action: { workspaceId: "ws-1", project: null },
+  action: { name: "Find a venue", workspaceId: "ws-1", project: null },
 };
 
 describe("onRunFinished", () => {
@@ -52,6 +52,13 @@ describe("onRunFinished", () => {
     }));
     expect(activityMock).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
       workspaceId: "ws-1", userId: "shadow-1", entityType: "agent_run", entityId: "run-1", action: "completed",
+      // The action's name rides as `title` so the feed row names what the run worked on.
+      metadata: {
+        title: "Find a venue",
+        actionId: "action-1",
+        status: "SUCCEEDED",
+        summary: "Found two venues.\nDetails below.",
+      },
     }));
     expect(db.timeEntry.upsert.mock.calls[0]?.[0]).toMatchObject({
       where: { userId_sourceRef: { userId: "owner-1", sourceRef: "agent-run:run-1" } },

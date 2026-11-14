@@ -75,7 +75,8 @@ vi.mock("~/server/db", () => {
   return { db: proxy };
 });
 
-// Flip the release manifest to "published" without touching the repo's file.
+// Pin the release manifest to draft or published, whatever the repo's file
+// says, so these tests keep covering both states after the method is released.
 const releaseState = vi.hoisted(() => ({ published: false }));
 vi.mock("~/lib/docs/method", async (importOriginal) => {
   const actual = await importOriginal<typeof import("~/lib/docs/method")>();
@@ -83,10 +84,12 @@ vi.mock("~/lib/docs/method", async (importOriginal) => {
     ...actual,
     readMethodRelease: (docsDir: string) => {
       const release = actual.readMethodRelease(docsDir);
-      if (!release || !releaseState.published) return release;
-      return { ...release, status: "published" as const, publishedAt: "2026-10-11T00:00:00.000Z" };
+      if (!release) return release;
+      return releaseState.published
+        ? { ...release, status: "published" as const, publishedAt: "2026-10-11T00:00:00.000Z" }
+        : { ...release, status: "draft" as const, publishedAt: null, contentHash: null };
     },
-    isMethodPublished: (docsDir: string) => releaseState.published || actual.isMethodPublished(docsDir),
+    isMethodPublished: () => releaseState.published,
   };
 });
 

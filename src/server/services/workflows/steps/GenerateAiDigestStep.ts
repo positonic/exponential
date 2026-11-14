@@ -1,4 +1,5 @@
 import { ChatOpenAI } from "@langchain/openai";
+import { requireAi } from "~/server/services/ai/requireAi";
 import { HumanMessage, SystemMessage } from "@langchain/core/messages";
 
 import { type IStepExecutor, type StepContext } from "./IStepExecutor";
@@ -56,6 +57,8 @@ export class GenerateAiDigestStep implements IStepExecutor {
       category: s.meta.label,
       items: s.items.map((i) => i.text),
     }));
+
+    requireAi("openai", `The "${this.label}" step`);
 
     const model = new ChatOpenAI({
       modelName: (config.modelName as string) ?? "gpt-4o-mini",

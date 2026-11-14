@@ -1,4 +1,5 @@
 import { OpenAIEmbeddings } from "@langchain/openai";
+import { aiNotConfiguredMessage, isAiConfigured, requireAi } from "~/server/services/ai/requireAi";
 import { Prisma } from "@prisma/client";
 import type { PrismaClient } from "@prisma/client";
 import { randomUUID } from "crypto";
@@ -8,6 +9,7 @@ import type {
   EmbeddingSource,
   EmbeddingResult,
   EmbeddingOptions,
+  EmbeddingSection,
   EmbeddingSourceType,
 } from "./embedding/types";
 
@@ -15,6 +17,15 @@ const DEFAULT_CHUNK_SIZE = 500; // tokens
 const DEFAULT_CHUNK_OVERLAP = 50; // tokens
 const APPROX_CHARS_PER_TOKEN = 4;
 const BATCH_SIZE = 20; // Embed 20 chunks at a time for efficiency
+const EMBED_CONCURRENCY = 3; // Embedding API calls in flight per source
+const INSERT_BATCH_SIZE = 50; // Rows per multi-row INSERT (~20KB of vector text each)
+// The write tx is DB-only (lock + delete + a few INSERTs), so this is headroom
+// over the 5s default for a slow cross-region link, not a budget for API calls.
+const WRITE_TX_TIMEOUT_MS = 15_000;
+
+const EMBEDDING_PROVIDER = "openai";
+const EMBEDDING_MODEL = "text-embedding-3-small";
+const EMBEDDING_DIM = 1536;
 
 interface Chunk {
   text: string;
@@ -22,6 +33,13 @@ interface Chunk {
   startPos: number;
   endPos: number;
   tokenCount: number;
+}
+
+/** A chunk paired with its vector (pgvector text form), ready to insert. */
+interface ChunkRow {
+  chunk: Chunk;
+  vector: string;
+  generatedAt: Date | null;
 }
 
 interface SearchResult {
@@ -96,7 +114,7 @@ export class KnowledgeService {
     this.db = db;
     this.embeddings = new OpenAIEmbeddings({
       openAIApiKey: process.env.OPENAI_API_KEY,
-      modelName: "text-embedding-3-small",
+      modelName: EMBEDDING_MODEL,
     });
   }
 
@@ -104,6 +122,7 @@ export class KnowledgeService {
    * Generate embedding vector for text
    */
   async generateEmbedding(text: string): Promise<number[]> {
+    requireAi("openai", "Semantic search");
     try {
       const embedding = await this.embeddings.embedQuery(text);
       return embedding;
@@ -118,6 +137,7 @@ export class KnowledgeService {
    */
   async generateBatchEmbeddings(texts: string[]): Promise<number[][]> {
     if (texts.length === 0) return [];
+    requireAi("openai", "Knowledge indexing");
 
     try {
       // LangChain's embedDocuments handles batching internally
@@ -151,6 +171,17 @@ export class KnowledgeService {
     const workspaceId = source.getWorkspaceId();
     const content = source.getContent();
 
+    // No embeddings provider: skip before touching the database, so the
+    // source's existing chunks (if any) stay exactly as they were.
+    if (!isAiConfigured("openai")) {
+      return {
+        success: false,
+        chunkCount: 0,
+        skipped: "ai-not-configured",
+        error: aiNotConfiguredMessage("openai", "Knowledge indexing"),
+      };
+    }
+
     if (!content) {
       console.warn(
         `[KnowledgeService] Source ${sourceType}:${sourceId} has no content`
@@ -176,47 +207,62 @@ export class KnowledgeService {
     }
 
     try {
-      // Chunk the content before starting transaction
-      const chunks = this.chunkText(content, maxTokensPerChunk, chunkOverlap);
+      const sections = source.getSections?.();
+      const chunks = sections
+        ? this.chunkSections(sections, maxTokensPerChunk, chunkOverlap)
+        : this.chunkText(content, maxTokensPerChunk, chunkOverlap);
 
       if (chunks.length === 0) {
         return { success: true, chunkCount: 0 };
       }
 
-      // Wrap delete + insert in a transaction for atomicity
-      // If embedding fails, the deletion is rolled back to prevent data loss
-      await this.db.$transaction(async (tx) => {
-        // Delete existing chunks within transaction
-        await this.deleteChunks(sourceType, sourceId, tx);
+      // Every embeddings API call happens here, OUTSIDE the transaction. The
+      // interactive tx has a 5s default budget; a 250K-char page is ~140 chunks
+      // (7+ API calls), which used to blow it, roll back, and silently drop the
+      // source from search. Unchanged chunk texts reuse their stored vector.
+      const reusable = await this.loadReusableEmbeddings(sourceType, sourceId);
+      const toEmbed = [
+        ...new Set(chunks.map((c) => c.text).filter((t) => !reusable.has(t))),
+      ];
+      const fresh = await this.embedTexts(toEmbed, useBatchEmbedding);
+      const generatedAt = new Date();
 
-        if (useBatchEmbedding) {
-          // Process in batches for efficiency
-          await this.embedChunksBatch(
-            chunks,
-            sourceType,
-            sourceId,
-            userId,
-            projectId,
-            workspaceId,
-            tx
-          );
-        } else {
-          // Sequential embedding (fallback)
-          await this.embedChunksSequential(
-            chunks,
-            sourceType,
-            sourceId,
-            userId,
-            projectId,
-            workspaceId,
-            tx
+      const rows: ChunkRow[] = chunks.map((chunk) => {
+        const reused = reusable.get(chunk.text);
+        if (reused) {
+          return { chunk, vector: reused.vector, generatedAt: reused.generatedAt };
+        }
+        const embedding = fresh.get(chunk.text);
+        if (!embedding) {
+          throw new Error(
+            `Missing embedding for chunk ${chunk.index} of ${sourceType}:${sourceId}`
           );
         }
+        return { chunk, vector: `[${embedding.join(",")}]`, generatedAt };
       });
+
+      // The tx is DB-only: lock, delete, a few multi-row INSERTs. Delete + insert
+      // stay atomic so a failure never leaves the source half-indexed.
+      await this.db.$transaction(
+        async (tx) => {
+          // Serialise concurrent re-embeds of one source (two saves settling on
+          // different instances); without it both inserts survive as duplicates.
+          await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`${sourceType}:${sourceId}`}))`;
+          await this.deleteChunks(sourceType, sourceId, tx);
+          for (let i = 0; i < rows.length; i += INSERT_BATCH_SIZE) {
+            await this.insertChunkRows(
+              rows.slice(i, i + INSERT_BATCH_SIZE),
+              { sourceType, sourceId, userId, projectId, workspaceId },
+              tx
+            );
+          }
+        },
+        { timeout: WRITE_TX_TIMEOUT_MS }
+      );
 
       const processingTimeMs = Date.now() - startTime;
       console.log(
-        `[KnowledgeService] Embedded ${sourceType} ${sourceId}: ${chunks.length} chunks in ${processingTimeMs}ms`
+        `[KnowledgeService] Embedded ${sourceType} ${sourceId}: ${chunks.length} chunks (${toEmbed.length} embedded, ${chunks.length - toEmbed.length} reused) in ${processingTimeMs}ms`
       );
 
       return {
@@ -241,89 +287,99 @@ export class KnowledgeService {
   }
 
   /**
-   * Batch embed chunks for better performance
+   * Stored vectors for this source's current chunks, keyed by chunk text, so a
+   * re-embed only pays the API for text that actually changed. Only chunks
+   * stamped with the current model qualify — anything older (or unstamped, from
+   * before provenance was written) is re-embedded once.
    */
-  private async embedChunksBatch(
-    chunks: Chunk[],
+  private async loadReusableEmbeddings(
     sourceType: EmbeddingSourceType,
-    sourceId: string,
-    userId: string,
-    projectId: string | null,
-    workspaceId: string | null,
-    tx?: Prisma.TransactionClient
-  ): Promise<void> {
-    const client = tx ?? this.db;
-
-    // Process in batches
-    for (let i = 0; i < chunks.length; i += BATCH_SIZE) {
-      const batchChunks = chunks.slice(i, i + BATCH_SIZE);
-      const texts = batchChunks.map((c) => c.text);
-
-      // Get embeddings for entire batch in one API call
-      const embeddings = await this.generateBatchEmbeddings(texts);
-
-      // Store all chunks in batch
-      for (let j = 0; j < batchChunks.length; j++) {
-        const chunk = batchChunks[j];
-        const embedding = embeddings[j];
-
-        if (!chunk || !embedding) {
-          throw new Error(
-            `Batch embedding alignment error at index ${j}: ` +
-              `batchChunks has ${batchChunks.length} items, ` +
-              `generateBatchEmbeddings returned ${embeddings.length} embeddings`
-          );
-        }
-
-        const embeddingStr = `[${embedding.join(",")}]`;
-
-        await client.$executeRaw`
-          INSERT INTO "KnowledgeChunk" (
-            id, content, embedding, "sourceType", "sourceId",
-            "chunkIndex", "tokenCount", "startPos", "endPos",
-            "userId", "projectId", "workspaceId", "createdAt"
-          ) VALUES (
-            ${randomUUID()}, ${chunk.text}, ${embeddingStr}::vector,
-            ${sourceType}, ${sourceId},
-            ${chunk.index}, ${chunk.tokenCount}, ${chunk.startPos}, ${chunk.endPos},
-            ${userId}, ${projectId}, ${workspaceId}, NOW()
-          )
-        `;
-      }
+    sourceId: string
+  ): Promise<Map<string, { vector: string; generatedAt: Date | null }>> {
+    const existing = await this.db.$queryRaw<
+      { content: string; vector: string; generatedAt: Date | null }[]
+    >`
+      SELECT content, embedding::text AS vector, "embeddingGeneratedAt" AS "generatedAt"
+      FROM "KnowledgeChunk"
+      WHERE "sourceType" = ${sourceType} AND "sourceId" = ${sourceId}
+        AND "embeddingModel" = ${EMBEDDING_MODEL}
+        AND embedding IS NOT NULL
+    `;
+    const byText = new Map<string, { vector: string; generatedAt: Date | null }>();
+    for (const row of existing ?? []) {
+      byText.set(row.content, { vector: row.vector, generatedAt: row.generatedAt });
     }
+    return byText;
   }
 
   /**
-   * Sequential embedding (N+1 pattern, for fallback)
+   * Embed distinct texts, keyed by text. Batches of BATCH_SIZE per API call,
+   * up to EMBED_CONCURRENCY calls in flight.
    */
-  private async embedChunksSequential(
-    chunks: Chunk[],
-    sourceType: EmbeddingSourceType,
-    sourceId: string,
-    userId: string,
-    projectId: string | null,
-    workspaceId: string | null,
-    tx?: Prisma.TransactionClient
-  ): Promise<void> {
-    const client = tx ?? this.db;
-
-    for (const chunk of chunks) {
-      const embedding = await this.generateEmbedding(chunk.text);
-      const embeddingStr = `[${embedding.join(",")}]`;
-
-      await client.$executeRaw`
-        INSERT INTO "KnowledgeChunk" (
-          id, content, embedding, "sourceType", "sourceId",
-          "chunkIndex", "tokenCount", "startPos", "endPos",
-          "userId", "projectId", "workspaceId", "createdAt"
-        ) VALUES (
-          ${randomUUID()}, ${chunk.text}, ${embeddingStr}::vector,
-          ${sourceType}, ${sourceId},
-          ${chunk.index}, ${chunk.tokenCount}, ${chunk.startPos}, ${chunk.endPos},
-          ${userId}, ${projectId}, ${workspaceId}, NOW()
-        )
-      `;
+  private async embedTexts(
+    texts: string[],
+    useBatchEmbedding: boolean
+  ): Promise<Map<string, number[]>> {
+    const result = new Map<string, number[]>();
+    const batchSize = useBatchEmbedding ? BATCH_SIZE : 1;
+    const batches: string[][] = [];
+    for (let i = 0; i < texts.length; i += batchSize) {
+      batches.push(texts.slice(i, i + batchSize));
     }
+
+    let next = 0;
+    const worker = async () => {
+      while (next < batches.length) {
+        const batch = batches[next++]!;
+        const embeddings = await this.generateBatchEmbeddings(batch);
+        if (embeddings.length !== batch.length) {
+          throw new Error(
+            `Batch embedding alignment error: sent ${batch.length} texts, ` +
+              `generateBatchEmbeddings returned ${embeddings.length} embeddings`
+          );
+        }
+        batch.forEach((text, j) => result.set(text, embeddings[j]!));
+      }
+    };
+    await Promise.all(
+      Array.from({ length: Math.min(EMBED_CONCURRENCY, batches.length) }, worker)
+    );
+    return result;
+  }
+
+  /** One multi-row INSERT for a slice of chunk rows. */
+  private async insertChunkRows(
+    rows: ChunkRow[],
+    owner: {
+      sourceType: EmbeddingSourceType;
+      sourceId: string;
+      userId: string;
+      projectId: string | null;
+      workspaceId: string | null;
+    },
+    client: Prisma.TransactionClient
+  ): Promise<void> {
+    if (rows.length === 0) return;
+    const { sourceType, sourceId, userId, projectId, workspaceId } = owner;
+    const values = rows.map(
+      ({ chunk, vector, generatedAt }) => Prisma.sql`(
+        ${randomUUID()}, ${chunk.text}, ${vector}::vector,
+        ${sourceType}, ${sourceId},
+        ${chunk.index}, ${chunk.tokenCount}, ${chunk.startPos}, ${chunk.endPos},
+        ${userId}, ${projectId}, ${workspaceId},
+        ${EMBEDDING_PROVIDER}, ${EMBEDDING_MODEL}, ${EMBEDDING_DIM}, ${generatedAt},
+        NOW()
+      )`
+    );
+    await client.$executeRaw`
+      INSERT INTO "KnowledgeChunk" (
+        id, content, embedding, "sourceType", "sourceId",
+        "chunkIndex", "tokenCount", "startPos", "endPos",
+        "userId", "projectId", "workspaceId",
+        "embeddingProvider", "embeddingModel", "embeddingDim", "embeddingGeneratedAt",
+        "createdAt"
+      ) VALUES ${Prisma.join(values)}
+    `;
   }
 
   /**
@@ -334,12 +390,39 @@ export class KnowledgeService {
   }
 
   /**
-   * Split text into sentences
+   * Split text into sentences. Text after the last punctuation mark (a list
+   * item, a code block) is a sentence too, or it would never reach the index.
+   * Closing marks stay with their sentence, so `**Bold.** Next` splits cleanly.
    */
   splitIntoSentences(text: string): string[] {
     // Split on sentence boundaries while preserving the delimiter
-    const sentences = text.match(/[^.!?]+[.!?]+[\s]*/g) ?? [text];
+    const sentences = text.match(/[^.!?]+(?:[.!?]+[*_)\]"'”’]*\s*|$)/g) ?? [text];
     return sentences.map((s) => s.trim()).filter((s) => s.length > 0);
+  }
+
+  /** Chunk each section on its own, repeating its context on every chunk. */
+  chunkSections(
+    sections: EmbeddingSection[],
+    maxTokens: number = DEFAULT_CHUNK_SIZE,
+    overlapTokens: number = DEFAULT_CHUNK_OVERLAP
+  ): Chunk[] {
+    const chunks: Chunk[] = [];
+    let offset = 0;
+    for (const { context, text } of sections) {
+      const contextTokens = this.estimateTokens(context);
+      const room = Math.max(overlapTokens + 1, maxTokens - contextTokens);
+      for (const chunk of this.chunkText(text, room, overlapTokens)) {
+        chunks.push({
+          text: `${context}\n\n${chunk.text}`,
+          index: chunks.length,
+          startPos: offset + chunk.startPos,
+          endPos: offset + chunk.endPos,
+          tokenCount: contextTokens + chunk.tokenCount,
+        });
+      }
+      offset += text.length;
+    }
+    return chunks;
   }
 
   /**
@@ -474,7 +557,7 @@ export class KnowledgeService {
     const source = ResourceSource.fromEntity(resource);
     const result = await this.embedSource(source);
 
-    if (!result.success && result.error) {
+    if (!result.success && result.error && !result.skipped) {
       throw new Error(result.error);
     }
 
@@ -500,7 +583,7 @@ export class KnowledgeService {
     const source = TranscriptionSource.fromEntity(transcription);
     const result = await this.embedSource(source);
 
-    if (!result.success && result.error) {
+    if (!result.success && result.error && !result.skipped) {
       throw new Error(result.error);
     }
 
@@ -635,16 +718,19 @@ export class KnowledgeService {
       transcriptionAccessCondition = Prisma.sql`AND (kc."sourceType" <> 'transcription' OR kc."sourceId" = ANY(${viewableIds}::text[]))`;
     }
 
-    // Resource access: owner only. The query already joins the live Resource
-    // row (`r`), so ownership is read from it rather than from the chunk — a
-    // deleted Resource's orphaned chunks never match.
+    // Resource access: owner only, in the searched workspace. The query
+    // already joins the live Resource row (`r`), so ownership and workspace
+    // are read from it rather than from the chunk — a deleted Resource's
+    // orphaned chunks never match, and neither do the stale chunks of one
+    // moved to another workspace (a move does not re-embed), which would
+    // otherwise let an agent read a row moved out of its delegation (ADR-0079).
     const searchesResources =
       !sourceTypes?.length || sourceTypes.includes("resource");
     let resourceAccessCondition = Prisma.empty;
     if (searchesResources && !resourceViewerId) {
       resourceAccessCondition = Prisma.sql`AND kc."sourceType" <> 'resource'`;
     } else if (searchesResources && resourceViewerId) {
-      resourceAccessCondition = Prisma.sql`AND (kc."sourceType" <> 'resource' OR r."userId" = ${resourceViewerId})`;
+      resourceAccessCondition = Prisma.sql`AND (kc."sourceType" <> 'resource' OR (r."userId" = ${resourceViewerId} AND r."workspaceId" = ${workspaceId}))`;
     }
 
     // Execute vector search with parameterized query

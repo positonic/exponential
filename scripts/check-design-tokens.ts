@@ -20,7 +20,9 @@
  *
  * 2. Raw shape values (ratcheted). `border-radius: 10px` in CSS,
  *    `borderRadius: 8` in a style object, `rounded-[10px]`, `radius={12}`,
- *    and box-shadows painted with a colour literal. Existing debt is recorded
+ *    box-shadows painted with a colour literal, and hand-rolled surfaces: a
+ *    className that draws a box itself (`rounded-* border bg-surface-*`)
+ *    instead of using `<Panel>` from src/app/_components/ui. Existing debt is recorded
  *    per file in scripts/design-tokens-baseline.json; a file may never have
  *    MORE raw values than its baseline, and a file not in the baseline must
  *    have none. When you clear debt, run with --update-baseline so the
@@ -53,6 +55,8 @@ export interface Finding {
     | "scoped-shape-token"
     | "raw-radius"
     | "raw-shadow"
+    | "raw-surface"
+    | "panel-padding-conflict"
     | "arbitrary-tailwind"
     | "numeric-mantine-radius";
   detail: string;
@@ -76,6 +80,9 @@ const SHADOW_DEFINITION_FILES = new Set([
   "src/styles/colors.ts",
   "src/styles/mantineTheme.ts",
 ]);
+
+// The primitives are the one place allowed to compose a surface by hand.
+const PRIMITIVES_DIR = "src/app/_components/ui/";
 
 // Vendor-owned variable namespaces we never declare ourselves: Tailwind
 // internals, React Flow, and Mantine's theme variables, which MantineProvider
@@ -238,6 +245,51 @@ export function isTokenShadow(value: string): boolean {
   return !/(rgba?\(|hsla?\(|#[0-9a-fA-F]{3,8}\b|\b(black|white)\b)/.test(v);
 }
 
+/**
+ * A class list that paints a bordered, rounded, surfaced box by hand - the
+ * three things Panel exists to own. Any one or two of them is fine (a border
+ * under a toolbar, a rounded image); all three together is a card.
+ */
+export function isHandRolledSurface(classes: string): boolean {
+  const toks = classes.split(/\s+/);
+  const hasBorder = toks.some((t) => /^border(-[xytblrse])?(-[0248])?$/.test(t));
+  const hasRadius = toks.some((t) =>
+    /^rounded(-(t|b|l|r|s|e|tl|tr|bl|br|ss|se|es|ee))?(-(xs|sm|md|lg|xl|2xl|3xl))?$/.test(t),
+  );
+  const hasSurface = toks.some((t) => /^bg-(surface|background)-/.test(t));
+  return hasBorder && hasRadius && hasSurface;
+}
+
+/**
+ * Every class list a `className` can carry: a static `className="…"`, and for
+ * `className={…}` (cx calls, ternaries, template literals) all the string
+ * literals in the expression joined together, so a surface split across a
+ * conditional is still one surface.
+ */
+export function classNameValues(text: string): { index: number; classes: string }[] {
+  const out: { index: number; classes: string }[] = [];
+  for (const m of text.matchAll(/className=(["'])([^"']*)\1/g)) {
+    out.push({ index: m.index ?? 0, classes: m[2]! });
+  }
+  for (const m of text.matchAll(/className=\{/g)) {
+    const start = (m.index ?? 0) + m[0].length;
+    let depth = 1;
+    let i = start;
+    while (i < text.length && depth > 0) {
+      const ch = text[i];
+      if (ch === "{") depth++;
+      else if (ch === "}") depth--;
+      i++;
+    }
+    const expr = text.slice(start, i - 1);
+    const literals = [...expr.matchAll(/(["'`])((?:(?!\1)[^\\]|\\.)*)\1/g)].map((l) =>
+      l[2]!.replace(/\$\{[^}]*\}/g, " "),
+    );
+    if (literals.length) out.push({ index: m.index ?? 0, classes: literals.join(" ") });
+  }
+  return out;
+}
+
 export function findRawValues(file: string, text: string): Finding[] {
   const out: Finding[] = [];
   const isCss = file.endsWith(".css");
@@ -276,6 +328,21 @@ export function findRawValues(file: string, text: string): Finding[] {
       }
     }
   }
+  if (!file.startsWith(PRIMITIVES_DIR)) {
+    for (const { index, classes } of classNameValues(text)) {
+      if (isHandRolledSurface(classes)) {
+        push(index, "raw-surface", `className draws its own box (${classes.trim().slice(0, 60)}…) — use <Panel> from ~/app/_components/ui`);
+      }
+    }
+    for (const m of text.matchAll(/<Panel\b[^>]*>/g)) {
+      const tag = m[0];
+      if (/\bpadding=["']none["']/.test(tag)) continue;
+      const cls = /className=(["'])([^"']*)\1/.exec(tag)?.[2] ?? "";
+      if (cls.split(/\s+/).some((t) => /^p[xytblrse]?-/.test(t))) {
+        push(m.index ?? 0, "panel-padding-conflict", `<Panel> with a padding step and p-* in className — pick a padding step, or padding="none" and put the padding in className`);
+      }
+    }
+  }
   for (const m of text.matchAll(/\b(rounded|shadow)-\[[^\]]+\]/g)) {
     push(m.index ?? 0, "arbitrary-tailwind", `${m[0]} — arbitrary values bypass the scale; ${RADIUS_TOKEN_HINT}`);
   }
@@ -285,7 +352,7 @@ export function findRawValues(file: string, text: string): Finding[] {
   return out;
 }
 
-const RATCHETED: ReadonlySet<Finding["kind"]> = new Set(["raw-radius", "raw-shadow"]);
+const RATCHETED: ReadonlySet<Finding["kind"]> = new Set(["raw-radius", "raw-shadow", "raw-surface"]);
 
 export interface Report {
   hard: Finding[];

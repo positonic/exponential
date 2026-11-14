@@ -6,6 +6,10 @@
 
 An open-source productivity and project management platform built with the T3 Stack. Manage projects, track goals and key results, plan your day with AI, and collaborate across workspaces.
 
+Run your own copy in one click (see [Self-hosting](#self-hosting)):
+
+[![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/deploy/exponential)
+
 ## Features
 
 - **Project Management** - Create and track projects with status, priority, and progress across workspaces
@@ -69,7 +73,8 @@ An open-source productivity and project management platform built with the T3 St
    |----------|-------------|
    | `DATABASE_URL` | PostgreSQL connection string |
    | `AUTH_SECRET` | Generate with `npx auth secret` |
-   | OAuth provider | At least one: Discord, Google, Microsoft, or Notion |
+   | `DATABASE_ENCRYPTION_KEY` | Generate with `openssl rand -base64 32` (required in production) |
+   | A way to sign in | An OAuth pair (Google or Discord), SMTP or Postmark for emailed sign-in codes, or `AUTH_LOG_SIGN_IN_CODES=true` to print the instance admin's codes to the server log |
 
    See [.env.example](.env.example) for all available configuration options.
 
@@ -87,6 +92,241 @@ An open-source productivity and project management platform built with the T3 St
 
    Open [http://localhost:3000](http://localhost:3000).
 
+### Self-hosting
+
+#### Railway (one click)
+
+[![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/deploy/exponential)
+
+The [Railway template](https://railway.com/deploy/exponential) starts
+Postgres with pgvector, the app and the scheduler from the
+[prebuilt images](#container-images), and generates every secret. Nothing
+needs filling in. Then:
+
+1. **Claim it.** When the deploy finishes, open the **app** service's logs
+   and find `This install has no admin yet`. Open the `/setup` link it gives
+   and enter your email and the setup token: you become the instance admin
+   and sign-up turns invite-only. Do this straight away; see
+   [First run: claim the install](#first-run-claim-the-install).
+2. **Sign in again** with a code from the same logs (the template sets
+   `AUTH_LOG_SIGN_IN_CODES=true`). Anyone who can read the logs can sign in as
+   the admin, so before inviting anyone add SMTP (`SMTP_HOST`, `SMTP_PORT`,
+   `SMTP_USER`, `SMTP_PASSWORD`, `EMAIL_FROM`) or Postmark (`AUTH_POSTMARK_KEY`)
+   to the **app** service, which stops the logging. If you use a Google or
+   Discord OAuth app instead, also set `AUTH_LOG_SIGN_IN_CODES=false`: OAuth
+   alone doesn't stop codes going to the logs.
+3. **Optional:** add `OPENAI_API_KEY` or `ANTHROPIC_API_KEY` to the **app**
+   service to turn on the AI features. The Assistant (Mastra) isn't in the
+   template yet.
+
+The template runs the `latest` images, which follow `main`. To update,
+redeploy the app and scheduler; the app applies new migrations when it starts.
+The template's services and variables are edited in Railway, not in this repo.
+
+#### From source
+
+A production install needs three variables (`DATABASE_URL` for a Postgres with
+pgvector, `AUTH_SECRET`, `DATABASE_ENCRYPTION_KEY`) and one way to sign in. No
+OAuth app, Postmark account or LLM key is required: AI is optional, and
+`OPENAI_API_KEY`, `ANTHROPIC_API_KEY` or `MASTRA_API_URL` (the Assistant) each
+turn on their features after a restart. Start from
+[.env.selfhost.example](.env.selfhost.example), which lists only what an
+install needs, then:
+
+```bash
+SKIP_ENV_VALIDATION=1 npm run build
+npm run start:selfhost      # checks env and pgvector, applies migrations, serves
+npm run scheduler:selfhost  # in a second process: runs the scheduled jobs (reads the same .env)
+```
+
+#### Docker Compose
+
+The whole stack on any Docker host (a VPS or a laptop), from a checkout of
+this repo. Nothing needs setting first:
+
+```bash
+docker compose up -d --build                      # Postgres, the app and the scheduler
+docker compose logs app | grep "Sign-in code"     # your sign-in code, after you ask for one
+```
+
+Open <http://localhost:3000>, enter your email, and read the sign-in code from
+the app's log.
+
+> **Security: the log holds the keys by default.** On first start the app
+> prints a one-time **setup token** to its log; whoever redeems it at `/setup`
+> becomes the instance admin. With no SMTP, Postmark or OAuth configured,
+> Compose also sets `AUTH_LOG_SIGN_IN_CODES=true`, so the admin's later
+> sign-in codes go to the log too (nobody else gets one). Anyone who can read
+> the app's container logs (`docker compose logs`, a shared Docker host, or a
+> log shipper that forwards container output) can therefore claim an
+> unclaimed install or sign in as the admin. Claim it straight away, keep the
+> logs to yourself, and before inviting anyone configure SMTP, Postmark or an
+> OAuth provider and set `AUTH_LOG_SIGN_IN_CODES=false` (codes are ignored
+> anyway once an email transport is set).
+
+What starts:
+
+- **`postgres`**: `pgvector/pgvector:pg16` with its data in the `postgres`
+  volume. Not published on the host.
+- **`secrets-init`**: a one-shot job that generates `AUTH_SECRET`,
+  `DATABASE_ENCRYPTION_KEY` and `CRON_SECRET` into the `secrets` volume on the
+  first start and never overwrites them, so `docker compose down` / `up` keeps
+  everyone signed in. **Back up both volumes**: losing `secrets` signs everyone
+  out and makes stored integration credentials unreadable. `docker compose
+  down -v` deletes them.
+- **`app`**: built from `Dockerfile`; applies migrations, then serves on
+  `APP_PORT` (default 3000).
+- **`scheduler`**: built from `docker/scheduler.Dockerfile`; runs the
+  scheduled jobs against the app.
+
+Settings go in a `.env` file next to `docker-compose.yml` (Compose reads it)
+or in your shell. None is required:
+
+| Variable | Default | What it does |
+|---|---|---|
+| `APP_PORT` | `3000` | The host port the app is published on. |
+| `NEXTAUTH_URL` | `http://localhost:$APP_PORT` | The URL people use. Set it when the install is reached by another name. |
+| `OPENAI_API_KEY`, `ANTHROPIC_API_KEY` | unset | Turn on the AI features (see the table below). |
+| `AUTH_LOG_SIGN_IN_CODES` | `true` | The instance admin's sign-in codes go to the app's log; nobody else gets one. Ignored once SMTP or Postmark is set. **Anyone who can read the log can sign in as the admin**; see the security note above. |
+| `SMTP_*`, `EMAIL_FROM`, `AUTH_POSTMARK_KEY`, `GOOGLE_CLIENT_*`, `AUTH_DISCORD_*` | unset | Other ways in, as in the table below. |
+| `POSTGRES_PASSWORD` | `exponential` | Letters and digits only. Set it before the first start: the database keeps the password it was created with. |
+| `MASTRA_BUILD_CONTEXT` | positonic/mastra `main` | Where the Assistant builds from. |
+
+**The Assistant is opt-in.** Mastra (chat, Assign to Assistant) needs an
+Anthropic key, so it sits behind the `assistant` profile:
+
+```bash
+ANTHROPIC_API_KEY=… OPENAI_API_KEY=… docker compose --profile assistant up -d --build
+```
+
+With the profile on, the app finds the `mastra` service and points
+`MASTRA_API_URL` at it; without it, the Assistant stays off. Mastra builds
+from [positonic/mastra](https://github.com/positonic/mastra)'s
+`docker/Dockerfile` and shares the database (schema `mastra`).
+
+**Memory.** Building the app image needs a Docker host with at least 10 GB of
+memory (see below). On a smaller server, use the prebuilt images instead.
+
+**Prebuilt images.** Compose builds every image from source. To skip the
+build (on an x86-64 host), use the images published from `main`, with a
+`docker-compose.override.yml` next to `docker-compose.yml`, which Compose
+merges in automatically:
+
+```yaml
+services:
+  app:
+    image: ghcr.io/positonic/exponential-app:latest
+    build: !reset null
+  scheduler:
+    image: ghcr.io/positonic/exponential-scheduler:latest
+    build: !reset null
+```
+
+TLS, a reverse proxy, backups and upgrades are up to you. To update, pull the
+repo and run `docker compose up -d --build`: the app applies new migrations
+when it starts.
+
+`.github/workflows/selfhost-smoke.yml` boots this stack nightly with no
+settings at all, signs in and checks the scheduler, and opens an issue when it
+fails.
+
+#### Container images
+
+Two images, both built from the repo root. Neither bakes in any
+configuration: every variable is read when the container starts.
+
+Both are published to the GitHub Container Registry by
+`.github/workflows/selfhost-images.yml` (linux/amd64): `latest` and
+`sha-<short sha>` for each `main` commit that gets built, plus a version tag on
+each release. When several commits land while a build runs, only the newest
+is built next, so not every commit has a `sha-` tag. For a repeatable install,
+pin a version tag or a `sha-` tag listed on the package page
+([app](https://github.com/positonic/exponential/pkgs/container/exponential-app),
+[scheduler](https://github.com/positonic/exponential/pkgs/container/exponential-scheduler)).
+
+```bash
+docker pull ghcr.io/positonic/exponential-app:latest
+docker pull ghcr.io/positonic/exponential-scheduler:latest
+```
+
+To build them yourself:
+
+```bash
+docker build -t exponential-app .                                          # the app
+docker build -f docker/scheduler.Dockerfile -t exponential-scheduler .      # the scheduler
+```
+
+- **App** (`Dockerfile`): starts with `npm run start:selfhost`, so the
+  container checks its environment and pgvector, applies pending migrations,
+  then serves on port 3000. Health check: `GET /api/health`. The build needs
+  a builder with **at least 10 GB of memory**: measured in a container, its
+  working set peaks at about 9.2 GB, it completes under a 10 GB limit, and it
+  is killed for running out of memory under 8 GB (with 4 CPUs or 14).
+- **Scheduler** (`docker/scheduler.Dockerfile`): a small Node image with no
+  Next build. It calls the app's cron routes on `vercel.json`'s schedule, so
+  point `SCHEDULER_TARGET_URL` at the app's address on the network they share.
+
+A full install is four services: Postgres with pgvector, the app, the
+scheduler, and the [Mastra agent service](https://github.com/positonic/mastra)
+(agent runs and chat; optional, like every AI key). The scheduler and Mastra reach the app over the
+private network; only the app needs a public address.
+
+| Variable | Service | Needed | Value |
+|---|---|---|---|
+| `DATABASE_URL` | app, mastra | required | Postgres 16 with pgvector 0.5.0+, e.g. the `pgvector/pgvector:pg16` image. Mastra shares the database (it keeps its tables in schema `mastra`). |
+| `AUTH_SECRET` | app, mastra | required | `openssl rand -base64 32`. The same value on both: Mastra verifies the app's tokens with it. |
+| `DATABASE_ENCRYPTION_KEY` | app | required | 32 bytes, raw or base64: `openssl rand -base64 32`. |
+| `OPENAI_API_KEY` | app, mastra | optional (AI) | Turns on meeting summaries, extraction, semantic search and indexing, digests, AI workflow steps and size suggestions. Without it those features are off and say how to turn them on. |
+| `ANTHROPIC_API_KEY` | app, mastra | optional (AI) | On the app: Claude-written summaries and workspace updates, YouTube articles. Mastra needs it for agent runs and chat. |
+| `NEXTAUTH_URL` | app | recommended | The public URL, no trailing slash, e.g. `https://exponential.example.com`. Links in email and callbacks are built from it. Default: `http://localhost:${PORT}`. |
+| `CRON_SECRET` | app, scheduler | required for scheduled jobs | `openssl rand -base64 32`. The same value on both: the cron routes reject calls without it. |
+| `SCHEDULER_TARGET_URL` | scheduler | required in a container | The app's private address, e.g. `http://app:3000`. Default: `http://localhost:3000`. |
+| `MASTRA_API_URL` | app | optional (Assistant) | The Mastra service's private address, e.g. `http://mastra:4111`. Unset means no Assistant: chat, Assign to Assistant and voice are hidden. |
+| `TODO_APP_BASE_URL` | mastra | required for agents | The app's private address, e.g. `http://app:3000`. Mastra's tools call back into the app here. |
+| `PORT` | app, mastra | optional | The port to listen on. Default: 3000 for the app; Mastra uses 4111. |
+| `AUTH_LOG_SIGN_IN_CODES` | app | one way in | `true` writes the instance admin's sign-in codes to the app's log instead of emailing them. Nobody else gets a code, and anyone who can read the log can sign in as the admin. |
+| `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_SECURE`, `EMAIL_FROM` | app | one way in | Email sign-in codes over any SMTP server. `SMTP_HOST` counts only together with a sender (`EMAIL_FROM`). |
+| `AUTH_POSTMARK_KEY` | app | one way in | Email sign-in codes over Postmark (wins over SMTP). |
+| `SCHEDULER_TIMEOUT_MS` | scheduler | optional | How long one cron call may run. Default 300000 (5 minutes), minimum 270000. |
+
+A way in means at least one of: log delivery, SMTP, Postmark, or an OAuth
+provider (Google, Discord, Notion). With none, `/signin` shows a setup error
+naming these variables. Every other optional variable, and the feature each
+one turns on, is in [.env.selfhost.example](.env.selfhost.example). Variables
+starting `NEXT_PUBLIC_` (Sentry, web push, the support address) are fixed when
+the image is built, so a prebuilt image goes without them.
+
+#### First run: claim the install
+
+A new install has no admin, and its URL may be public the moment it deploys,
+so it isn't "first visitor wins". While no instance admin exists, every start
+of `start:selfhost` prints a one-time **setup token** in the app's log:
+
+```
+[selfhost] This install has no admin yet. To claim it, open
+[selfhost]   https://exponential.example.com/setup
+[selfhost] and enter your email address with this setup token:
+[selfhost]   ABCDE-FGHJK-MNPQR-STVWX
+```
+
+Open `/setup` (`/signin` sends you there until the install is claimed), enter
+your email and the token, and you are signed in as the **instance admin**, with
+no email delivery needed. The token works once, expires after 24 hours, and
+each restart replaces it. Once claimed, `/setup` is a 404 and no token is
+printed again.
+
+To sign back in later without an email service, set `AUTH_LOG_SIGN_IN_CODES=true`:
+codes for the instance admin go to the log, and nobody else gets one. Configure
+SMTP, Postmark or an OAuth provider before inviting anyone.
+
+#### Sign-up is invite-only after the claim
+
+Claiming sets the install's **sign-up mode** to invite-only: an address with no
+account can sign in only if it has a pending workspace or team invitation, and
+anyone else is told the install is invite-only. Existing users and invitees are
+unaffected. The instance admin can switch sign-up back to open on the `/admin`
+dashboard. exponential.im is unaffected: with no setting, sign-up is open.
+
 ## Scripts
 
 | Command | Description |
@@ -94,6 +334,8 @@ An open-source productivity and project management platform built with the T3 St
 | `npm run dev` | Start dev server (Turbopack) |
 | `npm run build` | Production build |
 | `npm run start` | Start production server |
+| `npm run start:selfhost` | Self-host start: preflight, apply migrations, serve |
+| `npm run scheduler:selfhost` | Self-host scheduler: calls the `vercel.json` crons |
 | `npm run check` | Lint + type check (run before committing) |
 | `npm run lint:fix` | Auto-fix ESLint issues |
 | `npm run format:write` | Format with Prettier |

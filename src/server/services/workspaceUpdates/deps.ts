@@ -1,3 +1,4 @@
+import { isAiConfigured } from "~/server/services/ai/requireAi";
 import type { PrismaClient } from "@prisma/client";
 
 import { getPublicBaseUrlFromEnv } from "~/lib/urls";
@@ -18,16 +19,17 @@ export function defaultGenerateDeps(
   scope: { workspaceId: string; userId?: string | null },
 ): GenerateDeps {
   return {
-    writer: process.env.ANTHROPIC_API_KEY
+    writer: isAiConfigured("anthropic")
       ? createClaudeWriter({ log: { db, workspaceId: scope.workspaceId, userId: scope.userId ?? undefined } })
       : createTemplateWriter("ANTHROPIC_API_KEY is not set"),
-    notify: (notice) =>
-      emitNotification({
+    notify: async (notice) => {
+      await emitNotification({
         db,
         category: NOTIFICATION_CATEGORIES.UPDATE_REVIEW,
         actorUserId: notice.actorUserId,
         subject: { updateId: notice.updateId, reviewerIds: notice.reviewerIds },
-      }),
+      });
+    },
     baseUrl: getPublicBaseUrlFromEnv(),
   };
 }
