@@ -52,6 +52,12 @@ const COMPUTED_SITES: Record<string, Array<[entityType: string, action: string]>
     ["decision", "deprecated"],
     ["decision", "status_changed"],
   ],
+  // `recordPageActivity` takes the action from its caller: a page was created
+  // or edited.
+  "server/services/pages/pageActivity.ts": [
+    ["page", "created"],
+    ["page", "updated"],
+  ],
   // Records whatever `toGitHubFeedEvent` built (githubFeedEvent.ts).
   "server/services/GitHubActivityService.ts": [
     ["github_pull_request", "created"],

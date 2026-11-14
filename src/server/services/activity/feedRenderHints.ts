@@ -148,6 +148,18 @@ const HINTS: Record<string, FeedRenderHint> = {
     iconKind: "status_changed",
   },
 
+  // Pages. One "edited" row per editing session, as page history defines it
+  // (autosaves inside its fold window are one revision). The title rides in
+  // metadata; a row only reaches a viewer who can open the page.
+  [key("page", "created")]: {
+    template: "{actor} created page {entityRef}",
+    iconKind: "created",
+  },
+  [key("page", "updated")]: {
+    template: "{actor} edited page {entityRef}",
+    iconKind: "updated",
+  },
+
   // Projects — completing a project is a milestone, so it gets the emphasized
   // "milestone" icon kind (trophy + filled chip) to stand out from task churn.
   [key("project", "created")]: {

@@ -11,4 +11,4 @@
  * - An output shared by many readers (the Week-in-Review, a ceremony agenda)
  *   has no single viewer to check against, so it leaves page events out.
  */
-export const PAGE_ENTITY_TYPE = "page";
+export const PAGE_ENTITY_TYPE = "page" as const;
