@@ -131,6 +131,14 @@
   color: var(--color-text-muted);
 }
 
+/* Holds a row's link to the original; empty for a row with no URL, so the
+   labels still line up down the column. */
+.sourceSlot {
+  display: inline-flex;
+  flex-shrink: 0;
+  width: 22px;
+}
+
 .rowLabel {
   flex-shrink: 0;
   font-size: 12px;

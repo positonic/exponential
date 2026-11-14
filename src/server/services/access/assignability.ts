@@ -45,13 +45,19 @@ import { blankToNull } from "~/server/utils/blankToNull";
  * and is skipped — unassigning is always allowed.
  *
  * Used by the ticket router, where the workspace is never ambiguous: a ticket's
- * workspace comes from its product. Actions, whose scope can be a project, a
- * team, or nothing at all, use `canAssignToUnscopedAction` below.
+ * workspace comes from its product — and by the epic router for an epic's
+ * owner, whose `name` and `email` come back through the same kind of include.
+ * Actions, whose scope can be a project, a team, or nothing at all, use
+ * `canAssignToUnscopedAction` below.
+ *
+ * `label` names the reference in the error ("Assignee", "Owner"); the rule is
+ * the same whichever it is.
  */
 export async function assertAssignableUser(
   db: PrismaClient,
   workspaceId: string,
   assigneeId: string | null | undefined,
+  label = "Assignee",
 ): Promise<void> {
   if (!assigneeId) return;
 
@@ -59,7 +65,7 @@ export async function assertAssignableUser(
   if (!membership) {
     throw new TRPCError({
       code: "NOT_FOUND",
-      message: "Assignee not found in this workspace",
+      message: `${label} not found in this workspace`,
     });
   }
 }
@@ -125,6 +131,9 @@ export const ASSIGNABLE_USER_SELECT = {
       // Position in the roster's workspace (ADR-0068 §3). One column, no
       // extra query; covers Assistants and plain External agents alike.
       description: true,
+      // MASTRA or LOCAL_CLI: a LOCAL_CLI Assistant runs on its owner's machine
+      // and needs no Mastra, so pickers keep it on keyless installs.
+      executor: true,
       assistant: {
         select: {
           emoji: true,
@@ -143,6 +152,11 @@ export interface AssignableUser {
   isAgent: boolean;
   /** Set when this user is an Assistant's principal: who it belongs to. */
   assistantOwner: { id: string; name: string | null; emoji: string | null } | null;
+  /**
+   * The Assistant's executor (ADR-0067), null for anyone who isn't an
+   * Assistant. Pickers hide MASTRA Assistants when the install has no Mastra.
+   */
+  assistantExecutor: "MASTRA" | "LOCAL_CLI" | null;
   /**
    * Positions held in the roster's workspace (ADR-0068). `[]` when none, or
    * when the roster has no trusted workspace. Routing data, never access.
@@ -166,6 +180,7 @@ export type AssignableUserRow = {
   isAgent: boolean;
   externalAgentShadow: {
     description: string | null;
+    executor?: "MASTRA" | "LOCAL_CLI";
     assistant: {
       emoji: string | null;
       createdBy: { id: string; name: string | null };
@@ -193,6 +208,7 @@ export function toAssignableUser(
     assistantOwner: assistant
       ? { id: assistant.createdBy.id, name: assistant.createdBy.name, emoji: assistant.emoji }
       : null,
+    assistantExecutor: assistant ? (row.externalAgentShadow?.executor ?? "MASTRA") : null,
     positions,
     agentDescription:
       row.isAgent && positions.length === 0 ? blankToNull(row.externalAgentShadow?.description) : null,

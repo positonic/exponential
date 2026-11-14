@@ -57,6 +57,15 @@ function toEditableRole(role: string): EditableRole {
   return role === "admin" || role === "viewer" ? role : "member";
 }
 
+/**
+ * The role the select starts on. An agent always starts on Member, even one
+ * still holding admin or viewer from before ADR-0049 §3 was enforced, so
+ * saving corrects it rather than resubmitting a role the server rejects.
+ */
+function initialRole(member: EditMemberRoleModalMember): EditableRole {
+  return member.isAgent ? "member" : toEditableRole(member.role);
+}
+
 export function EditMemberRoleModal({
   workspaceId,
   member,
@@ -69,7 +78,7 @@ export function EditMemberRoleModal({
   // Sync the select with the member being edited whenever the modal opens.
   useEffect(() => {
     if (member) {
-      setRole(toEditableRole(member.role));
+      setRole(initialRole(member));
     }
   }, [member]);
 
@@ -98,7 +107,10 @@ export function EditMemberRoleModal({
     updateRoleMutation.mutate({ workspaceId, userId: member.userId, role });
   };
 
-  const unchanged = member ? role === toEditableRole(member.role) : true;
+  // Compared with the stored role, so a legacy admin agent can be saved to Member.
+  const unchanged = member
+    ? role === (member.isAgent ? member.role : toEditableRole(member.role))
+    : true;
 
   return (
     <Modal

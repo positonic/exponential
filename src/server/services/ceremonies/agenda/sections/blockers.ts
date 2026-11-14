@@ -2,7 +2,10 @@
  * `blockers`: participants' ACTIVE actions that are past due, plus actions
  * blocked by another still-active action (`ActionDependency`), in the ceremony's workspace
  * (narrowed to its project when set). Unassigned overdue actions in the
- * project count too — a standup is where they get an owner.
+ * project count too — a standup is where they get an owner. Without a
+ * project only actions assigned to a participant count: a workspace-wide
+ * ceremony must never present someone's personal, unowned to-dos as the
+ * team's blockers.
  */
 import type { AgendaItem, SectionModule } from "../types";
 
@@ -18,16 +21,17 @@ export const blockersSection: SectionModule = {
     // the default shape, so this is the first agenda a new user sees.
     if (ctx.participantUserIds.length === 0 && ctx.projectIds.length === 0) return [];
 
-    // Narrowed to the participants when the ceremony has any — plus actions
-    // nobody owns, which the standup exists to give an owner (see the module
-    // docstring). Without that third branch an unassigned action created by a
-    // non-participant never reaches the agenda.
+    // Narrowed to the participants when the ceremony has any. Inside a
+    // project, actions a participant created and actions nobody owns count
+    // too: the standup exists to give those an owner. Without a project both
+    // branches would reach across the whole workspace and surface personal
+    // to-dos ("pay 5 euro") nobody on this ceremony is responsible for, so
+    // only actions assigned to a participant remain.
+    const assignedToParticipant = { assignees: { some: { userId: { in: ctx.participantUserIds } } } };
     const participantOr = ctx.participantUserIds.length
-      ? [
-          { assignees: { some: { userId: { in: ctx.participantUserIds } } } },
-          { createdById: { in: ctx.participantUserIds } },
-          { assignees: { none: {} } },
-        ]
+      ? ctx.projectIds.length
+        ? [assignedToParticipant, { createdById: { in: ctx.participantUserIds } }, { assignees: { none: {} } }]
+        : [assignedToParticipant]
       : null;
     const actions = await ctx.db.action.findMany({
       where: {

@@ -33,7 +33,7 @@ export function ProductivityPageContent() {
         </Text>
         <Link
           href="/settings"
-          className="flex items-center gap-1 text-sm text-brand-primary hover:underline"
+          className="flex items-center gap-1 text-sm text-link hover:underline"
         >
           <IconSettings size={16} />
           Enable in Settings

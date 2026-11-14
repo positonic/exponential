@@ -4,7 +4,7 @@ description: Ten minutes from sign-in to a planned day, with Zoe and one capture
 section: get-started
 order: 3
 icon: IconBolt
-updated: 2026-09-28
+updated: 2026-10-23
 ---
 
 This walkthrough takes about ten minutes. By the end you will have a project with three actions, a plan for today, one answer from Zoe, and a way to capture actions from your phone or browser.
@@ -28,16 +28,16 @@ The sidebar has three items that are always there, then four sections:
 | **Inbox** | Actions with no project or date yet |
 | **Today** | The actions due or scheduled today, with a timeline of your day |
 | **Time** | Your timer and time entries |
-| **Align** | Goals, Decisions |
-| **Deliver** | Actions, Projects, Pages (plus Products and Metrics when the Product Management plugin is on) |
-| **Connect** | CRM |
-| **Amplify** | Agents, Meetings, Knowledge |
+| **Plan** | Goals, Decisions |
+| **Work** | Actions, Projects, Pages (plus Products and Metrics when the Product Management plugin is on) |
+| **People** | CRM |
+| **Tools** | Agents, Meetings, Knowledge |
 
 The workspace switcher is at the top; your user menu (Settings, Teams, Journal, Workflows and more) is at the bottom. You can rename, reorder and hide sections and items under [Settings → Navigation](/settings).
 
 ## 3. Create a project
 
-1. Open **Projects** under **Deliver** in the sidebar.
+1. Open **Projects** under **Work** in the sidebar.
 2. Click **New project**.
 3. Give it a name. Status defaults to **Active**; set a **Priority** if you like. Product, goals and dates are optional.
 4. Click **Create Project**.
@@ -67,7 +67,7 @@ Click **Ask Zoe · ⌘J** at the bottom right of any page. Try "What should I fo
 
 ![The Zoe drawer](/doc-assets/zoe-drawer.png)
 
-The full chat page is **Agents** under **Amplify** in the sidebar. See [Zoe](/docs/zoe/assistant).
+The full chat page is **Agents** under **Tools** in the sidebar. See [Zoe](/docs/zoe/assistant).
 
 ## 7. Capture from anywhere
 

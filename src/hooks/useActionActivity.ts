@@ -7,6 +7,9 @@ import type {
   ActivityItem,
 } from "~/app/_components/shared/activityTypes";
 import type { MentionCandidate } from "~/hooks/useMentionAutocomplete";
+import { notifications } from "@mantine/notifications";
+import { assignmentOffer } from "~/lib/actions/assignmentOffer";
+import { showAssignmentOffer } from "~/app/_components/actions/showAssignmentOffer";
 
 interface UseActionActivityOptions {
   mentionCandidates?: MentionCandidate[];
@@ -29,8 +32,37 @@ export function useActionActivity(
     void utils.actionComment.getComments.invalidate({ actionId });
   }, [utils, actionId]);
 
+  // Assigning is what starts an Assistant's run; a mention only offers it.
+  const assignMutation = api.action.assign.useMutation({
+    onSuccess: (result) => {
+      void utils.action.getById.invalidate({ id: actionId });
+      void utils.agentRun.invalidate();
+      const agent = result.assignees.find((a) => a.user.isAgent);
+      notifications.show({
+        message:
+          result.agentRunsQueued > 0
+            ? `${agent?.user.name ?? "Your Assistant"} is on it`
+            : "Assigned",
+      });
+    },
+    onError: (err) => {
+      notifications.show({ title: "Couldn't assign", message: err.message, color: "red" });
+    },
+  });
+
   const addCommentMutation = api.actionComment.addComment.useMutation({
-    onSuccess: invalidate,
+    onSuccess: (result) => {
+      invalidate();
+      // The server reports the mentioned Assistants it did not start
+      // (`unstartedAssistants`): say so, and offer the assignment.
+      const offer = assignmentOffer(result.unstartedAssistants);
+      if (offer) {
+        showAssignmentOffer(offer, {
+          actionId,
+          onAssign: (userIds) => assignMutation.mutate({ actionId, userIds }),
+        });
+      }
+    },
   });
 
   const deleteCommentMutation = api.actionComment.deleteComment.useMutation({

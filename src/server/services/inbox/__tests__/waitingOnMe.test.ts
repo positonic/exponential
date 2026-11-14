@@ -66,10 +66,10 @@ describe("waiting-on-me WHERE builders", () => {
 });
 
 describe("assistant questions (ADR-0067)", () => {
-  it("my Assistants' latest runs that are waiting on me — not yet resumed", () => {
+  it("waiting runs that asked me — I requested them, or nobody did and the Assistant is mine — not yet resumed", () => {
     expect(assistantQuestionsWaitingOnMeWhere(USER)).toEqual({
       status: "WAITING_ON_OWNER",
-      agent: { ownerId: USER },
+      OR: [{ requestedById: USER }, { requestedById: null, agent: { ownerId: USER } }],
       successors: { none: {} },
       action: buildActionAccessWhere(USER),
     });

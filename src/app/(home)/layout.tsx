@@ -1,6 +1,6 @@
 import "~/styles/globals.css";
 import { GeistSans } from "geist/font/sans";
-import { inter } from '~/lib/fonts';
+import { fontVariables } from '~/lib/fonts';
 import { type Metadata } from "next";
 import { TRPCReactProvider } from "~/trpc/react";
 import { MantineProvider } from '@mantine/core';
@@ -106,7 +106,7 @@ export default async function HomeLayout({
   const mantineTheme = mantineThemes[domain];
 
   return (
-    <html lang="en" data-mantine-color-scheme="dark" className={`${GeistSans.variable} ${inter.variable} h-full scroll-smooth`} suppressHydrationWarning>
+    <html lang="en" data-mantine-color-scheme="dark" className={`${GeistSans.variable} ${fontVariables} h-full scroll-smooth`} suppressHydrationWarning>
       <head>
         <link
           rel="alternate"

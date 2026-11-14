@@ -123,7 +123,7 @@ export default function AppearanceSettingsPage() {
                         w={16}
                         h={16}
                         style={{
-                          borderRadius: 3,
+                          borderRadius: 'var(--radius-sm)',
                           background: 'linear-gradient(135deg, var(--color-brand-primary), var(--color-brand-info))',
                         }}
                       />
@@ -139,7 +139,7 @@ export default function AppearanceSettingsPage() {
                         w={16}
                         h={16}
                         style={{
-                          borderRadius: 3,
+                          borderRadius: 'var(--radius-sm)',
                           background: 'linear-gradient(135deg, var(--color-text-disabled), var(--color-text-secondary))',
                         }}
                       />

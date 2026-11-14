@@ -1,50 +1,14 @@
 'use client';
 
-import { ActionIcon, Button, Loader, Skeleton, Tooltip } from '@mantine/core';
-import {
-  IconChevronLeft,
-  IconChevronRight,
-  IconRefresh,
-  IconSparkles,
-  IconUserStar,
-} from '@tabler/icons-react';
-import {
-  addWeeks,
-  getISOWeek,
-  getISOWeekYear,
-  setISOWeek,
-  setISOWeekYear,
-  startOfISOWeek,
-  endOfISOWeek,
-  subWeeks,
-} from 'date-fns';
-import { useMemo, useState } from 'react';
+import { Button, Loader, Skeleton } from '@mantine/core';
+import { IconSparkles, IconUserStar } from '@tabler/icons-react';
+import { useState } from 'react';
 import { MarkdownRenderer } from '~/app/_components/shared/MarkdownRenderer';
+import { useAiCapabilities } from "~/providers/AiCapabilitiesProvider";
 import { api } from '~/trpc/react';
+import { WeekPager, trpcErrorCode, useWeekPager } from './WeekPager';
 
 import './activity-home.css';
-
-interface IsoWeek {
-  isoYear: number;
-  isoWeek: number;
-}
-
-function isoWeekOf(date: Date): IsoWeek {
-  return { isoYear: getISOWeekYear(date), isoWeek: getISOWeek(date) };
-}
-
-/** Reconstruct a Date that lands inside the given ISO week (its Monday). */
-function dateForIsoWeek({ isoYear, isoWeek }: IsoWeek): Date {
-  // Order matters: set the ISO-week-year first, then the week within it.
-  return startOfISOWeek(setISOWeek(setISOWeekYear(new Date(), isoYear), isoWeek));
-}
-
-function sameIsoWeek(a: IsoWeek, b: IsoWeek): boolean {
-  return a.isoYear === b.isoYear && a.isoWeek === b.isoWeek;
-}
-
-const FMT_DATE = (d: Date) =>
-  d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 
 /**
  * Weekly work digest — a personal, cross-workspace panel that sits atop the
@@ -59,16 +23,18 @@ const FMT_DATE = (d: Date) =>
  * a violet accent + left rail mark this as a private artifact. See ADR-0018.
  */
 export function WeeklyWorkDigestPanel() {
+  // The digest is written by a model; without an OpenAI key the panel is left out.
+  const { openai } = useAiCapabilities();
+  if (!openai) return null;
+  return <WeeklyWorkDigest />;
+}
+
+function WeeklyWorkDigest() {
   const utils = api.useUtils();
-  const currentWeek = useMemo(() => isoWeekOf(new Date()), []);
-  const [selected, setSelected] = useState<IsoWeek>(currentWeek);
-
-  const isCurrentWeek = sameIsoWeek(selected, currentWeek);
-
-  // Omit isoYear/isoWeek for the current week so the server resolves "now".
-  const queryInput = isCurrentWeek
-    ? {}
-    : { isoYear: selected.isoYear, isoWeek: selected.isoWeek };
+  const pager = useWeekPager();
+  const { isCurrentWeek } = pager;
+  // Empty for the current week, so the server resolves "now".
+  const queryInput = pager.weekInput;
 
   const digestQ = api.workspace.getMyWeeklyWorkDigest.useQuery(queryInput, {
     // Cache hits render instantly; this just dampens dev-mode refetch churn.
@@ -91,15 +57,7 @@ export function WeeklyWorkDigestPanel() {
       });
       utils.workspace.getMyWeeklyWorkDigest.setData(queryInput, fresh);
     } catch (err) {
-      const code =
-        err != null &&
-        typeof err === 'object' &&
-        'data' in err &&
-        err.data != null &&
-        typeof err.data === 'object' &&
-        'code' in err.data
-          ? (err.data as { code?: unknown }).code
-          : undefined;
+      const code = trpcErrorCode(err);
       setRegenError(
         code === 'TOO_MANY_REQUESTS'
           ? 'Regenerated recently — try again shortly.'
@@ -112,24 +70,13 @@ export function WeeklyWorkDigestPanel() {
 
   const goPrevWeek = () => {
     setRegenError(null);
-    setSelected(isoWeekOf(subWeeks(dateForIsoWeek(selected), 1)));
+    pager.goPrevWeek();
   };
 
   const goNextWeek = () => {
-    if (isCurrentWeek) return;
     setRegenError(null);
-    const next = isoWeekOf(addWeeks(dateForIsoWeek(selected), 1));
-    // Clamp to the current week — never page into the future.
-    setSelected(sameIsoWeek(next, currentWeek) || isFuture(next) ? currentWeek : next);
+    pager.goNextWeek();
   };
-
-  function isFuture(week: IsoWeek): boolean {
-    return dateForIsoWeek(week).getTime() > dateForIsoWeek(currentWeek).getTime();
-  }
-
-  const weekRef = dateForIsoWeek(selected);
-  const rangeLabel = `${FMT_DATE(startOfISOWeek(weekRef))} – ${FMT_DATE(endOfISOWeek(weekRef))}`;
-  const pagerLabel = isCurrentWeek ? 'This week' : rangeLabel;
 
   const data = digestQ.data;
   const busy = digestQ.isLoading || isRegenerating;
@@ -146,50 +93,16 @@ export function WeeklyWorkDigestPanel() {
           <span className="wsa-digest__cached">cached</span>
         ) : null}
 
-        <div className="wsa-digest__pager">
-          <Tooltip label="Previous week" withArrow position="top">
-            <ActionIcon
-              size="sm"
-              variant="subtle"
-              color="gray"
-              aria-label="Previous week"
-              disabled={busy}
-              onClick={goPrevWeek}
-            >
-              <IconChevronLeft size={15} stroke={1.8} />
-            </ActionIcon>
-          </Tooltip>
-          <span className="wsa-digest__pager-label">{pagerLabel}</span>
-          <Tooltip
-            label={isCurrentWeek ? 'No future weeks' : 'Next week'}
-            withArrow
-            position="top"
-          >
-            <ActionIcon
-              size="sm"
-              variant="subtle"
-              color="gray"
-              aria-label="Next week"
-              disabled={busy || isCurrentWeek}
-              onClick={goNextWeek}
-            >
-              <IconChevronRight size={15} stroke={1.8} />
-            </ActionIcon>
-          </Tooltip>
-          <Tooltip label="Regenerate digest" withArrow position="top">
-            <ActionIcon
-              size="sm"
-              variant="subtle"
-              color="gray"
-              aria-label="Regenerate digest"
-              disabled={busy}
-              loading={isRegenerating}
-              onClick={() => void handleRegenerate()}
-            >
-              <IconRefresh size={14} stroke={1.8} />
-            </ActionIcon>
-          </Tooltip>
-        </div>
+        <WeekPager
+          label={pager.label}
+          isCurrentWeek={isCurrentWeek}
+          busy={busy}
+          isRegenerating={isRegenerating}
+          noun="digest"
+          onPrev={goPrevWeek}
+          onNext={goNextWeek}
+          onRegenerate={() => void handleRegenerate()}
+        />
       </div>
 
       {digestQ.isLoading ? (
@@ -261,7 +174,7 @@ export function WeeklyWorkDigestPanel() {
                 color="gray"
                 onClick={() => {
                   setRegenError(null);
-                  setSelected(currentWeek);
+                  pager.goCurrentWeek();
                 }}
               >
                 Back to this week

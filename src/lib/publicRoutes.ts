@@ -26,6 +26,7 @@ export const PUBLIC_EXACT = new Set([
   '/signin', // also excluded by the matcher; kept for clarity
   '/web3', // wallet sign-in
   '/desktop-auth', // desktop-shell auth handoff renders its own signed-out state
+  '/setup', // self-host first-run claim (ADR-0081); 404s once the install has an admin
   '/privacy',
   '/terms',
   '/roadmap', // public product roadmap (embeds Loom)

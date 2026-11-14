@@ -1,0 +1,315 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import { ActionIcon, Button, Popover, Select, Text, TextInput, UnstyledButton } from "@mantine/core";
+import { IconPlus, IconTrash, IconX } from "@tabler/icons-react";
+import {
+  ADDABLE_PROPERTY_TYPES,
+  hasOptions,
+  RELATION_TARGET_KINDS,
+  type PillColor,
+  type PropertyDef,
+  type PropertyType,
+  type RelationTargetKind,
+} from "~/lib/databases/schema";
+import { RELATION_TARGET_LABELS } from "~/lib/databases/relations";
+import styles from "./DatabaseBlock.module.css";
+
+const TYPE_LABELS: Record<PropertyType, string> = {
+  title: "Title",
+  text: "Text",
+  number: "Number",
+  select: "Select",
+  multiSelect: "Multi-select",
+  date: "Date",
+  checkbox: "Checkbox",
+  url: "URL",
+  person: "Person",
+  relation: "Relation",
+  createdTime: "Created time",
+  lastEditedTime: "Last edited time",
+  createdBy: "Created by",
+};
+
+/** An option as the editor holds it: existing ones keep their id. */
+export interface OptionDraft {
+  id?: string;
+  name: string;
+  color?: PillColor;
+}
+
+export interface PropertyDraft {
+  name: string;
+  type: PropertyType;
+  description?: string;
+  options?: OptionDraft[];
+  /** For a new relation: what it points at — a database (`ROW`, named) or a native entity kind (ADR-0078 §5). */
+  relation?: { targetKind: RelationTargetKind; targetDatabaseId?: string };
+}
+
+/** A database a relation may point at, named with its holding page. */
+export interface RelatableDatabase {
+  id: string;
+  name: string;
+  pageTitle: string;
+}
+
+interface PropertyEditorPopoverProps {
+  /** Editing an existing property, or adding (undefined). */
+  property?: PropertyDef;
+  /** What opens the popover: the column header, or the "+" at the end. */
+  target: React.ReactNode;
+  onSubmit: (draft: PropertyDraft) => Promise<void> | void;
+  onRemove?: () => Promise<void> | void;
+  /** Offered as targets when adding a relation; absent → the relation type is not offered. */
+  relatableDatabases?: RelatableDatabase[];
+}
+
+/**
+ * The header's property editor (ADR-0078 §6): name, type and — for select
+ * and multi-select — the option list, in a popover off the column header.
+ * Options keep their ids through a rename, so changing "Tracked" to "Being
+ * tracked" rewrites no row; a removed option's rows read as its raw id until
+ * they are next written. The title property can be renamed but not retyped
+ * or removed. A relation is created pointing at a database and keeps both
+ * its type and its target; editing one renames it.
+ */
+export function PropertyEditorPopover({
+  property,
+  target,
+  onSubmit,
+  onRemove,
+  relatableDatabases,
+}: PropertyEditorPopoverProps) {
+  const [opened, setOpened] = useState(false);
+  const [name, setName] = useState(property?.name ?? "");
+  const [type, setType] = useState<PropertyType>(property?.type ?? "text");
+  const [options, setOptions] = useState<OptionDraft[]>(property?.options ?? []);
+  const [targetKind, setTargetKind] = useState<RelationTargetKind>("ROW");
+  const [targetDatabaseId, setTargetDatabaseId] = useState<string | null>(null);
+  const [newOption, setNewOption] = useState("");
+  const [saving, setSaving] = useState(false);
+  const isTitle = property?.type === "title";
+  const isRelation = property?.type === "relation";
+  const isNewRelation = !property && type === "relation";
+
+  useEffect(() => {
+    if (!opened) return;
+    setName(property?.name ?? "");
+    setType(property?.type ?? "text");
+    setOptions(property?.options ?? []);
+    setTargetKind("ROW");
+    setTargetDatabaseId(null);
+    setNewOption("");
+  }, [opened, property]);
+
+  // Title and relation keep their type; a new property may be a relation
+  // when there is something to relate it to.
+  const fixedType = property && (isTitle || isRelation) ? property.type : null;
+  const typeChoices = (
+    fixedType
+      ? [fixedType]
+      : [...ADDABLE_PROPERTY_TYPES, ...(!property ? (["relation"] as const) : [])]
+  ).map((t) => ({ value: t, label: TYPE_LABELS[t] }));
+  const kindChoices = RELATION_TARGET_KINDS.map((k) => ({ value: k, label: RELATION_TARGET_LABELS[k] }));
+  const relationChoices = (relatableDatabases ?? []).map((d) => ({
+    value: d.id,
+    label: d.pageTitle ? `${d.name} — ${d.pageTitle}` : d.name,
+  }));
+
+  const addOption = () => {
+    const trimmed = newOption.trim();
+    if (!trimmed || options.some((o) => o.name.toLowerCase() === trimmed.toLowerCase())) return;
+    setOptions((prev) => [...prev, { name: trimmed }]);
+    setNewOption("");
+  };
+
+  const canSubmit = name.trim().length > 0 && (!isNewRelation || targetKind !== "ROW" || !!targetDatabaseId);
+
+  const submit = async () => {
+    const trimmed = name.trim();
+    if (!canSubmit) return;
+    setSaving(true);
+    try {
+      await onSubmit({
+        name: trimmed,
+        type,
+        ...(hasOptions(type) ? { options } : {}),
+        ...(isNewRelation
+          ? {
+              relation:
+                targetKind === "ROW"
+                  ? { targetKind, targetDatabaseId: targetDatabaseId ?? undefined }
+                  : { targetKind },
+            }
+          : {}),
+      });
+      setOpened(false);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const remove = async () => {
+    if (!onRemove) return;
+    setSaving(true);
+    try {
+      await onRemove();
+      setOpened(false);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Popover opened={opened} onChange={setOpened} position="bottom-start" withinPortal shadow="md" trapFocus>
+      <Popover.Target>
+        <UnstyledButton
+          className={styles.headerButton}
+          aria-label={property ? `Edit property ${property.name}` : "Add a property"}
+          onClick={(e) => {
+            e.stopPropagation();
+            setOpened((o) => !o);
+          }}
+        >
+          {target}
+        </UnstyledButton>
+      </Popover.Target>
+      <Popover.Dropdown
+        styles={{
+          dropdown: {
+            backgroundColor: "var(--color-bg-elevated)",
+            border: "1px solid var(--color-border-primary)",
+            minWidth: 260,
+            maxWidth: 320,
+          },
+        }}
+        onKeyDown={(e) => e.stopPropagation()}
+      >
+        <div className="flex flex-col gap-2">
+          <Text size="xs" fw={600} className="text-text-primary">
+            {property ? "Edit property" : "New property"}
+          </Text>
+          <TextInput
+            size="xs"
+            label="Name"
+            value={name}
+            autoFocus
+            onChange={(e) => setName(e.currentTarget.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                void submit();
+              }
+            }}
+          />
+          <Select
+            size="xs"
+            label="Type"
+            data={typeChoices}
+            value={type}
+            disabled={isTitle || isRelation}
+            allowDeselect={false}
+            comboboxProps={{ withinPortal: true }}
+            onChange={(next) => {
+              if (next) setType(next as PropertyType);
+            }}
+          />
+          {isNewRelation ? (
+            <Select
+              size="xs"
+              label="Relates to"
+              data={kindChoices}
+              value={targetKind}
+              allowDeselect={false}
+              comboboxProps={{ withinPortal: true }}
+              onChange={(next) => {
+                if (next) setTargetKind(next as RelationTargetKind);
+              }}
+            />
+          ) : null}
+          {isNewRelation && targetKind === "ROW" ? (
+            <Select
+              size="xs"
+              label="Related database"
+              placeholder="Pick a database"
+              data={relationChoices}
+              value={targetDatabaseId}
+              searchable
+              nothingFoundMessage="No database to relate to"
+              comboboxProps={{ withinPortal: true }}
+              onChange={setTargetDatabaseId}
+            />
+          ) : null}
+          {hasOptions(type) ? (
+            <div className="flex flex-col gap-1">
+              <Text size="xs" className="text-text-secondary">
+                Options
+              </Text>
+              {options.map((option, index) => (
+                <div key={option.id ?? `new-${index}`} className="flex items-center gap-1">
+                  <TextInput
+                    size="xs"
+                    className="flex-1"
+                    value={option.name}
+                    aria-label={`Option ${index + 1}`}
+                    onChange={(e) => {
+                      const next = e.currentTarget.value;
+                      setOptions((prev) => prev.map((o, i) => (i === index ? { ...o, name: next } : o)));
+                    }}
+                  />
+                  <ActionIcon
+                    size="sm"
+                    variant="subtle"
+                    aria-label={`Remove option ${option.name}`}
+                    onClick={() => setOptions((prev) => prev.filter((_, i) => i !== index))}
+                  >
+                    <IconX size={14} />
+                  </ActionIcon>
+                </div>
+              ))}
+              <div className="flex items-center gap-1">
+                <TextInput
+                  size="xs"
+                  className="flex-1"
+                  placeholder="Add an option"
+                  value={newOption}
+                  aria-label="New option"
+                  onChange={(e) => setNewOption(e.currentTarget.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      addOption();
+                    }
+                  }}
+                />
+                <ActionIcon size="sm" variant="subtle" aria-label="Add option" onClick={addOption}>
+                  <IconPlus size={14} />
+                </ActionIcon>
+              </div>
+            </div>
+          ) : null}
+          <div className="mt-1 flex items-center justify-between gap-2">
+            {property && !isTitle && onRemove ? (
+              <Button
+                size="xs"
+                variant="subtle"
+                color="red"
+                leftSection={<IconTrash size={14} />}
+                loading={saving}
+                onClick={() => void remove()}
+              >
+                Remove
+              </Button>
+            ) : (
+              <span />
+            )}
+            <Button size="xs" loading={saving} disabled={!canSubmit} onClick={() => void submit()}>
+              {property ? "Save" : "Add"}
+            </Button>
+          </div>
+        </div>
+      </Popover.Dropdown>
+    </Popover>
+  );
+}

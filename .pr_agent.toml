@@ -13,8 +13,14 @@ fallback_models = ["openrouter/z-ai/glm-5.2"]
 # Declared so PR-Agent can budget the diff even when the bundled litellm build
 # predates this model and has no registry entry for it (without this, an
 # unregistered model errors during token counting). This is only the ceiling —
-# the effective diff budget is PR-Agent's own max_model_tokens, 32k by default.
+# the effective diff budget is max_model_tokens below.
 custom_model_max_tokens = 200000
+# The diff budget. PR-Agent's default is 32k, and a diff bigger than that gets a partial
+# review: files are left out, the review state says `complete: false`, and the auto-merge
+# gate holds the PR for a person. That held #1046/#1047 (85–92 files, 57 and 73 files
+# unreviewed). At 128k, a full review of a big PR costs about $0.18 at Z.AI's $1.40 per
+# million input tokens (vs about $0.045 at 32k); small PRs cost the same as before.
+max_model_tokens = 128000
 # Markdown rendering of the model's suggestions.
 publish_output = true
 

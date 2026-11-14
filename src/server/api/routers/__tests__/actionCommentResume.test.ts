@@ -74,20 +74,38 @@ describe("actionComment.addComment resumes a waiting run", () => {
   });
 
   it("the owner's reply on a WAITING_ON_OWNER action starts a resume run with the thread so far and kicks the dispatcher", async () => {
-    db.externalAgent.findMany.mockResolvedValue([{ id: "agent-1", executor: "MASTRA" }] as never);
-    db.agentRun.findFirst.mockResolvedValue({ id: "run-1", status: "WAITING_ON_OWNER" } as never);
+    db.agentRun.findMany.mockResolvedValue([{ agentId: "agent-1" }] as never);
+    db.externalAgent.findMany.mockResolvedValue([{ id: "agent-1", ownerId: OWNER, executor: "MASTRA" }] as never);
+    db.agentRun.findFirst.mockResolvedValue({ id: "run-1", status: "WAITING_ON_OWNER", requestedById: null } as never);
 
     await createMockCaller({ userId: OWNER, db }).actionComment.addComment({ actionId: ACTION, content: "19 Nov works." });
 
-    expect(db.externalAgent.findMany.mock.calls[0]?.[0]).toMatchObject({ where: { ownerId: OWNER, assistant: { isNot: null } } });
+    expect(db.agentRun.findMany.mock.calls[0]?.[0]).toMatchObject({
+      where: { OR: [{ requestedById: OWNER }, { agent: { ownerId: OWNER } }] },
+    });
     expect(db.agentRun.create.mock.calls[0]?.[0]).toMatchObject({
       data: { actionId: ACTION, agentId: "agent-1", requestedById: OWNER, predecessorId: "run-1", wakeCommentId: "c-9" },
     });
     expect(dispatchMock).toHaveBeenCalledTimes(1);
   });
 
+  it("the person who assigned the work answering the run's question resumes it", async () => {
+    db.action.findUnique.mockResolvedValue({ id: ACTION, createdById: "assigner-1", projectId: null, teamId: null, workspaceId: "ws-1", assignees: [], project: null } as never);
+    db.actionComment.create.mockResolvedValue({ id: "c-11", author: { id: "assigner-1", name: "Ana", image: null } } as never);
+    db.agentRun.findMany.mockResolvedValue([{ agentId: "agent-1" }] as never);
+    db.externalAgent.findMany.mockResolvedValue([{ id: "agent-1", ownerId: OWNER, executor: "MASTRA" }] as never);
+    db.agentRun.findFirst.mockResolvedValue({ id: "run-1", status: "WAITING_ON_OWNER", requestedById: "assigner-1" } as never);
+
+    await createMockCaller({ userId: "assigner-1", db }).actionComment.addComment({ actionId: ACTION, content: "The Lisbon one." });
+
+    expect(db.agentRun.create.mock.calls[0]?.[0]).toMatchObject({
+      data: { agentId: "agent-1", requestedById: "assigner-1", predecessorId: "run-1", wakeCommentId: "c-11" },
+    });
+    expect(dispatchMock).toHaveBeenCalledTimes(1);
+  });
+
   it("a teammate's comment resumes nothing", async () => {
-    db.externalAgent.findMany.mockResolvedValue([] as never);
+    db.agentRun.findMany.mockResolvedValue([] as never);
     db.action.findUnique.mockResolvedValue({ id: ACTION, createdById: "teammate", projectId: null, teamId: null, workspaceId: "ws-1", assignees: [], project: null } as never);
     db.actionComment.create.mockResolvedValue({ id: "c-10", author: { id: "teammate", name: "Andi", image: null } } as never);
 
@@ -97,8 +115,26 @@ describe("actionComment.addComment resumes a waiting run", () => {
     expect(dispatchMock).not.toHaveBeenCalled();
   });
 
+  it("mentioning an unassigned Assistant posts the comment, starts no run, and reports it", async () => {
+    db.agentRun.findMany.mockResolvedValue([] as never);
+    db.actionComment.create.mockResolvedValue({ id: "c-12", author: { id: OWNER, name: "James", image: null } } as never);
+    db.user.findMany.mockResolvedValue([{ id: "aria-shadow", name: "Aria" }] as never);
+    db.actionAssignee.findMany.mockResolvedValue([] as never);
+
+    const result = await createMockCaller({ userId: OWNER, db }).actionComment.addComment({
+      actionId: ACTION,
+      content: "@[Aria](aria-shadow) please look",
+    });
+
+    expect(db.actionComment.create).toHaveBeenCalledTimes(1);
+    expect(db.agentRun.create).not.toHaveBeenCalled();
+    expect(dispatchMock).not.toHaveBeenCalled();
+    expect(result).toMatchObject({ id: "c-12", unstartedAssistants: [{ id: "aria-shadow", name: "Aria" }] });
+  });
+
   it("the owner's comment when the latest run already finished resumes nothing", async () => {
-    db.externalAgent.findMany.mockResolvedValue([{ id: "agent-1", executor: "MASTRA" }] as never);
+    db.agentRun.findMany.mockResolvedValue([{ agentId: "agent-1" }] as never);
+    db.externalAgent.findMany.mockResolvedValue([{ id: "agent-1", ownerId: OWNER, executor: "MASTRA" }] as never);
     db.agentRun.findFirst.mockResolvedValue({ id: "run-1", status: "SUCCEEDED" } as never);
 
     await createMockCaller({ userId: OWNER, db }).actionComment.addComment({ actionId: ACTION, content: "thanks" });

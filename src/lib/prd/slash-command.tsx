@@ -19,15 +19,20 @@ import {
   IconListNumbers,
   IconCode,
   IconQuote,
+  IconSitemap,
   IconTable,
+  IconBrandYoutube,
   type TablerIcon,
 } from "@tabler/icons-react";
 import tippy, { type Instance, type GetReferenceClientRect } from "tippy.js";
 
+import { openYouTubePrompt } from "./youtube-prompt";
+
 /**
  * `/` slash-command block menu for the PRD editor (ADR-0024 Tier B). Built on
  * `@tiptap/suggestion`: typing `/` opens a keyboard-navigable list that inserts
- * structural blocks (headings, lists, task lists, code block, quote, table). Hosts can
+ * structural blocks (headings, lists, task lists, code block, quote, table,
+ * YouTube embed). Hosts can
  * append context-dependent commands (e.g. the Pages editor's "Page" command)
  * via the `extraCommands` option.
  */
@@ -89,6 +94,18 @@ const COMMANDS: SlashCommandItem[] = [
       editor.chain().focus().deleteRange(range).toggleCodeBlock().run(),
   },
   {
+    title: "Diagram",
+    description: "Mermaid flowchart, sequence diagram…",
+    icon: IconSitemap,
+    run: ({ editor, range }) =>
+      editor
+        .chain()
+        .focus()
+        .deleteRange(range)
+        .setCodeBlock({ language: "mermaid" })
+        .run(),
+  },
+  {
     title: "Quote",
     description: "Block quote",
     icon: IconQuote,
@@ -106,6 +123,15 @@ const COMMANDS: SlashCommandItem[] = [
         .deleteRange(range)
         .insertTable({ rows: 3, cols: 3, withHeaderRow: true })
         .run(),
+  },
+  {
+    title: "YouTube",
+    description: "Embed a video from a YouTube link",
+    icon: IconBrandYoutube,
+    run: ({ editor, range }) => {
+      editor.chain().focus().deleteRange(range).run();
+      openYouTubePrompt(editor);
+    },
   },
 ];
 

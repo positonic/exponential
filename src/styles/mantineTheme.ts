@@ -213,7 +213,7 @@ const componentStyles = {
       dropdown: {
         backgroundColor: 'var(--color-bg-elevated)',
         borderColor: 'var(--color-border-primary)',
-        boxShadow: '0 4px 12px rgba(0, 0, 0, 0.1)',
+        boxShadow: 'var(--shadow-md)',
       },
     },
   },
@@ -240,7 +240,7 @@ const componentStyles = {
         backgroundColor: 'var(--color-bg-elevated)',
         color: 'var(--color-text-primary)',
         border: '1px solid var(--color-border-primary)',
-        boxShadow: '0 4px 12px rgba(0, 0, 0, 0.15)',
+        boxShadow: 'var(--shadow-md)',
       },
     },
   },
@@ -486,6 +486,29 @@ export function createAppTheme(
     primaryColor: 'brand',
     primaryShade: 5,
     components: componentStyles,
+
+    // Shape tokens (globals.css `:root`). Mantine emits these verbatim as
+    // `--mantine-radius-*` / `--mantine-shadow-*`, so `radius="md"` is the
+    // same 6px as Tailwind's `rounded-md` and feature CSS's
+    // `var(--radius-md)`. Mantine's stock scale (md 8, lg 16, xl 32) is gone.
+    // The one deliberate asymmetry: `xl` is the pill radius, not 12px -
+    // Mantine's own Avatar, Badge and Pill rely on `xl` being "fully round",
+    // and ~200 call sites pass radius="xl" to mean exactly that. For a 12px
+    // corner on a Mantine component use `lg` (8px) or a Tailwind class.
+    radius: {
+      xs: 'var(--radius-xs)',
+      sm: 'var(--radius-sm)',
+      md: 'var(--radius-md)',
+      lg: 'var(--radius-lg)',
+      xl: 'var(--radius-full)',
+    },
+    shadows: {
+      xs: 'var(--shadow-sm)',
+      sm: 'var(--shadow-sm)',
+      md: 'var(--shadow-md)',
+      lg: 'var(--shadow-lg)',
+      xl: 'var(--shadow-xl)',
+    },
 
     // Other theme settings
     respectReducedMotion: true,

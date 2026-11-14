@@ -117,3 +117,52 @@ Relaxing "recurring" costs one nullable column and a flag.
 external person known by email with an optional CRM contact, mirroring **Participant** on the
 recorded Meeting so the two match on email when a recording attaches. Availability still comes from
 members only.
+
+## Amendment: an Occurrence may be moved or added by hand (2026-10-21)
+
+Decision 2 keyed occurrences to cadence ticks: one row per tick, unique per ceremony and
+scheduled start, regenerated hourly. Real meetings drift — the standup moves to the afternoon,
+the review is held on a day the rule does not name — and a recording of the moved meeting
+could only attach to a row carrying the wrong date, or to nothing at all. Editing the cadence
+rule to match is the wrong tool: it rewrites every future tick for a one-day change.
+
+An Occurrence now records the **cadence tick it stands for** (`cadenceStart`, unique per
+ceremony, null on an ad hoc or one-off occurrence) separately from **when it is held**
+(`scheduledStart`). The owner may **move** a planned occurrence to another time — it keeps its
+tick, so the sweep never re-inserts the slot it vacated, and its agenda, notes page, async
+updates and linked recordings ride along, because a move is a property change rather than a new
+row — and may **add** an occurrence on any date; one added on a tick simply *is* that tick's
+occurrence, created early. The recording page's "Part of" picker offers "Add occurrence" per
+ceremony at the recording's own date, so attaching a meeting held off the cadence is one click.
+A one-off is never moved: its booking lives in attendees' calendars, and reschedule remains
+cancel + rebook. A cadence edit still regenerates future planned ticks, but leaves moved and ad
+hoc occurrences alone — they are deliberate acts, not derived rows.
+
+**Considered alternatives:** skipping the tick and creating a fresh occurrence at the new time
+(rejected: the agenda, notes and updates stay behind on the skipped row, and the list shows a
+tombstone for every move); a per-occurrence exception list on the ceremony, RRULE `EXDATE`-style
+(rejected: it moves scheduling state onto the definition, which occurrences deliberately snapshot
+rather than share); dropping the tick-based unique altogether (rejected: idempotent hourly
+expansion depends on it).
+
+## Amendment: a Ceremony may name the room it meets in (2026-10-23)
+
+Recordings attached by calendar id or title alias (Decision 4). A recorder sitting in a video
+room knows neither: the Syntrofi Talk notetaker sees only the room's link, and the room name
+("regulartouchpointja") rarely resembles the ceremony's title. Someone had to pick the workspace,
+project and occurrence by hand in every meeting.
+
+A Ceremony now carries an optional **meeting link** (`meetingUrl`), the room it is held in. A
+recorder asks `ceremony.matchMeetingUrl` with the room's link and the meeting time, and gets back
+the ceremony, the occurrence on at that time, and the project when the ceremony reviews exactly
+one. Links compare on host and path only (`meetingUrlKey`), so scheme, case, query string and a
+trailing slash never break a match. Several ceremonies may share a room; the occurrence on at the
+meeting time decides, and with none on, a shared room is ambiguous and matches nothing. Only
+workspaces the caller belongs to are searched, so an agent key finds only ceremonies in the
+workspaces granted to it. The match is a default: the person filing can still change it.
+
+**Considered alternatives:** a room-to-ceremony map in the recorder's own config (rejected: a
+second copy of the ceremony↔project mapping that drifts from Exponential's); matching the room
+name as a title alias (rejected: aliases are title tokens, and borrowing them would hide a room
+link inside a title rule); a unique link per ceremony (rejected: one standing room often hosts
+several rhythms).

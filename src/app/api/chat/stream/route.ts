@@ -25,8 +25,10 @@ import {
   type LoggedToolCall,
 } from "~/server/utils/redactToolArgs";
 import {
+  agentErrorTraceContext,
   classifyProviderError,
   isNonRetryableProviderError,
+  PROVIDER_OUTAGE_RENOTIFY_MS,
   type ProviderErrorKind,
 } from "~/server/services/ai/providerError";
 import { composePromptVersion } from "~/server/services/promptVersion";
@@ -43,8 +45,9 @@ import {
   sonnetVariantOf,
 } from "~/server/services/ai/pickModelTier";
 import { PRODUCT_NAME } from "~/lib/brand";
+import { resolveMastraUrl } from "~/server/services/ai/capabilities";
+import { aiNotConfiguredMessage } from "~/server/services/ai/requireAi";
 
-const MASTRA_API_URL = process.env.MASTRA_API_URL ?? "http://localhost:4111";
 
 // Extend Vercel function timeout for streaming AI responses (default is 10s hobby / 60s pro)
 export const maxDuration = 300;
@@ -113,6 +116,16 @@ export async function POST(req: Request) {
         status: 401,
         headers: { "Content-Type": "application/json" },
       });
+    }
+
+    // No Assistant on this install (MASTRA_API_URL unset in production): say
+    // so plainly rather than dialling localhost and failing mid-stream.
+    const mastraUrl = resolveMastraUrl(process.env);
+    if (!mastraUrl) {
+      return new Response(
+        JSON.stringify({ error: aiNotConfiguredMessage("assistant", "The Assistant"), code: "AI_NOT_CONFIGURED" }),
+        { status: 503, headers: { "Content-Type": "application/json" } },
+      );
     }
 
     // Rate limits on the LLM-spend path (this route had none — a single
@@ -248,7 +261,7 @@ export async function POST(req: Request) {
     });
 
     const client = new MastraClient({
-      baseUrl: MASTRA_API_URL,
+      baseUrl: mastraUrl,
       headers: {
         Authorization: `Bearer ${agentJWT}`,
       },
@@ -781,10 +794,18 @@ export async function POST(req: Request) {
                 // Provider-executed tools (webSearch/webFetch) report failures
                 // as tool-result + isError, not tool-error — without this branch
                 // a refused web_fetch is invisible in the log row.
-                if (readUnknown(chunk.payload, 'isError') === true) {
-                  const result = readUnknown(chunk.payload, 'result');
-                  const errorCode =
-                    readString(result, 'errorCode') ?? readString(result, 'error');
+                const result = readUnknown(chunk.payload, 'result');
+                // Mastra reports a tool whose output failed its schema as a
+                // *successful* result carrying `{ error: true, message }`.
+                // The model works around it, so without this branch the
+                // failure leaves no trace in the log row or the digest.
+                const isMastraToolFailure =
+                  readUnknown(result, 'error') === true &&
+                  readString(result, 'message') !== undefined;
+                if (readUnknown(chunk.payload, 'isError') === true || isMastraToolFailure) {
+                  const errorCode = isMastraToolFailure
+                    ? readString(result, 'message')?.split('\n')[0]
+                    : readString(result, 'errorCode') ?? readString(result, 'error');
                   const idx = loggedToolCallIndexById.get(id);
                   const logged = idx !== undefined ? loggedToolCalls[idx] : undefined;
                   if (logged) {
@@ -845,7 +866,15 @@ export async function POST(req: Request) {
                       threadId,
                       platform,
                       providerErrorKind: errorKind,
+                      ...agentErrorTraceContext(readString(chunk, 'runId'), new Date()),
                     },
+                    // An exhausted or revoked provider account fails every
+                    // turn for every user until someone acts, so keep saying
+                    // so (hourly) rather than once on a ticket that may be
+                    // months old.
+                    ...(isNonRetryableProviderError(errorKind)
+                      ? { renotifyAfterMs: PROVIDER_OUTAGE_RENOTIFY_MS }
+                      : {}),
                   });
                 }
                 hadAgentError = true;

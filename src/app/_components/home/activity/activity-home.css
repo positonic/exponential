@@ -55,7 +55,6 @@
    Shared card chrome
    -------------------------------------------------------------------------- */
 .wsa-card {
-  border: 1px solid var(--color-border-primary);
   background: var(--color-surface-secondary);
   border-radius: 12px;
   padding: 22px 24px;
@@ -100,13 +99,11 @@
    HERO
    -------------------------------------------------------------------------- */
 .wsa-hero {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 32px;
-  align-items: end;
-  padding: 28px 30px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  padding: 24px 30px;
   background: var(--color-surface-secondary);
-  border: 1px solid var(--color-border-primary);
   border-radius: 14px;
 }
 
@@ -116,7 +113,7 @@
   letter-spacing: 0.12em;
   text-transform: uppercase;
   color: var(--color-text-muted);
-  margin-bottom: 14px;
+  margin-bottom: 10px;
 }
 
 .wsa-hero__title {
@@ -133,66 +130,18 @@
   font-weight: 500;
 }
 
-.wsa-hero__stats {
-  display: flex;
-  gap: 28px;
-  justify-content: flex-end;
-  flex-wrap: wrap;
-}
-
-.wsa-hero__stat {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  min-width: 92px;
-}
-
-.wsa-hero__stat-label {
-  font-size: 11px;
-  font-weight: 500;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--color-text-muted);
-  margin-bottom: 6px;
-}
-
-.wsa-hero__stat-value {
-  font-size: 18px;
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
-  color: var(--color-text-primary);
-  line-height: 1.1;
-}
-
-.wsa-hero__stat-value-muted {
-  color: var(--color-text-muted);
-  font-weight: 500;
-}
-
-.wsa-hero__stat-delta {
-  margin-top: 5px;
-  font-size: 11px;
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  font-variant-numeric: tabular-nums;
-}
-
-.wsa-hero__stat-delta--up   { color: var(--activity-accent-crm); }
-.wsa-hero__stat-delta--down { color: var(--activity-accent-due); }
-.wsa-hero__stat-delta--flat { color: var(--color-text-muted); }
-
 /* --------------------------------------------------------------------------
-   HERO — "This week's focus" widget (replaces the KPI stats)
+   HERO — goals row under the greeting: "This week's focus" goals, or the
+   at-a-glance goal count when no focus is set. One wrapping line, CTA right.
    -------------------------------------------------------------------------- */
 .wsa-hero__focus {
   display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  text-align: right;
-  gap: 6px;
-  min-width: 220px;
-  max-width: 320px;
+  flex-wrap: wrap;
+  align-items: center;
+  column-gap: 20px;
+  row-gap: 8px;
+  padding-top: 16px;
+  border-top: 1px solid var(--color-border-primary);
 }
 
 .wsa-hero__focus-eyebrow {
@@ -207,7 +156,7 @@
 }
 
 .wsa-hero__focus-theme {
-  margin: 2px 0 4px;
+  margin: 0;
   font-size: 12.5px;
   font-style: italic;
   color: var(--color-text-secondary);
@@ -216,19 +165,21 @@
 
 .wsa-hero__focus-list {
   list-style: none;
-  margin: 4px 0 0;
+  margin: 0;
   padding: 0;
   display: flex;
-  flex-direction: column;
-  gap: 7px;
-  width: 100%;
+  flex-wrap: wrap;
+  align-items: center;
+  column-gap: 18px;
+  row-gap: 6px;
+  min-width: 0;
 }
 
 .wsa-hero__focus-goal {
   display: flex;
   align-items: center;
-  justify-content: flex-end;
-  gap: 8px;
+  gap: 7px;
+  min-width: 0;
 }
 
 .wsa-hero__focus-dot {
@@ -236,7 +187,6 @@
   height: 7px;
   border-radius: 50%;
   flex-shrink: 0;
-  order: -1;
   background: var(--color-text-muted);
 }
 
@@ -253,7 +203,7 @@
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  max-width: 230px;
+  max-width: 260px;
 }
 
 .wsa-hero__focus-title:hover {
@@ -269,37 +219,31 @@
 }
 
 .wsa-hero__focus-more {
-  font-size: 11.5px;
+  font-size: 12px;
   color: var(--color-text-muted);
   text-decoration: none;
-  margin-top: 2px;
 }
 
 .wsa-hero__focus-more:hover { color: var(--color-text-secondary); }
 
 /* at-a-glance fallback */
 .wsa-hero__focus-glance {
-  display: flex;
+  display: inline-flex;
   align-items: baseline;
-  gap: 8px;
-  margin-top: 2px;
-}
-
-.wsa-hero__focus-count {
-  font-size: 28px;
-  font-weight: 700;
-  font-variant-numeric: tabular-nums;
-  color: var(--color-text-primary);
-  line-height: 1.1;
-}
-
-.wsa-hero__focus-count-label {
-  font-size: 12.5px;
+  gap: 6px;
+  font-size: 13px;
   color: var(--color-text-secondary);
 }
 
+.wsa-hero__focus-count {
+  font-size: 15px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--color-text-primary);
+}
+
 .wsa-hero__focus-breakdown {
-  font-size: 11.5px;
+  font-size: 12.5px;
   color: var(--color-text-muted);
 }
 
@@ -307,7 +251,7 @@
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  margin-top: 6px;
+  margin-left: auto;
   font-size: 12.5px;
   font-weight: 500;
   color: var(--color-brand-primary);
@@ -315,23 +259,6 @@
 }
 
 .wsa-hero__focus-cta:hover { color: var(--color-brand-primary-hover); }
-
-@media (max-width: 920px) {
-  .wsa-hero {
-    grid-template-columns: 1fr;
-    align-items: start;
-  }
-  .wsa-hero__stats {
-    justify-content: flex-start;
-  }
-  .wsa-hero__focus {
-    align-items: flex-start;
-    text-align: left;
-  }
-  .wsa-hero__focus-goal {
-    justify-content: flex-start;
-  }
-}
 
 /* --------------------------------------------------------------------------
    WEEK-IN-REVIEW
@@ -1009,15 +936,18 @@
   font-family: var(--font-mono, ui-monospace, monospace);
 }
 
-/* OKR rows deep-link to the goals-page drawer; the whole sentence is the
-   click target. Inherits the sentence styling — hover underlines the entity
-   name to reveal the affordance without restyling the row. */
-.wsa-feed__drawer-link {
-  text-decoration: none;
+/* The actor's name and avatar link to their Person page. Quiet until hovered,
+   like the entity links (an OKR row's entity opens its goals-page drawer), so
+   a feed is not a wall of underlines. */
+.wsa-feed__actor-link {
   color: inherit;
+  text-decoration: none;
 }
-.wsa-feed__drawer-link:hover .wsa-feed__entity {
+.wsa-feed__actor-link:hover {
   text-decoration: underline;
+}
+a.wsa-feed__avatar {
+  text-decoration: none;
 }
 
 .wsa-feed__time {
@@ -1079,6 +1009,7 @@
 .wsa-feed__icon[data-kind='commented']      { color: var(--activity-accent-knowledge); }
 .wsa-feed__icon[data-kind='tracked']        { color: var(--activity-accent-ritual); }
 .wsa-feed__icon[data-kind='deleted']        { color: var(--color-text-muted); }
+.wsa-feed__icon[data-kind='failed']         { color: var(--color-brand-error); }
 .wsa-feed__icon[data-kind='channel_summary'] { color: var(--color-brand-success); }
 .wsa-feed__icon[data-kind='github']         { color: var(--color-text-secondary); }
 /* A merged PR is the "work shipped" row — the same emphasis treatment as a
@@ -1117,6 +1048,19 @@
 }
 .wsa-feed__row[data-kind='milestone'] .wsa-feed__entity {
   color: var(--activity-accent-milestone);
+}
+
+/* Day grouping (Person page): a quiet date heading over each day's rows. Each
+   day is its own section, so the first row under a heading drops its rule. */
+.wsa-feed__day + .wsa-feed__day {
+  margin-top: 14px;
+}
+.wsa-feed__day-label {
+  margin: 0;
+  padding: 6px 0 2px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-text-secondary);
 }
 
 .wsa-feed__footer {
@@ -1170,6 +1114,13 @@
     var(--color-surface-secondary);
   border-radius: 14px;
   padding: 24px 26px;
+}
+
+/* The Person week summary reuses the digest's layout but not its accent: the
+   violet rail marks the private Weekly work digest, and this is a different
+   artifact (written only from what the viewer can see of someone else). */
+.wsa-digest--summary {
+  --wsa-digest-accent: var(--color-brand-primary);
 }
 
 .wsa-digest__head {
@@ -1702,5 +1653,58 @@
   .wsa * {
     animation: none !important;
     transition: none !important;
+  }
+}
+
+/* ---- inbox "Waiting on me": selectable QA ticket rows ---- */
+.wsa-row--selected,
+.wsa-row--selected:hover {
+  background: var(--color-surface-hover);
+}
+
+.wsa-row__select {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  padding-left: 6px;
+}
+
+.wsa-row__status {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+  padding-right: 6px;
+}
+
+/* Group status picker in a section header, shown while 2+ rows are ticked.
+   On a narrow card the header wraps it onto its own line rather than
+   pushing the page sideways. */
+.wsa-sub:has(.wsa-bulk) {
+  flex-wrap: wrap;
+  row-gap: 6px;
+}
+
+.wsa-bulk {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* On a phone the status controls drop onto their own line under the title,
+   indented to line up with it, so the title keeps the full row width. */
+@media (max-width: 560px) {
+  .wsa-row--wrap {
+    flex-wrap: wrap;
+    padding-bottom: 6px;
+  }
+
+  .wsa-row--wrap > .wsa-item {
+    flex-basis: calc(100% - 40px);
+  }
+
+  .wsa-row--wrap > .wsa-row__status {
+    margin-left: 50px;
+    padding-right: 0;
   }
 }

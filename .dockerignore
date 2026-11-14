@@ -1,0 +1,33 @@
+# Keeps secrets, local database dumps and build output out of locally built
+# images. Railway builds from a git checkout, but `docker build .` and
+# `docker compose build` send the working tree, which can hold all of these.
+
+# Secrets: every .env file, at any depth (including .env.selfhost.example; the
+# image is configured from the runtime environment, never from a file in it).
+**/.env*
+
+# Local database dumps (gitignored, can be hundreds of MB of production data).
+db-backups/
+**/*.dump
+**/*.sql.gz
+
+# Dependencies and build output: the image installs and builds its own.
+**/node_modules
+.next
+dist-electron
+dist-installers
+release
+src-tauri
+.worktrees
+.claude/worktrees
+**/*.log
+
+# Version control and local tooling state.
+.git
+.exponential
+.vercel
+e2e/.auth
+e2e/.results
+playwright-report
+test-results
+coverage

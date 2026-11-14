@@ -26,6 +26,10 @@ name: PR-Agent auto-merge
 #   - a security concern in the review table.
 #   - a change to prisma/migrations or schema.prisma: migrations go through `develop` and
 #     are merged by a human, never auto-merged into main.
+#   - a partial review. When a diff is bigger than PR-Agent's token budget (max_model_tokens,
+#     32k by default), it leaves files out and its state block says `complete: false`, with
+#     the files it skipped listed in `excluded_files`. A file nobody reviewed isn't a clean
+#     review, so a big PR waits for a person even when every finding is `[minor]`.
 #   - anything else that leaves the PR for a human: no review on the latest commit, a draft,
 #     a fork, a bot author, a PR into a branch other than main, the `no-automerge` label.
 #
@@ -211,8 +215,23 @@ jobs:
               const reviewComment = latest('## PR Reviewer Guide', '## Standalone PR Review');
               if (!reviewComment) return skip(`PR-Agent's review comment is missing`);
               const review = readReview(reviewComment.body, reviewComment.html_url);
-              const reviewCurrent = review?.sha ? review.sha === sha && review.complete : review && fresh(reviewComment);
-              if (!reviewCurrent) return skip(`PR-Agent's review comment doesn't show a complete review of \`${short}\``);
+              // Each case gets its own reason. They used to share one ("doesn't show a complete
+              // review"), and on #1046/#1047 a partial review was misread as a timing race.
+              if (!review) return skip(`PR-Agent's [review comment](${reviewComment.html_url}) can't be read`);
+              if (review.sha && review.sha !== sha) {
+                return skip(`PR-Agent's [review comment](${reviewComment.html_url}) covers \`${review.sha.slice(0, 7)}\`, not \`${short}\``);
+              }
+              if (review.sha && !review.complete) {
+                const n = review.excluded.length;
+                return skip(n
+                  ? `PR-Agent only [reviewed part of](${reviewComment.html_url}) \`${short}\`. It left out ${n} file(s) to fit its ` +
+                    `token budget (\`${review.excluded[0]}\`${n > 1 ? ` and ${n - 1} more` : ''}), and nothing has reviewed them. ` +
+                    'Split the PR, or a person merges it'
+                  : `PR-Agent marked its [review](${reviewComment.html_url}) of \`${short}\` incomplete`);
+              }
+              if (!review.sha && !fresh(reviewComment)) {
+                return skip(`PR-Agent's [review comment](${reviewComment.html_url}) is older than its review run for \`${short}\``);
+              }
 
               const blocking = [
                 ...review.findings.filter(f => f.tag !== 'minor')
@@ -283,7 +302,7 @@ jobs:
               return last?.actor?.login ?? null;
             }
 
-            // Returns { sha, complete, findings, security }, or null when the comment can't be
+            // Returns { sha, complete, excluded, findings, security }, or null when the comment can't be
             // read. sha is null when the comment names no commit (a standalone review); the
             // caller then dates the comment against the review run instead.
             function readReview(body, url) {
@@ -310,7 +329,9 @@ jobs:
                 // PR-Agent adds a state.
                 const findings = state.findings.filter(f => f.state !== 'RESOLVED').map(f =>
                   finding(f.body?.match(/^\s*\*\*([\s\S]+?)\*\*/)?.[1].trim() ?? 'Untitled finding', url, `${f.path}:${f.line_start}`));
-                return { sha: state.last_run?.head_sha ?? null, complete: state.last_run?.complete === true, findings, security };
+                // excluded only words the skip reason; `complete` alone decides.
+                const excluded = Array.isArray(state.last_run.excluded_files) ? state.last_run.excluded_files.map(String) : [];
+                return { sha: state.last_run?.head_sha ?? null, complete: state.last_run?.complete === true, excluded, findings, security };
               }
               // No state block: every finding listed is from this review (nothing to resolve).
               if (!/<table>[\s\S]*⏱️/.test(body)) return null;
@@ -318,7 +339,7 @@ jobs:
                 .map(m => finding(m[2].trim(), m[1], null));
               if (!findings.length && !/No major issues detected/i.test(body)) return null;
               const sha = body.match(/Review updated until commit \S*\/commit\/([0-9a-f]{40})/)?.[1] ?? null;
-              return { sha, complete: true, findings, security };
+              return { sha, complete: true, excluded: [], findings, security };
             }
 
             async function report(number, text) {

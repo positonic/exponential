@@ -53,9 +53,9 @@ interface Props {
   objectives?: DependencyGraphObjective[];
   blockingEdges?: DependencyGraphBlockingEdge[];
   /**
-   * Tickets rendered dimmed with a cycle chip — out-of-cycle direct blockers
-   * surfaced by the cycle filter. They never join the Unaligned container and
-   * carry no alignment edge when their Feature is filtered out.
+   * Tickets rendered dimmed with a cycle chip — direct blockers that fall
+   * outside the applied Backlog filters. They never join the Unaligned
+   * container and carry no alignment edge when their Feature is filtered out.
    */
   dimmedTicketIds?: ReadonlySet<string>;
   onNodeClick?: (event: GraphNodeClick) => void;

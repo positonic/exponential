@@ -6,6 +6,7 @@ import { retroActionsSection } from "../sections/retro_actions";
 import { freeTextSection } from "../sections/free_text";
 import { decisionsPendingSection } from "../sections/decisions_pending";
 import type { SectionContext } from "../types";
+import { buildWorkspaceAudienceDecisionWhere } from "~/server/services/access/resolvers/decisionResolver";
 
 const now = new Date("2026-09-10T08:00:00Z");
 const prevStart = new Date("2026-09-03T08:00:00Z");
@@ -82,11 +83,25 @@ describe("decisions_pending", () => {
     const previous = { id: "occ-0", scheduledStart: prevStart, agenda: { version: 1, generatedAt: "x", sections: [{ key: "dec", type: "decisions_pending", title: "D", items: [{ id: "dec:decision:d-1", sectionKey: "dec", title: "Which vendor?", refType: "decision", refId: "d-1", order: 0, carryCount: 1, detail: "D-0003 · open question · carried 1 time" }] }] } } as unknown as CeremonyOccurrence;
     const items = await decisionsPendingSection.run(ctx(db, { previousOccurrence: previous }), { key: "dec", type: "decisions_pending", title: "Decisions" });
     const where = db.decision.findMany.mock.calls[0]![0]!.where!;
-    expect(where).toMatchObject({ workspaceId: "ws-1", reviewState: "CONFIRMED", status: { in: ["OPEN", "PROPOSED"] } });
-    expect(where.OR).toEqual([{ productId: "prod-1" }, { productId: null }]);
+    expect(where.status).toEqual({ in: ["OPEN", "PROPOSED"] });
+    expect(where.AND).toEqual([
+      // Audience-safe: only what every workspace member may read.
+      buildWorkspaceAudienceDecisionWhere("ws-1"),
+      { OR: [{ productId: "prod-1" }, { productId: null }] },
+    ]);
     expect(items[0]).toMatchObject({ id: "dec:decision:d-1", href: "/w/ws/decisions/d/d-1", carryCount: 2, detail: "D-0003 · open question · owner Zineb · carried 2 times" });
     expect(items[1]!.detail).toBe("D-0007 · proposed");
     expect(items[0]).toMatchObject({ goalId: 4, goalTitle: "Grow", keyResultId: "kr-1", keyResultTitle: "100 customers" });
     expect(items[1]).toMatchObject({ goalId: null, keyResultId: null });
+  });
+
+  it("keeps the audience filter when scoped to the ceremony's projects", async () => {
+    const db = mockDeep<PrismaClient>();
+    db.decision.findMany.mockResolvedValue([]);
+    await decisionsPendingSection.run(ctx(db, { projectIds: ["prj-1"] }), { key: "dec", type: "decisions_pending", title: "Decisions" });
+    expect(db.decision.findMany.mock.calls[0]![0]!.where!.AND).toEqual([
+      buildWorkspaceAudienceDecisionWhere("ws-1"),
+      { projectId: { in: ["prj-1"] } },
+    ]);
   });
 });

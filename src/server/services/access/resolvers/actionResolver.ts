@@ -165,6 +165,22 @@ export function buildActionAccessWhere(userId: string) {
 }
 
 /**
+ * Actions every member of the workspace may read, whoever they are: for
+ * copying into a surface the whole workspace sees (a ceremony agenda
+ * snapshot), where a per-viewer filter cannot apply because the text is
+ * stored once. Only Actions in an unrestricted or public project of this
+ * workspace qualify. A project-less Action is visible only to its creator
+ * and assignees, and a restricted project's only to its members, so both
+ * are left out.
+ */
+export function buildWorkspaceAudienceActionWhere(workspaceId: string): Prisma.ActionWhereInput {
+  return {
+    workspaceId,
+    project: { workspaceId, OR: [{ isRestricted: false }, { isPublic: true }] },
+  };
+}
+
+/**
  * Prisma WHERE clause for actions a user can **edit** — the DB-level mirror of
  * {@link canEditAction}: creator, assignee, or someone who can edit the
  * action's project ({@link buildProjectEditWhere}). Public visibility and a

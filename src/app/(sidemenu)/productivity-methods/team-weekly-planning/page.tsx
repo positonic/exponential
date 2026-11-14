@@ -205,7 +205,7 @@ export default function TeamWeeklyPlanningPage() {
                 and discover which view resonates with your collaboration style.
               </Text>
               <Group justify="center" gap="md">
-                <Link href="/projects" className="text-brand-primary hover:text-brand-primary-hover underline font-medium">
+                <Link href="/projects" className="text-link hover:text-link-hover underline font-medium">
                   Try with Your Team Project →
                 </Link>
                 <Text size="sm" className="text-text-muted">•</Text>

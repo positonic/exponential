@@ -250,7 +250,6 @@ export function ActionDetailContent({
           <Anchor
             component={Link}
             href={`/w/${workspaceSlug}/actions`}
-            className="text-brand-primary"
           >
             Back to actions
           </Anchor>

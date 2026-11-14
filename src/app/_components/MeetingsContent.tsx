@@ -24,6 +24,8 @@ import {
   Select,
 } from "@mantine/core";
 import { notifications } from "@mantine/notifications";
+import { useMediaQuery } from "@mantine/hooks";
+import { useAiCapabilities } from "~/providers/AiCapabilitiesProvider";
 import { api } from "~/trpc/react";
 import {
   IconMicrophone,
@@ -52,6 +54,7 @@ import { FirefliesWizardModal } from "./integrations/FirefliesWizardModal";
 import type { WeeklyMeetingStatsResult } from "~/server/services/meetings/weeklyMeetingStats";
 import { CreateTranscriptionModal } from "./CreateTranscriptionModal";
 import { ScheduleMeetingModal } from "./calendar/ScheduleMeetingModal";
+import { Panel } from "~/app/_components/ui";
 
 type MeetingType =
   | "all"
@@ -90,9 +93,9 @@ function computeInitials(name: string): string {
 
 function RailCard({ children }: { children: React.ReactNode }) {
   return (
-    <div className="rounded-[10px] border border-border-subtle bg-background-secondary p-4">
+    <Panel variant="muted">
       {children}
-    </div>
+    </Panel>
   );
 }
 
@@ -162,7 +165,7 @@ function ThisWeekChart({ stats, weekStart }: { stats: WeeklyMeetingStatsResult |
           return (
             <div key={d.date} className="flex flex-1 flex-col items-center gap-1">
               <div
-                className={`min-h-[4px] w-full rounded-[2px] transition-colors ${
+                className={`min-h-[4px] w-full rounded-xs transition-colors ${
                   isToday ? "bg-brand-400" : "bg-surface-muted"
                 }`}
                 style={{ height: `${heightPct}%` }}
@@ -342,6 +345,9 @@ export function MeetingsContent({ workspaceId }: MeetingsContentProps = {}) {
   // New state for filtering and bulk operations
   const [selectedIntegrationFilter, setSelectedIntegrationFilter] = useState<string[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
+  // Touch screens have no ⌘K, and hiding the badge with CSS would still leave
+  // its reserved padding in the input, so drop the right section entirely.
+  const isTouch = useMediaQuery("(hover: none)");
   const [selectedTranscriptionIds, setSelectedTranscriptionIds] = useState<Set<string>>(new Set());
   const [deleteModalOpened, setDeleteModalOpened] = useState(false);
   const shouldUseCachedTranscriptions = Boolean(workspaceId);
@@ -420,7 +426,9 @@ export function MeetingsContent({ workspaceId }: MeetingsContentProps = {}) {
         }
       },
     });
+  const { summaries: canSummarize } = useAiCapabilities();
   useEffect(() => {
+    if (!canSummarize) return;
     if (summariesSweptRef.current || isLoading || !transcriptions) return;
     const hasUnsummarized = transcriptions.some(
       (t) => !t.archivedAt && !t.summary?.trim(),
@@ -428,7 +436,7 @@ export function MeetingsContent({ workspaceId }: MeetingsContentProps = {}) {
     if (!hasUnsummarized) return;
     summariesSweptRef.current = true;
     ensureMyMeetingSummaries();
-  }, [isLoading, transcriptions, ensureMyMeetingSummaries]);
+  }, [isLoading, transcriptions, ensureMyMeetingSummaries, canSummarize]);
 
 
   const assignProjectMutation = api.transcription.assignProject.useMutation({
@@ -871,7 +879,7 @@ export function MeetingsContent({ workspaceId }: MeetingsContentProps = {}) {
               </span>
             </Text>
           </div>
-          <Group gap="xs" wrap="nowrap" className="shrink-0">
+          <Group gap="xs" wrap="wrap" className="min-w-0 max-w-full">
             {firstFireflies ? (
               <button
                 type="button"
@@ -937,9 +945,14 @@ export function MeetingsContent({ workspaceId }: MeetingsContentProps = {}) {
       <div className="min-w-0 flex-1">
         <Tabs value={activeTab} onChange={handleTabChange}>
           <Stack gap="lg" align="stretch" justify="flex-start">
-            {/* Toolbar: tabs (left) + search and filter (right) inline */}
-            <Group justify="space-between" align="center" wrap="nowrap" gap="sm">
-              <Tabs.List style={{ borderBottom: 0 }}>
+            {/* Toolbar: tabs, then search and filters beneath. Seven tabs plus
+                the filters never fit one row beside the right rail, so the tab
+                row scrolls sideways rather than clipping. */}
+            <div className="flex flex-col gap-3">
+              <Tabs.List
+                className="min-w-0 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+                style={{ borderBottom: 0, flexWrap: "nowrap" }}
+              >
                 {[
                   { value: "all", label: "All", count: allCount },
                   { value: "mine", label: "Mine", count: mineCount },
@@ -951,7 +964,7 @@ export function MeetingsContent({ workspaceId }: MeetingsContentProps = {}) {
                 ].map((t) => {
                   const isActive = activeTab === t.value;
                   return (
-                    <Tabs.Tab key={t.value} value={t.value}>
+                    <Tabs.Tab key={t.value} value={t.value} className="shrink-0">
                       <span className="inline-flex items-center gap-2">
                         <span>{t.label}</span>
                         <span
@@ -968,11 +981,11 @@ export function MeetingsContent({ workspaceId }: MeetingsContentProps = {}) {
                   );
                 })}
               </Tabs.List>
-              <Group gap={6} wrap="nowrap" className="shrink-0">
+              <div className="flex w-full items-center gap-1.5">
                 {workspaceId && ceremonies.length > 0 && (
                   <Select
                     size="xs"
-                    className="w-[200px]"
+                    className="min-w-0 flex-1 md:w-[200px] md:flex-none"
                     styles={{ input: { height: 30, minHeight: 30 } }}
                     placeholder="All ceremonies"
                     aria-label="Filter by ceremony"
@@ -989,10 +1002,10 @@ export function MeetingsContent({ workspaceId }: MeetingsContentProps = {}) {
                   placeholder="Search transcripts, people, topics..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.currentTarget.value)}
-                  rightSection={<Kbd className="mr-2 text-[10px]">⌘K</Kbd>}
-                  rightSectionWidth={44}
+                  rightSection={isTouch ? undefined : <Kbd className="mr-2 text-[10px]">⌘K</Kbd>}
+                  rightSectionWidth={isTouch ? undefined : 44}
                   size="xs"
-                  className="w-[280px]"
+                  className="min-w-0 flex-1"
                   styles={{ input: { height: 30 } }}
                 />
                 <Menu shadow="md" position="bottom-end" width={240}>
@@ -1042,8 +1055,8 @@ export function MeetingsContent({ workspaceId }: MeetingsContentProps = {}) {
                 >
                   <IconSparkles size={14} className="text-accent-meetings" />
                 </ActionIcon>
-              </Group>
-            </Group>
+              </div>
+            </div>
 
             {/* Content Area */}
             {/*

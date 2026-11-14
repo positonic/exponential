@@ -9,6 +9,8 @@ import {
   getWorkspaceMembership,
   buildWorkspaceAccessWhere,
   buildWorkspaceVisibilityWhere,
+  canEditWorkspaceContent,
+  type WorkspaceRole,
 } from "~/server/services/access";
 import { requireWorkspaceMembership } from "~/server/services/access/middleware";
 import { apiKeyMiddleware } from "~/server/api/middleware/apiKeyAuth";
@@ -334,6 +336,8 @@ export const workspaceRouter = createTRPCRouter({
       return {
         ...workspaceData,
         currentUserRole,
+        /** Can create or modify content here (member or above). */
+        canAddContent: canEditWorkspaceContent(currentUserRole as WorkspaceRole | null),
       };
     });
   }),
@@ -2194,6 +2198,7 @@ export const workspaceRouter = createTRPCRouter({
 
       return getActivityFeed(ctx.db, {
         workspaceId: input.workspaceId,
+        viewerId: ctx.session.user.id,
         cursor: input.cursor,
         limit: input.limit ?? FEED_PAGE_SIZE,
         source: input.source,
@@ -2315,6 +2320,7 @@ export const workspaceRouter = createTRPCRouter({
 
       return getAggregatedActivityFeed(ctx.db, {
         workspaceIds: workspaces.map((w) => w.id),
+        viewerId: ctx.session.user.id,
         cursor: input.cursor,
         limit: input.limit ?? FEED_PAGE_SIZE,
         source: input.source,

@@ -26,6 +26,7 @@ import { slackRouter } from "./routers/slack";
 import { aiInteractionRouter } from "./routers/aiInteraction";
 import { calendarRouter } from "./routers/calendar";
 import { workspaceSchedulingRouter } from "./routers/workspaceScheduling";
+import { availabilityRouter } from "./routers/availability";
 import { feedbackRouter } from "./routers/feedback";
 import { docsRouter } from "./routers/docs";
 import { featureRequestRouter } from "./routers/featureRequest";
@@ -50,6 +51,7 @@ import { wheelOfLifeRouter } from "./routers/wheelOfLife";
 import { navigationPreferenceRouter } from "./routers/navigationPreference";
 import { habitRouter } from "./routers/habit";
 import { workspaceRouter } from "./routers/workspace";
+import { personRouter } from "./routers/person";
 import { externalAgentRouter } from "./routers/externalAgent";
 import { positionRouter } from "./routers/position";
 import { resourceRouter } from "./routers/resource";
@@ -95,10 +97,12 @@ import { keyResultRouter } from "~/plugins/okr/server/routers/keyResult";
 import { productPluginRouter } from "~/plugins/product/server/routers";
 import { favoriteRouter } from "~/server/api/routers/favorite";
 import { authRouter } from "./routers/auth";
+import { aiRouter } from "./routers/ai";
 import { documentRouter } from "./routers/document";
 import { voiceRouter } from "./routers/voice";
 import { pageRouter } from "./routers/page";
 import { pageCommentRouter } from "./routers/pageComment";
+import { databaseRouter } from "./routers/database";
 import { yourWorkRouter } from "./routers/yourWork";
 /**
  * This is the primary router for your server.
@@ -133,6 +137,7 @@ export const appRouter = createTRPCRouter({
   aiInteraction: aiInteractionRouter,
   calendar: calendarRouter,
   workspaceScheduling: workspaceSchedulingRouter,
+  availability: availabilityRouter,
   feedback: feedbackRouter,
   docs: docsRouter,
   featureRequest: featureRequestRouter,
@@ -159,6 +164,7 @@ export const appRouter = createTRPCRouter({
   navigationPreference: navigationPreferenceRouter,
   habit: habitRouter,
   workspace: workspaceRouter,
+  person: personRouter,
   resource: resourceRouter,
   knowledgeChunk: knowledgeChunkRouter,
   transcriptionSessionParticipant: transcriptionSessionParticipantRouter,
@@ -197,10 +203,12 @@ export const appRouter = createTRPCRouter({
   goalActivity: goalActivityRouter,
   crmApi: crmApiRouter,
   auth: authRouter,
+  ai: aiRouter,
   document: documentRouter,
   voice: voiceRouter,
   page: pageRouter,
   pageComment: pageCommentRouter,
+  database: databaseRouter,
   yourWork: yourWorkRouter,
   // Plugin system
   pluginConfig: pluginConfigRouter,

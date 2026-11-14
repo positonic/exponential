@@ -16,8 +16,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 // Use Tailwind classes
 <div className="bg-background-primary text-text-primary border-border-primary">
 
-// Use CSS variables
-<div style={{ backgroundColor: 'var(--background-primary)' }}>
+// Use CSS variables (the token is --color-bg-primary; --background-primary does not exist)
+<div style={{ backgroundColor: 'var(--color-bg-primary)' }}>
 ```
 
 ### ❌ FORBIDDEN Color Usage:
@@ -28,6 +28,20 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ```
 
 **Git pre-commit hooks will REJECT your commit if you use hardcoded colors!**
+
+### 🚨 Same rule for SHAPE: no raw radius or shadow values
+
+Radius and shadow come from the shape tokens on `:root` (`--radius-xs|sm|md|lg|xl|2xl|full`,
+`--shadow-sm|md|lg|xl`). `rounded-md`, `radius="md"` and `var(--radius-md)` are the same
+number. `rounded-[10px]`, `radius={12}`, `borderRadius: 8` and `border-radius: 10px` are lint
+errors, and a `var(--x)` that is declared nowhere fails `npm run tokens:check`. A feature
+stylesheet must never declare its own `--radius-*`. See `/dev-docs/styling-architecture.md`,
+"Shape tokens".
+
+**Draw boxes with the primitives, not with classes.** `Panel`, `SectionHeader`, `Pill`,
+`Toolbar` and `EmptyState` from `~/app/_components/ui` own radius, border and surface.
+A `className` that composes `rounded-* border bg-surface-*` by hand is ratcheted by
+`npm run tokens:check` (counts may only go down). See "Primitives" in the styling doc.
 
 ## Development Commands
 
@@ -205,8 +219,10 @@ HOME=/Users/james/.config/agent-homes/claude exponential actions kanban --json
 # List all projects in the workspace
 HOME=/Users/james/.config/agent-homes/claude exponential projects list --workspace exponential --json
 
-# Check auth status — also the fastest way to confirm which identity you are
-HOME=/Users/james/.config/agent-homes/claude exponential auth status
+# Who am I — prints the account's name and id, and its owner when it is an agent.
+# Run this first on a FORBIDDEN: the account it names is the one James must add
+# to the restricted project (project → Members tab, search by name).
+HOME=/Users/james/.config/agent-homes/claude exponential auth whoami
 ```
 
 The CLI outputs JSON when piped or when `--json` is passed, making it easy to parse programmatically. In a terminal it uses colored pretty output.

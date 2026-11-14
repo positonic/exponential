@@ -1,5 +1,6 @@
 'use client';
 
+import { useAiCapabilities } from "~/providers/AiCapabilitiesProvider";
 import { api } from "~/trpc/react";
 import { Skeleton, Paper, Text } from "@mantine/core";
 import { useEffect, useMemo, useRef } from "react";
@@ -31,6 +32,7 @@ export function MeetingDetailContainer({ id }: { id: string }) {
   const router = useRouter();
   const updateDetailsMutation = api.transcription.updateDetails.useMutation();
   const updateTitleMutation = api.transcription.updateTitle.useMutation();
+  const moveToWorkspaceMutation = api.transcription.moveToWorkspace.useMutation();
   const assignProjectMutation = api.transcription.assignProject.useMutation({
     onSuccess: () => {
       notifications.show({
@@ -105,8 +107,11 @@ export function MeetingDetailContainer({ id }: { id: string }) {
     }
   }
 
+  const { summaries: canSummarize } = useAiCapabilities();
   useEffect(() => {
     if (!session) return;
+    // No summarisation provider on this install: the Summary tab says so.
+    if (!canSummarize) return;
     const hasSummary = Boolean(session.summary?.trim());
     if (hasSummary || !session.hasTranscript) return;
     if (summaryAttemptedRef.current.has(session.id)) return;
@@ -125,7 +130,7 @@ export function MeetingDetailContainer({ id }: { id: string }) {
         },
       },
     );
-  }, [session, generateSummary]);
+  }, [session, generateSummary, canSummarize]);
 
   // "Extract outputs" (one button on every tab): one reading of the meeting
   // drafts its actions, decisions and open questions, so each item lands in
@@ -288,6 +293,23 @@ export function MeetingDetailContainer({ id }: { id: string }) {
     }
   }
 
+  async function handleSaveNotes(value: string) {
+    if (!session) return;
+    try {
+      await updateDetailsMutation.mutateAsync({ id: session.id, notes: value });
+      notifications.show({ title: "Saved", message: "Notes updated", color: "green" });
+      void utils.transcription.getNotes.invalidate({ id });
+      void utils.transcription.getDetail.invalidate({ id });
+    } catch (error) {
+      notifications.show({
+        title: "Error",
+        message: error instanceof Error ? error.message : "Failed to update notes",
+        color: "red",
+      });
+      throw error;
+    }
+  }
+
   async function handleRenameTitle(title: string) {
     if (!session) return;
     try {
@@ -321,6 +343,38 @@ export function MeetingDetailContainer({ id }: { id: string }) {
       notifications.show({
         title: "Error",
         message: error instanceof Error ? error.message : "Failed to update meeting date",
+        color: "red",
+      });
+    }
+  }
+
+  async function handleWorkspaceChange(workspaceId: string | null) {
+    if (!session) return;
+    const linkedFeatures = session.featureLinks.length;
+    if (
+      linkedFeatures > 0 &&
+      !window.confirm(
+        "Features from this workspace stay behind, so their links to this meeting will be removed. Move anyway?",
+      )
+    ) {
+      return;
+    }
+    try {
+      const result = await moveToWorkspaceMutation.mutateAsync({ id: session.id, workspaceId });
+      notifications.show({
+        title: "Moved",
+        message:
+          result.droppedFeatureLinks > 0
+            ? `Meeting moved. ${result.droppedFeatureLinks} feature link(s) removed.`
+            : "Meeting and its actions moved to the new workspace",
+        color: "green",
+      });
+      void utils.transcription.invalidate();
+      void utils.action.getByTranscription.invalidate({ transcriptionId: id });
+    } catch (error) {
+      notifications.show({
+        title: "Error",
+        message: error instanceof Error ? error.message : "Failed to move meeting",
         color: "red",
       });
     }
@@ -375,9 +429,12 @@ export function MeetingDetailContainer({ id }: { id: string }) {
       isIdeatingFeatures={ideateFeaturesMutation.isPending}
       isGeneratingSummary={generateSummaryMutation.isPending}
       onSaveSummary={handleSaveSummary}
+      onSaveNotes={handleSaveNotes}
       onRenameTitle={handleRenameTitle}
       onMeetingDateChange={handleMeetingDateChange}
       onProjectChange={handleProjectChange}
+      onWorkspaceChange={(workspaceId) => void handleWorkspaceChange(workspaceId)}
+      isSavingWorkspace={moveToWorkspaceMutation.isPending}
       onIdeateFeatures={handleIdeateFeatures}
       onRegenerateSummary={handleRegenerateSummary}
       onExtractOutputs={handleExtractOutputs}

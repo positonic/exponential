@@ -147,6 +147,36 @@ export function buildDecisionAccessWhere(
 }
 
 /**
+ * Decisions every member of the workspace may read, whoever they are: for
+ * copying into a surface the whole workspace sees (a ceremony agenda
+ * snapshot), where a per-viewer filter cannot apply because the text is
+ * stored once. Confirmed only, and visible through a workspace-wide path:
+ *
+ * - meeting-less and project-less;
+ * - meeting-less in a project that is unrestricted or public;
+ * - from a meeting that is project-less in this workspace, or in an
+ *   unrestricted or public project.
+ *
+ * Anything behind a restricted project or a private recording is left out,
+ * even when the person generating the agenda could read it.
+ */
+export function buildWorkspaceAudienceDecisionWhere(workspaceId: string): Prisma.DecisionWhereInput {
+  const openProject: Prisma.ProjectWhereInput = { OR: [{ isRestricted: false }, { isPublic: true }] };
+  return {
+    workspaceId,
+    reviewState: "CONFIRMED",
+    OR: [
+      { transcriptionSessionId: null, projectId: null },
+      { transcriptionSessionId: null, project: openProject },
+      {
+        transcriptionSessionId: { not: null },
+        transcriptionSession: { OR: [{ projectId: null, workspaceId }, { project: openProject }] },
+      },
+    ],
+  };
+}
+
+/**
  * The same visibility rules as {@link buildDecisionAccessWhere} without the
  * single-workspace scope, for cross-workspace personal surfaces (the inbox's
  * "Waiting on me"). Every arm carries its own access check — meeting,

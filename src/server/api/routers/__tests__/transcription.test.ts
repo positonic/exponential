@@ -12,7 +12,8 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { TRPCError } from "@trpc/server";
 import { mockDeep, mockReset, type DeepMockProxy } from "vitest-mock-extended";
-import type { PrismaClient } from "@prisma/client";
+import { buildTranscriptionEditWhere } from "~/server/services/access";
+import type { PrismaClient, TranscriptionSession, WorkspaceUser } from "@prisma/client";
 
 // Env vars must be seeded BEFORE the module graph evaluates.
 vi.hoisted(() => {
@@ -960,7 +961,7 @@ describe("transcription router (mocked) — getById feature links", () => {
   });
 });
 
-describe("transcription router (mocked) — getDetail / getTranscript", () => {
+describe("transcription router (mocked) — getDetail / getTranscript / getNotes", () => {
   let dbMock: DeepMockProxy<PrismaClient>;
   const callerId = "caller-1";
 
@@ -1041,6 +1042,23 @@ describe("transcription router (mocked) — getDetail / getTranscript", () => {
     await expect(caller.transcription.getTranscript({ id: "m1" })).rejects.toMatchObject({
       code: "FORBIDDEN",
     });
+    await expect(caller.transcription.getNotes({ id: "m1" })).rejects.toMatchObject({
+      code: "FORBIDDEN",
+    });
+  });
+
+  it("serves the notes to a viewer who does not own the meeting", async () => {
+    meeting("integration-owner");
+    dbMock.workspaceUser.findUnique.mockResolvedValue({
+      role: "viewer",
+      workspaceId: "ws-A",
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    } as any);
+    const caller = createMockCaller({ userId: callerId, db: dbMock });
+
+    const result = await caller.transcription.getNotes({ id: "m1" });
+
+    expect(result).toEqual({ notes: "private scratch notes" });
   });
 
   it("serves the transcript to a viewer", async () => {
@@ -1117,8 +1135,79 @@ describe("transcription router (mocked) — discardDraftActions", () => {
     );
   });
 
-  it("refuses a caller who does not own the meeting", async () => {
+  // The review card is gated by Meeting edit access (CONTEXT.md "Meeting
+  // visibility"), not ownership: a meeting imported by an integration or a
+  // meeting server is owned by whoever connected it, and every other member
+  // who can edit the meeting must still be able to finish the review.
+  it("lets a workspace member who does not own the meeting discard drafts", async () => {
+    meeting("integration-owner");
+    dbMock.workspaceUser.findUnique.mockResolvedValue({
+      role: "member",
+      workspaceId: "ws-A",
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    } as any);
+    dbMock.action.count.mockResolvedValue(0);
+    const caller = createMockCaller({ userId: callerId, db: dbMock });
+
+    const result = await caller.transcription.discardDraftActions({
+      transcriptionId: "m1",
+      actionIds: ["a1"],
+    });
+
+    expect(result.discardedCount).toBe(2);
+    expect(dbMock.action.deleteMany).toHaveBeenCalledWith({
+      where: { id: { in: ["a1"] }, ...draftScope },
+    });
+  });
+
+  it("refuses a workspace viewer (read-only role)", async () => {
+    meeting("integration-owner");
+    dbMock.workspaceUser.findUnique.mockResolvedValue({
+      role: "viewer",
+      workspaceId: "ws-A",
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    } as any);
+    const caller = createMockCaller({ userId: callerId, db: dbMock });
+
+    await expect(
+      caller.transcription.discardDraftActions({ transcriptionId: "m1" }),
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
+    expect(dbMock.action.deleteMany).not.toHaveBeenCalled();
+  });
+
+  it("refuses a caller with no access to the meeting", async () => {
     meeting("someone-else");
+    const caller = createMockCaller({ userId: callerId, db: dbMock });
+
+    await expect(
+      caller.transcription.discardDraftActions({ transcriptionId: "m1" }),
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
+    expect(dbMock.action.deleteMany).not.toHaveBeenCalled();
+  });
+
+  it("uses project access when the meeting sits in a project", async () => {
+    dbMock.transcriptionSession.findUnique.mockResolvedValue({
+      id: "m1",
+      userId: "integration-owner",
+      projectId: "p1",
+      workspaceId: "ws-A",
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    } as any);
+    // Caller is a workspace member but the project is restricted to others.
+    dbMock.workspaceUser.findUnique.mockResolvedValue({
+      role: "member",
+      workspaceId: "ws-A",
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    } as any);
+    dbMock.project.findUnique.mockResolvedValue({
+      id: "p1",
+      createdById: "someone-else",
+      workspaceId: "ws-A",
+      teamId: null,
+      isPublic: false,
+      isRestricted: true,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    } as any);
     const caller = createMockCaller({ userId: callerId, db: dbMock });
 
     await expect(
@@ -1134,5 +1223,229 @@ describe("transcription router (mocked) — discardDraftActions", () => {
     await expect(
       caller.transcription.discardDraftActions({ transcriptionId: "nope" }),
     ).rejects.toMatchObject({ code: "NOT_FOUND" });
+  });
+});
+
+describe("transcription router (mocked) — publishDraftActions / publishSelectedDraftActions", () => {
+  let dbMock: DeepMockProxy<PrismaClient>;
+  const callerId = "caller-1";
+
+  function meeting(userId: string) {
+    dbMock.transcriptionSession.findUnique.mockResolvedValue({
+      id: "m1",
+      userId,
+      projectId: null,
+      workspaceId: "ws-A",
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    } as any);
+  }
+
+  function member(role: string | null) {
+    dbMock.workspaceUser.findUnique.mockResolvedValue(
+      role
+        ? // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          ({ role, workspaceId: "ws-A" } as any)
+        : null,
+    );
+  }
+
+  beforeEach(() => {
+    dbMock = getDbMock();
+    mockReset(dbMock);
+    dbMock.action.updateMany.mockResolvedValue({ count: 1 });
+    dbMock.action.count.mockResolvedValue(0);
+  });
+
+  it("lets a workspace member publish all drafts on a meeting they do not own", async () => {
+    meeting("integration-owner");
+    member("member");
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    dbMock.action.findMany.mockResolvedValue([{ id: "a1" }] as any);
+    const caller = createMockCaller({ userId: callerId, db: dbMock });
+
+    const result = await caller.transcription.publishDraftActions({
+      transcriptionId: "m1",
+    });
+
+    expect(result).toEqual({ publishedCount: 1 });
+    expect(dbMock.action.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({ data: { status: "ACTIVE" } }),
+    );
+  });
+
+  it("lets a workspace member publish selected drafts on a meeting they do not own", async () => {
+    meeting("integration-owner");
+    member("member");
+    const caller = createMockCaller({ userId: callerId, db: dbMock });
+
+    const result = await caller.transcription.publishSelectedDraftActions({
+      transcriptionId: "m1",
+      actionIds: ["a1"],
+    });
+
+    expect(result).toEqual({ publishedCount: 1 });
+  });
+
+  it("refuses a viewer and a stranger", async () => {
+    meeting("integration-owner");
+    member("viewer");
+    let caller = createMockCaller({ userId: callerId, db: dbMock });
+    await expect(
+      caller.transcription.publishDraftActions({ transcriptionId: "m1" }),
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
+
+    member(null);
+    caller = createMockCaller({ userId: callerId, db: dbMock });
+    await expect(
+      caller.transcription.publishSelectedDraftActions({
+        transcriptionId: "m1",
+        actionIds: ["a1"],
+      }),
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
+    expect(dbMock.action.updateMany).not.toHaveBeenCalled();
+  });
+});
+
+describe("transcription router (mocked) — deleteTranscription / archiveTranscription / unarchiveTranscription", () => {
+  let dbMock: DeepMockProxy<PrismaClient>;
+  const callerId = "caller-1";
+
+  // Typed fixtures: only the identity columns the access resolver reads
+  // (`loadTranscriptionForAccess` shape), checked against the Prisma row
+  // type so a renamed column fails here rather than silently passing.
+  function meetingRow(userId: string): TranscriptionSession {
+    const row = {
+      id: "m1",
+      userId,
+      projectId: null,
+      workspaceId: "ws-A",
+    } satisfies Partial<TranscriptionSession>;
+    return row as TranscriptionSession;
+  }
+
+  function membershipRow(role: string): WorkspaceUser {
+    const row = { role, workspaceId: "ws-A" } satisfies Partial<WorkspaceUser>;
+    return row as WorkspaceUser;
+  }
+
+  function meeting(userId: string) {
+    dbMock.transcriptionSession.findUnique.mockResolvedValue(meetingRow(userId));
+  }
+
+  function member(role: string | null) {
+    dbMock.workspaceUser.findUnique.mockResolvedValue(role ? membershipRow(role) : null);
+  }
+
+  beforeEach(() => {
+    dbMock = getDbMock();
+    mockReset(dbMock);
+    dbMock.transcriptionSession.delete.mockResolvedValue(meetingRow("integration-owner"));
+    dbMock.transcriptionSession.update.mockResolvedValue(meetingRow("integration-owner"));
+  });
+
+  // Same rule as the rest of the page: meeting edit access, not ownership,
+  // so a meeting a meeting server imported can be archived or deleted by
+  // the members who can edit it.
+  it("lets a workspace member archive, unarchive and delete a meeting they do not own", async () => {
+    meeting("integration-owner");
+    member("member");
+    const caller = createMockCaller({ userId: callerId, db: dbMock });
+
+    await expect(caller.transcription.archiveTranscription({ id: "m1" })).resolves.toEqual({
+      success: true,
+    });
+    expect(dbMock.transcriptionSession.update).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        where: { id: "m1" },
+        data: expect.objectContaining({ archivedAt: expect.any(Date) }),
+      }),
+    );
+
+    await expect(caller.transcription.unarchiveTranscription({ id: "m1" })).resolves.toEqual({
+      success: true,
+    });
+    expect(dbMock.transcriptionSession.update).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        where: { id: "m1" },
+        data: expect.objectContaining({ archivedAt: null }),
+      }),
+    );
+
+    await expect(caller.transcription.deleteTranscription({ id: "m1" })).resolves.toEqual({
+      success: true,
+    });
+    expect(dbMock.transcriptionSession.delete).toHaveBeenCalledWith({ where: { id: "m1" } });
+  });
+
+  it("refuses a viewer and a stranger", async () => {
+    meeting("integration-owner");
+    member("viewer");
+    let caller = createMockCaller({ userId: callerId, db: dbMock });
+    await expect(
+      caller.transcription.archiveTranscription({ id: "m1" }),
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await expect(
+      caller.transcription.deleteTranscription({ id: "m1" }),
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
+
+    member(null);
+    caller = createMockCaller({ userId: callerId, db: dbMock });
+    await expect(
+      caller.transcription.unarchiveTranscription({ id: "m1" }),
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
+
+    expect(dbMock.transcriptionSession.update).not.toHaveBeenCalled();
+    expect(dbMock.transcriptionSession.delete).not.toHaveBeenCalled();
+  });
+
+  it("404s for an unknown meeting", async () => {
+    dbMock.transcriptionSession.findUnique.mockResolvedValue(null);
+    const caller = createMockCaller({ userId: callerId, db: dbMock });
+
+    await expect(
+      caller.transcription.deleteTranscription({ id: "nope" }),
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
+  });
+});
+
+describe("transcription router (mocked) — bulkDeleteTranscriptions / bulkArchiveTranscriptions", () => {
+  let dbMock: DeepMockProxy<PrismaClient>;
+  const callerId = "caller-1";
+
+  beforeEach(() => {
+    dbMock = getDbMock();
+    mockReset(dbMock);
+    dbMock.transcriptionSession.deleteMany.mockResolvedValue({ count: 2 });
+    dbMock.transcriptionSession.updateMany.mockResolvedValue({ count: 2 });
+  });
+
+  // The bulk forms scope their write with the edit WHERE builder, not the
+  // caller's ownership, so they reach exactly the meetings the per-row
+  // archive/delete path allows (mirror-tested in transcriptionWriteWhere).
+  it("deletes the chosen ids scoped to meetings the caller can edit", async () => {
+    const caller = createMockCaller({ userId: callerId, db: dbMock });
+
+    const result = await caller.transcription.bulkDeleteTranscriptions({ ids: ["m1", "m2"] });
+
+    expect(result).toEqual({ count: 2 });
+    expect(dbMock.transcriptionSession.deleteMany).toHaveBeenCalledWith({
+      where: {
+        AND: [{ id: { in: ["m1", "m2"] } }, buildTranscriptionEditWhere(callerId)],
+      },
+    });
+  });
+
+  it("archives the chosen ids scoped to meetings the caller can edit", async () => {
+    const caller = createMockCaller({ userId: callerId, db: dbMock });
+
+    const result = await caller.transcription.bulkArchiveTranscriptions({ ids: ["m1", "m2"] });
+
+    expect(result).toEqual({ count: 2 });
+    expect(dbMock.transcriptionSession.updateMany).toHaveBeenCalledWith({
+      where: {
+        AND: [{ id: { in: ["m1", "m2"] } }, buildTranscriptionEditWhere(callerId)],
+      },
+      data: expect.objectContaining({ archivedAt: expect.any(Date) }),
+    });
   });
 });

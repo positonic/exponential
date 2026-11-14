@@ -12,8 +12,15 @@ import {
   buildProjectAccessWhere,
   requireProjectAccess,
   isWorkspaceGuest,
+  getWorkspaceMembership,
   AccessControlService,
+  projectAccessDeniedError,
 } from "~/server/services/access";
+import {
+  assertAgentProjectMembership,
+  cascadeOwnerProjectRoleChanged,
+  cascadeOwnerRemovedFromProject,
+} from "~/server/services/externalAgentAccess";
 import { recordActivity } from "~/server/services/activity/recordActivity";
 import { projectActivityScopeWhere } from "~/server/services/projectActivity";
 import { getAssignableProjects } from "~/server/services/meetings/getAssignableProjects";
@@ -87,6 +94,34 @@ export const projectRouter = createTRPCRouter({
   getAssignable: protectedProcedure.query(({ ctx }) =>
     getAssignableProjects(ctx.db, ctx.session.user.id),
   ),
+
+  /**
+   * The handful of active projects the sidebar discloses under "Projects":
+   * id, name and slug only, newest first. Same access scoping as `getAll`
+   * (guests see only projects they are a member of), capped so the nav never
+   * grows into a second project list. Someone with no relationship to the
+   * workspace at all gets nothing, as with `goal.navChildren` — a sidebar
+   * never needs to list a workspace the caller is not in.
+   */
+  navChildren: protectedProcedure
+    .input(z.object({ workspaceId: z.string() }))
+    .query(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+      const isGuest = await isWorkspaceGuest(ctx.db, userId, input.workspaceId);
+      if (!isGuest) {
+        const membership = await getWorkspaceMembership(ctx.db, userId, input.workspaceId);
+        if (!membership) return [];
+      }
+      const accessWhere = isGuest
+        ? { projectMembers: { some: { userId } } }
+        : buildProjectAccessWhere(userId);
+      return ctx.db.project.findMany({
+        where: { workspaceId: input.workspaceId, status: "ACTIVE", ...accessWhere },
+        select: { id: true, name: true, slug: true },
+        orderBy: { createdAt: "desc" },
+        take: 6,
+      });
+    }),
 
   getAll: protectedProcedure
     .input(z.object({
@@ -771,6 +806,8 @@ export const projectRouter = createTRPCRouter({
             },
             orderBy: [{ dueDate: 'asc' }, { priority: 'asc' }],
           },
+          // For the shared Goal filter on the projects views.
+          goals: { select: { id: true, title: true } },
           _count: { select: { actions: true } },
         },
         orderBy: [{ priority: 'asc' }, { name: 'asc' }],
@@ -989,10 +1026,15 @@ export const projectRouter = createTRPCRouter({
 
       const access = await getProjectAccess(ctx.db, ctx.session.user.id, projectExists.id);
       if (!hasProjectAccess(access)) {
-        throw new TRPCError({
-          code: "FORBIDDEN",
-          message: "Access denied - you don't have permission to view this project",
-        });
+        // Says who was refused and what they lack (ticket alpha.shark): an
+        // agent's owner reads this in a terminal and has to act on it.
+        throw await projectAccessDeniedError(
+          ctx.db,
+          ctx.session.user.id,
+          projectExists.id,
+          "view this project",
+          access,
+        );
       }
 
       // Return the project with only the relations the detail page actually
@@ -1212,10 +1254,16 @@ export const projectRouter = createTRPCRouter({
     .mutation(async ({ ctx, input }) => {
       const user = await ctx.db.user.findUnique({
         where: { id: input.userId },
-        select: { name: true, email: true },
+        select: { name: true, email: true, isAgent: true },
       });
       if (!user) {
         throw new TRPCError({ code: "NOT_FOUND", message: "User not found" });
+      }
+      if (user.isAgent) {
+        // An External agent joins a project under the same ceiling as a
+        // workspace (ADR-0049): its owner must hold the project, and it is
+        // never an admin. This is how an agent gets into a restricted project.
+        await assertAgentProjectMembership(ctx.db, input.userId, input.projectId, input.role);
       }
 
       // Idempotent via @@unique([projectId, userId]): upsert keeps repeated
@@ -1273,6 +1321,9 @@ export const projectRouter = createTRPCRouter({
           userId: input.userId,
         },
       });
+      // A person's agents leave the project with them (ADR-0049 delegation
+      // invariant): their access never outlives the owner's.
+      await cascadeOwnerRemovedFromProject(ctx.db, input.userId, input.projectId);
 
       return { success: true };
     }),
@@ -1289,7 +1340,7 @@ export const projectRouter = createTRPCRouter({
     .mutation(async ({ ctx, input }) => {
       const member = await ctx.db.projectMember.findFirst({
         where: { projectId: input.projectId, userId: input.userId },
-        select: { id: true },
+        select: { id: true, user: { select: { isAgent: true } } },
       });
       if (!member) {
         throw new TRPCError({
@@ -1297,11 +1348,22 @@ export const projectRouter = createTRPCRouter({
           message: "Project member not found",
         });
       }
+      if (member.user.isAgent) {
+        // Same ceiling as adding it: never admin, editor only when the owner
+        // can edit the project.
+        await assertAgentProjectMembership(ctx.db, input.userId, input.projectId, input.role);
+      }
 
-      return ctx.db.projectMember.update({
+      const updated = await ctx.db.projectMember.update({
         where: { id: member.id },
         data: { role: input.role },
       });
+      if (!member.user.isAgent) {
+        // A person's agents never sit above them: demoting the owner to
+        // viewer clamps their agents in this project too.
+        await cascadeOwnerProjectRoleChanged(ctx.db, input.userId, input.projectId, input.role);
+      }
+      return updated;
     }),
 
   updateTaskManagement: protectedProcedure

@@ -8,10 +8,10 @@ interface PricingSectionProps {
 
 const features = [
   "Full platform access",
-  "AI features included",
+  "Assistant and meeting features included",
   "Unlimited goals & projects",
   "Team collaboration",
-  "Weekly planning rituals",
+  "Bring your own agents",
   "No credit card required",
 ];
 
@@ -24,12 +24,12 @@ export function PricingSection({ id }: PricingSectionProps) {
             Pricing
           </p>
           <h2 className="text-3xl md:text-4xl font-bold text-text-primary font-inter">
-            Start free. Scale when ready.
+            Free to start, on our servers or yours
           </h2>
         </div>
 
         {/* Pricing Card */}
-        <div className="bg-background-primary border-2 border-accent-indigo/40 rounded-3xl p-8 md:p-12 text-center relative overflow-hidden shadow-xl">
+        <div className="bg-background-primary border-2 border-accent-indigo/40 rounded-2xl p-8 md:p-12 text-center relative overflow-hidden shadow-xl">
           {/* Background decoration */}
           <div
             className="absolute inset-0 pointer-events-none"
@@ -43,7 +43,7 @@ export function PricingSection({ id }: PricingSectionProps) {
           <div className="relative z-10">
             {/* Badge */}
             <span className="inline-block px-5 py-2 rounded-full bg-gradient-to-r from-accent-indigo/20 to-accent-periwinkle/20 text-accent-indigo text-sm font-bold mb-6 border border-accent-indigo/30">
-              START FREE
+              HOSTED
             </span>
 
             {/* Price */}
@@ -70,11 +70,14 @@ export function PricingSection({ id }: PricingSectionProps) {
 
             {/* CTA */}
             <CTAButton href="/signin" variant="primary" size="large">
-              Try Now For Free
+              Get started free
             </CTAButton>
 
             <p className="text-text-muted text-sm mt-4">
-              No credit card required
+              Self-hosting is free under AGPL-3.0.{" "}
+              <a href="#self-host" className="text-accent-indigo hover:underline">
+                See how
+              </a>
             </p>
           </div>
         </div>

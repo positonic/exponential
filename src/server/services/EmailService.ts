@@ -1,5 +1,6 @@
 /**
- * Email Service for transactional emails via Postmark
+ * Email Service for transactional emails via Postmark, or plain SMTP on
+ * installs without Postmark (see `sendEmail`)
  *
  * NOTE: This file uses hardcoded colors because email clients do not support
  * CSS variables. Inline styles with actual color values are required for
@@ -13,6 +14,7 @@ import { PRODUCT_NAME } from "~/lib/brand";
 import { getPublicBaseUrlFromEnv } from "~/lib/urls";
 import { db } from "~/server/db";
 import { getDecryptedKey } from "~/server/utils/credentialHelper";
+import { resolveSmtpSettings, sendSmtpEmail } from "~/server/services/email/smtpTransport";
 import {
   formatSignInCode,
   SIGN_IN_CODE_TTL_MINUTES,
@@ -58,7 +60,9 @@ export async function resolvePostmark(
 ): Promise<PostmarkConfig> {
   const envConfig: PostmarkConfig = {
     apiKey: process.env.AUTH_POSTMARK_KEY ?? process.env.POSTMARK_SERVER_TOKEN ?? null,
-    from: process.env.AUTH_POSTMARK_FROM ?? "noreply@exponential.im",
+    // EMAIL_FROM is the install-wide sender (self-host); exponential.im sets
+    // none, so its sender is unchanged.
+    from: process.env.EMAIL_FROM ?? process.env.AUTH_POSTMARK_FROM ?? "noreply@exponential.im",
   };
 
   if (!workspaceId) return envConfig;
@@ -132,23 +136,36 @@ export function isEmailDeliveryDisabled(): boolean {
   return flag === "1" || flag === "true";
 }
 
+/**
+ * The one choke-point every transactional email goes through. Transport, in
+ * order: the workspace's Postmark integration (workspace-scoped sends only),
+ * env Postmark, then env SMTP — so Postmark wins when both are configured —
+ * else "not configured". `EMAIL_DELIVERY_DISABLED` beats them all.
+ */
 async function sendEmail({ to, subject, htmlBody, textBody, workspaceId, attachments }: SendEmailParams): Promise<void> {
   if (isEmailDeliveryDisabled()) {
     throw new Error("Email delivery is disabled (EMAIL_DELIVERY_DISABLED)");
   }
   const { apiKey, from } = await resolvePostmark(workspaceId);
 
-  if (!apiKey) {
-    console.error(
-      "[EmailService] Postmark API key not configured. Set AUTH_POSTMARK_KEY or POSTMARK_SERVER_TOKEN environment variable, or configure a workspace Postmark integration."
-    );
-    throw new Error("Email service not configured: missing AUTH_POSTMARK_KEY or POSTMARK_SERVER_TOKEN");
-  }
-
   // Subjects can carry user-authored text (workspace, project, person names).
   // Postmark's JSON API builds the MIME itself, but strip header-control
   // characters anyway so no caller can ever smuggle CR/LF into a header.
   const safeSubject = subject.replace(/[\r\n\0]/g, " ");
+
+  if (!apiKey) {
+    // No Postmark anywhere: plain SMTP, if the install has a host and a sender
+    // (SMTP never falls back to exponential.im's address).
+    const smtp = resolveSmtpSettings(process.env);
+    if (smtp) {
+      await sendSmtpEmail(smtp, { to, subject: safeSubject, htmlBody, textBody, attachments });
+      return;
+    }
+    console.error(
+      "[EmailService] No email transport configured. Set AUTH_POSTMARK_KEY (or POSTMARK_SERVER_TOKEN), or SMTP_HOST and EMAIL_FROM, or configure a workspace Postmark integration."
+    );
+    throw new Error("Email service not configured: set AUTH_POSTMARK_KEY or POSTMARK_SERVER_TOKEN, or SMTP_HOST and EMAIL_FROM");
+  }
 
   const response = await fetch(POSTMARK_API_URL, {
     method: "POST",

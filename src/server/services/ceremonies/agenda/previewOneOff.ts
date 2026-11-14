@@ -13,7 +13,7 @@
  * occurrence (none) and the project ids, so the stand-ins are enough.
  */
 import type { Ceremony, CeremonyOccurrence, PrismaClient } from "@prisma/client";
-import { getSectionModule } from "./sections";
+import { runAgendaSections } from "./runSections";
 import { withAutoProjectsSection, AUTO_PROJECTS_KEY } from "./autoSections";
 import type { SectionContext } from "./types";
 import { buildOneOffAgendaTemplate, type OneOffSectionType } from "../oneOffPresets";
@@ -83,6 +83,7 @@ export async function previewOneOffAgenda(
     includeProjects: false,
     autoExtractOutputs: false,
     matrixRoomId: null,
+    meetingUrl: null,
     isActive: true,
     isOneOff: true,
     createdById: input.callerUserId,
@@ -95,6 +96,7 @@ export async function previewOneOffAgenda(
     workspaceId: input.workspaceId,
     scheduledStart: input.scheduledStart,
     scheduledEnd,
+    cadenceStart: null,
     status: "PLANNED",
     skipReason: null,
     definitionSnapshot: {},
@@ -122,9 +124,9 @@ export async function previewOneOffAgenda(
   };
 
   const rows: OneOffPreviewRow[] = [];
-  for (const section of withAutoProjectsSection(template, ceremony.includeProjects)) {
-    const mod = getSectionModule(section.type);
-    const items = mod ? await mod.run(ctx, section) : [];
+  // Same runner as generation, so the counts honour the run-last dedupe.
+  const results = await runAgendaSections(ctx, withAutoProjectsSection(template, ceremony.includeProjects));
+  for (const { section, items } of results) {
     // Mirrors `dropEmptyAutoSections`: the appended projects box only shows when it has something.
     if (section.key === AUTO_PROJECTS_KEY && items.length === 0) continue;
     rows.push({

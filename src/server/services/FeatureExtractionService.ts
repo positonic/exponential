@@ -1,3 +1,4 @@
+import { isAiConfigured } from "~/server/services/ai/requireAi";
 import { z } from "zod";
 import { ChatOpenAI } from "@langchain/openai";
 import { HumanMessage, SystemMessage } from "@langchain/core/messages";
@@ -231,7 +232,7 @@ export class FeatureExtractionService {
       return [];
     }
 
-    if (!process.env.OPENAI_API_KEY) {
+    if (!isAiConfigured("openai")) {
       console.log("[FeatureExtraction] No OPENAI_API_KEY — returning no drafts");
       return [];
     }

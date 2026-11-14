@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { createTRPCRouter, protectedProcedure, humanOnlyProcedure } from "~/server/api/trpc";
 import { requireLiveRunForCaller } from "~/server/services/agentRuns/callbacks";
+import { postRunQuestion } from "~/server/services/agentRuns/question";
 import { appendRunEvent } from "~/server/services/agentRuns/events";
 import { enqueueAgentRunsForAssignees } from "~/server/services/agentRuns/enqueue";
 import { triggerDispatch } from "~/server/services/agentRuns/dispatch";
@@ -9,7 +10,9 @@ import { assertAssignableUsers } from "~/server/services/actions/containment";
 import { ASSIGNABLE_USER_SELECT } from "~/server/services/access/assignability";
 import { attachPositions } from "~/server/services/positions";
 import { after } from "next/server";
-import OpenAI from "openai";
+import type OpenAI from "openai";
+import { getOpenAIClient } from "~/server/services/ai/clients";
+import { isAiConfigured, requireAi, requireMastraUrl } from "~/server/services/ai/requireAi";
 import { TRPCError } from "@trpc/server";
 // import { mastraClient } from "~/lib/mastra";
 import { PRIORITY_VALUES } from "~/types/priority";
@@ -52,9 +55,6 @@ import {
   attachTicketTags,
 } from "~/server/services/notionTicketImport";
 
-// OpenAI client for embeddings
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-
 // Parse an ISO date string supplied by an agent tool into a Date. Empty/nullish
 // values clear the field (return null); a malformed string throws BAD_REQUEST
 // rather than silently persisting an `Invalid Date` to the DB.
@@ -70,12 +70,6 @@ function parseAgentDate(value: string | null | undefined, field: string): Date |
   return parsed;
 }
 
-// Get Mastra API URL from environment variable
-const MASTRA_API_URL = process.env.MASTRA_API_URL;
-
-if (!MASTRA_API_URL) {
-  throw new Error("MASTRA_API_URL environment variable is not set");
-}
 
 // Server-to-server API key for authenticating with Mastra API.
 // Used for calls without a user-specific JWT (e.g., listing agents).
@@ -87,6 +81,9 @@ function mastraAuthHeaders(jwt?: string): Record<string, string> {
   if (!token) return {};
   return { Authorization: `Bearer ${token}` };
 }
+
+/** Where chat goes when semantic routing can't run (no OpenAI key for embeddings). */
+const DEFAULT_CHAT_AGENT_ID = 'zoeAgent';
 
 // Allowlist of valid agent IDs that clients can route to.
 const ALLOWED_AGENT_IDS = new Set([
@@ -158,9 +155,10 @@ async function loadAgentEmbeddings(): Promise<AgentEmbedding[]> {
   if (agentEmbeddingsCache) return agentEmbeddingsCache;
 
   // Use direct fetch instead of mastraClient
+  const agentsUrl = `${requireMastraUrl("The Assistant")}/api/agents`;
   let data: Record<string, { instructions: unknown }>;
   try {
-    const response = await fetch(`${MASTRA_API_URL}/api/agents`, {
+    const response = await fetch(agentsUrl, {
       headers: mastraAuthHeaders(),
     });
     if (!response.ok) {
@@ -199,7 +197,7 @@ async function loadAgentEmbeddings(): Promise<AgentEmbedding[]> {
   }
 
   try {
-    const embedRes = await openai.embeddings.create({
+    const embedRes = await getOpenAIClient("Choosing an agent").embeddings.create({
       model: 'text-embedding-3-small',
       input: valid.map(v => v.instructions),
     });
@@ -275,12 +273,6 @@ export const mastraRouter = createTRPCRouter({
       }),
     )
     .mutation(({ ctx }) => {
-      if (!MASTRA_API_URL) {
-        throw new TRPCError({
-          code: "PRECONDITION_FAILED",
-          message: "MASTRA_API_URL is not configured",
-        });
-      }
       // A wiki turn is not one request: each client-tool round re-POSTs the
       // whole turn, and the agent is allowed up to twenty steps. If the token
       // expires partway through, the next round 401s and the user loses the
@@ -291,7 +283,7 @@ export const mastraRouter = createTRPCRouter({
       const expiresInMinutes = 30;
       return {
         token: generateAgentJWT(ctx.session.user, expiresInMinutes),
-        mastraUrl: MASTRA_API_URL,
+        mastraUrl: requireMastraUrl("The Assistant"),
         expiresInMinutes,
       };
     }),
@@ -299,7 +291,9 @@ export const mastraRouter = createTRPCRouter({
   getMastraAgents: protectedProcedure
     .output(MastraAgentsResponseSchema) // Output is still the validated array
     .query(async () => {
-      const mastraApiUrl = `${MASTRA_API_URL}/api/agents`; // Use environment variable
+      // No Assistant on this install: no agents to list.
+      if (!isAiConfigured("assistant")) return [];
+      const agentsUrl = `${requireMastraUrl("The Assistant")}/api/agents`;
       try {
         // Use mastraClient to fetch agents
         // const agentsData = await mastraClient.getAgents();
@@ -307,7 +301,7 @@ export const mastraRouter = createTRPCRouter({
 
         // console.log("Mastra API data from client:", agentsData);
         // Use direct fetch with server auth
-        const response = await fetch(mastraApiUrl, {
+        const response = await fetch(agentsUrl, {
           headers: mastraAuthHeaders(),
         });
 
@@ -359,6 +353,11 @@ export const mastraRouter = createTRPCRouter({
   chooseAgent: protectedProcedure
     .input(z.object({ message: z.string().max(10000) }))
     .mutation(async ({ input }) => {
+      requireAi("assistant", "Choosing an agent");
+      // Semantic routing embeds with OpenAI. An install with Mastra but no
+      // OpenAI key still has a working Assistant, so route to Zoe, the chat
+      // UI's own default, instead of failing mid-conversation.
+      if (!isAiConfigured("openai")) return { agentId: DEFAULT_CHAT_AGENT_ID };
       // 1. load agent embeddings and ensure non-empty
       const embeddings = await loadAgentEmbeddings();
       if (embeddings.length === 0) {
@@ -374,7 +373,7 @@ export const mastraRouter = createTRPCRouter({
       if (trimmed.length === 0) {
         throw new TRPCError({ code: 'BAD_REQUEST', message: 'Message is empty' });
       }
-      const msgEmbRes = await openai.embeddings.create({
+      const msgEmbRes = await getOpenAIClient("Choosing an agent").embeddings.create({
         model: 'text-embedding-3-small',
         input: trimmed,
       });
@@ -420,6 +419,7 @@ export const mastraRouter = createTRPCRouter({
       })
     )
     .mutation(async ({ input, ctx }) => {
+      requireAi("assistant", "The Assistant");
       let { agentId } = input;
       // SECURITY: Strip client-supplied system messages to prevent prompt injection.
       // Client context is preserved but demoted with clear delimiters.
@@ -562,7 +562,7 @@ export const mastraRouter = createTRPCRouter({
 
       const startTime = Date.now();
       const res = await fetch(
-        `${MASTRA_API_URL}/api/agents/${agentId}/generate`,
+        `${requireMastraUrl("The Assistant")}/api/agents/${agentId}/generate`,
         {
           method: 'POST',
           headers: {
@@ -1147,12 +1147,14 @@ export const mastraRouter = createTRPCRouter({
     }),
 
   /**
-   * ask-owner: a comment mentioning the owner (so it lands as a Mention under
-   * Waiting on me) and the run moves to WAITING_ON_OWNER — terminal for this
-   * row; the owner's reply on the action starts a resume run (D6). The tool
-   * returns a stop instruction the prompt tells the agent to honour; the
-   * dispatcher sees the status when the Mastra call returns and records the
-   * wall-clock without finishing.
+   * ask-owner: park the run WAITING_ON_OWNER and comment mentioning whoever
+   * assigned the Action — or the owner, when no person did — so it lands as a
+   * Mention under their Waiting on me (`postRunQuestion`, shared with a local
+   * runner's finish). Terminal for this row; that person's or the owner's
+   * reply on the action starts a resume run. The tool returns a stop
+   * instruction the prompt tells the agent to honour; the dispatcher sees the
+   * status when the Mastra call returns and records the wall-clock without
+   * finishing. A run cancelled meanwhile posts nothing (`commentId: null`).
    */
   askOwner: protectedProcedure
     .input(z.object({ question: z.string().min(1).max(10000) }))
@@ -1162,33 +1164,15 @@ export const mastraRouter = createTRPCRouter({
         tokenType: ctx.tokenType,
         userId: ctx.session.user.id,
       });
-      const owner = await ctx.db.user.findUniqueOrThrow({
-        where: { id: run.agent.ownerId },
-        select: { id: true, name: true },
-      });
-      // The mention parser reads `@[Name](id)`; brackets or parens in a display
-      // name would break it, so they are stripped from the label only.
-      const label = (owner.name ?? "Owner").replace(/[[\]()]/g, "").trim() || "Owner";
-      const markdown = `@[${label}](${owner.id}) ${input.question}`;
-      const comment = await createActionComment(ctx.db, {
-        actionId: run.actionId,
+      const asked = await postRunQuestion(ctx.db, {
+        run,
         authorId: ctx.session.user.id,
-        content: markdown,
-      });
-      await appendRunEvent(ctx.db, {
-        runId: run.id,
-        kind: "tool_call",
-        payload: { tool: "ask-owner", commentId: comment.id, snippet: input.question.slice(0, 200) },
-      });
-      // Guard on RUNNING so a cancel that landed meanwhile wins.
-      await ctx.db.agentRun.updateMany({
-        where: { id: run.id, status: "RUNNING" },
-        data: { status: "WAITING_ON_OWNER", lastEventAt: new Date() },
+        question: input.question,
       });
       return {
         stop: true as const,
         status: "WAITING_ON_OWNER" as const,
-        commentId: comment.id,
+        commentId: asked?.commentId ?? null,
       };
     }),
 
@@ -1890,7 +1874,11 @@ export const mastraRouter = createTRPCRouter({
       });
 
       // Extract insights using AI-enhanced analysis
-      const insights = await extractInsightsFromTranscriptions(transcriptions, input.insightTypes, openai);
+      const insights = await extractInsightsFromTranscriptions(
+        transcriptions,
+        input.insightTypes,
+        isAiConfigured("openai") ? getOpenAIClient() : undefined,
+      );
 
       return {
         insights,
@@ -4059,6 +4047,11 @@ export const mastraRouter = createTRPCRouter({
         title: z.string().min(1),
         body: z.string().min(1),
         includeInSearch: z.boolean().optional(),
+        // Why the page exists — recorded on its first revision (ADR-0074).
+        note: z.string().optional(),
+        // Provenance: where the facts come from, and the date they were true.
+        source: z.string().nullish(),
+        asOf: z.coerce.date().nullish(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
@@ -4069,6 +4062,9 @@ export const mastraRouter = createTRPCRouter({
         title: input.title,
         body: input.body,
         includeInSearch: input.includeInSearch,
+        note: input.note,
+        source: input.source,
+        asOf: input.asOf,
       });
       return {
         page: {
@@ -4092,6 +4088,10 @@ export const mastraRouter = createTRPCRouter({
         // a compare-and-set: a newer save makes page.update throw CONFLICT
         // (`data.conflict`) instead of being overwritten (ADR-0071).
         baseVersion: z.number().int().min(0).optional(),
+        // Why this change — shown in the page's history (ADR-0074).
+        note: z.string().optional(),
+        source: z.string().nullish(),
+        asOf: z.coerce.date().nullish(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
@@ -4102,6 +4102,9 @@ export const mastraRouter = createTRPCRouter({
         body: input.body,
         includeInSearch: input.includeInSearch,
         baseVersion: input.baseVersion,
+        note: input.note,
+        source: input.source,
+        asOf: input.asOf,
       });
       // The agent sends Markdown `body` (never `bodyDoc`), so page.update takes
       // the metadata path and returns the full record (not the {id, docVersion}
@@ -5000,7 +5003,8 @@ function determineContextType(content: string): 'decision' | 'action_item' | 'de
   return 'discussion';
 }
 
-async function extractInsightsFromTranscriptions(transcriptions: any[], _insightTypes?: string[], openaiClient?: OpenAI) {
+/** Exported for tests. */
+export async function extractInsightsFromTranscriptions(transcriptions: any[], _insightTypes?: string[], openaiClient?: OpenAI) {
   const insights = {
     decisions: [] as any[],
     actionItems: [] as any[],

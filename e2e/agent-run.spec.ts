@@ -29,9 +29,23 @@ const STUB_OUTPUT = {
 /** The dev server Playwright started (playwright.config.ts PORT). */
 const APP_URL = `http://localhost:${process.env.E2E_PORT ?? 3100}`;
 
+/**
+ * The run's memory thread is keyed by its action (dispatch.ts), which tells
+ * this spec's stub call apart from any other run a dispatch reaches while the
+ * stub is up (a leftover from assign-to-assistant, say).
+ */
+const AGENT_RUN_THREAD_ID = `action-${fixture.agentRunActionUrl.split("/").pop()}`;
+
+interface StubCall {
+  url: string;
+  body: unknown;
+  auth: string | null;
+  /** The stub's reportProgress callback into the app for this call. */
+  callback?: { status: number; body: string };
+}
+
 let stub: http.Server;
-const stubCalls: Array<{ url: string; body: unknown; auth: string | null }> = [];
-const callbackResults: Array<{ status: number; body: string }> = [];
+const stubCalls: StubCall[] = [];
 
 test.beforeAll(async () => {
   stub = http.createServer((req, res) => {
@@ -40,7 +54,8 @@ test.beforeAll(async () => {
     req.on("end", () => {
       void (async () => {
         const auth = req.headers.authorization ?? null;
-        stubCalls.push({ url: req.url ?? "", body: raw ? JSON.parse(raw) : null, auth });
+        const call: StubCall = { url: req.url ?? "", body: raw ? JSON.parse(raw) : null, auth };
+        stubCalls.push(call);
         // Behave like the real run agent's first tool: call back into the app
         // with the run token, so the app writes a run event (the transcript).
         if (auth) {
@@ -49,7 +64,7 @@ test.beforeAll(async () => {
             headers: { "content-type": "application/json", authorization: auth },
             body: JSON.stringify({ json: { text: "Reading the venue shortlist" } }),
           });
-          callbackResults.push({ status: cb.status, body: (await cb.text()).slice(0, 300) });
+          call.callback = { status: cb.status, body: (await cb.text()).slice(0, 300) };
         }
         res.setHeader("content-type", "application/json");
         res.end(JSON.stringify(STUB_OUTPUT));
@@ -83,24 +98,33 @@ test("assigning your Assistant starts a run: spinner, then the pill flips from Q
   await expect(page.getByTestId("action-running-ring")).toBeVisible();
   await expect(pill.getByRole("button", { name: "Cancel" })).toBeVisible();
 
-  // Kick the hosted executor exactly as the after() hook / cron would.
-  const dispatch = await request.post("/api/internal/agent-runs/dispatch", {
+  // Kick the hosted executor exactly as the after() hook does, scoped to this
+  // run: an unscoped dispatch claims only the oldest QUEUED run, which may be
+  // one another spec (assign-to-assistant) left behind.
+  const runId = await pill.getAttribute("data-run-id");
+  expect(runId).toBeTruthy();
+  const dispatch = await request.post(`/api/internal/agent-runs/dispatch?runId=${runId}`, {
     headers: { Authorization: `Bearer ${E2E_CRON_SECRET}` },
   });
   expect(dispatch.ok()).toBe(true);
   const result = (await dispatch.json()) as { claimed: number; succeeded: string[]; failed: unknown[] };
   expect(result.failed).toEqual([]);
-  expect(result.succeeded.length).toBeGreaterThanOrEqual(1);
+  expect(result.succeeded).toEqual([runId]);
 
   // The stub was called as the Assistant's shadow user, with the persona and the brief.
-  const call = stubCalls.find((c) => c.url.includes("/api/agents/assistantRunAgent/generate"));
-  expect(call).toBeDefined();
-  expect(call!.auth).toMatch(/^Bearer /);
-  const body = call!.body as { messages: Array<{ role: string; content: string }>; memory: { thread: { id: string } } };
+  type GenerateBody = { messages: Array<{ role: string; content: string }>; memory: { thread: { id: string } } };
+  const ourCalls = stubCalls.filter(
+    (c) =>
+      c.url.includes("/api/agents/assistantRunAgent/generate") &&
+      (c.body as GenerateBody | null)?.memory?.thread?.id === AGENT_RUN_THREAD_ID,
+  );
+  expect(ourCalls).toHaveLength(1);
+  const call = ourCalls[0]!;
+  expect(call.auth).toMatch(/^Bearer /);
+  const body = call.body as GenerateBody;
   expect(body.messages[0]!.role).toBe("system");
   expect(body.messages[0]!.content).toContain(`Name: ${fixture.assistantName}`);
   expect(body.messages[1]!.content).toContain(fixture.agentRunActionName);
-  expect(body.memory.thread.id).toMatch(/^action-/);
 
   // The pill polls every 2 s while live and flips once the run finished.
   await expect(pill).toHaveAttribute("data-status", "SUCCEEDED", { timeout: 10_000 });
@@ -109,8 +133,8 @@ test("assigning your Assistant starts a run: spinner, then the pill flips from Q
   await expect(pill.getByRole("button", { name: "Cancel" })).toHaveCount(0);
 
   // The stub's callback was accepted with the run token: the app wrote the event.
-  expect(callbackResults).toHaveLength(1);
-  expect(callbackResults[0]!.status, callbackResults[0]!.body).toBe(200);
+  expect(call.callback).toBeDefined();
+  expect(call.callback!.status, call.callback!.body).toBe(200);
 
   // The owner sees the transcript; the summary is on the pill's tooltip.
   await expect(page.getByTestId("agent-run-transcript")).toBeVisible();

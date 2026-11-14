@@ -19,6 +19,10 @@
       "schedule": "0 9 * * 1"
     },
     {
+      "path": "/api/cron/agent-health-digest",
+      "schedule": "0 7 * * *"
+    },
+    {
       "path": "/api/cron/auto-summarize-meetings",
       "schedule": "0 * * * *"
     },
@@ -28,6 +32,10 @@
     },
     {
       "path": "/api/cron/embed-meetings",
+      "schedule": "*/15 * * * *"
+    },
+    {
+      "path": "/api/cron/summarize-youtube-resources",
       "schedule": "*/15 * * * *"
     },
     {
@@ -73,6 +81,14 @@
     {
       "path": "/api/cron/agent-runs",
       "schedule": "* * * * *"
+    },
+    {
+      "path": "/api/cron/purge-detached-databases",
+      "schedule": "40 3 * * *"
+    },
+    {
+      "path": "/api/cron/reindex-pages",
+      "schedule": "*/10 * * * *"
     }
   ]
 }

@@ -32,6 +32,9 @@ import { FavoriteButton } from "~/app/_components/shared/FavoriteButton";
 import { useRegisterTopbarCrumbs } from "~/app/_components/layout/TopbarCrumbs";
 import { CreateTicketModal } from "~/app/_components/product/CreateTicketModal";
 import { buildProductFavoriteTarget } from "./favoriteTarget";
+import { buildProductPageTitle } from "./productPageTitle";
+import { ProductDetailTitleProvider, useProductDetailTitleState } from "./ProductDetailTitle";
+import { useDocumentTitle } from "~/hooks/useDocumentTitle";
 
 const tabs = [
   { value: "overview", href: "", label: "Overview", icon: IconHome },
@@ -212,13 +215,33 @@ export default function ProductLayout({
       : null,
   );
 
+  // Name the browser tab after what's on screen: the section on a listing
+  // ("Backlog · CLEAR"), the entity on a detail page, which the page reports
+  // through ProductDetailTitleProvider once it has loaded it.
+  const { detailLabel, registry: detailTitleRegistry } = useProductDetailTitleState();
+  useDocumentTitle(
+    workspace
+      ? buildProductPageTitle({
+          pathname,
+          workspaceSlug: workspace.slug,
+          productSlug,
+          productName: product?.name,
+          detailLabel,
+        })
+      : null,
+  );
+
   if (!workspace) return null;
   const basePath = `/w/${workspace.slug}/products/${productSlug}`;
   const isSettings = pathname === `${basePath}/settings` || pathname.startsWith(`${basePath}/settings/`);
 
   // Settings gets its own standalone page - no header or tabs
   if (isSettings) {
-    return <div className="w-full">{children}</div>;
+    return (
+      <ProductDetailTitleProvider registry={detailTitleRegistry}>
+        <div className="w-full">{children}</div>
+      </ProductDetailTitleProvider>
+    );
   }
 
   // Determine active tab from pathname. Epics live at their own `/epics/:id`
@@ -381,7 +404,9 @@ export default function ProductLayout({
 
           {/* Tab content. List tabs (Backlog, Features) run edge to edge and
               own their gutters, like the Projects page; the rest are padded. */}
-          <div className={isListTab ? "pb-6" : "px-4 sm:px-6 lg:px-10 pb-6"}>{children}</div>
+          <div className={isListTab ? "pb-6" : "px-4 sm:px-6 lg:px-10 pb-6"}>
+            <ProductDetailTitleProvider registry={detailTitleRegistry}>{children}</ProductDetailTitleProvider>
+          </div>
         </Stack>
       </Tabs>
 

@@ -181,7 +181,7 @@ export default function TermsOfUse() {
           If you have any questions or concerns regarding these Terms, please contact us at{' '}
           <a
             href="mailto:support@exponential.im"
-            className="text-brand-primary hover:underline"
+            className="text-link hover:underline"
           >
             support@exponential.im
           </a>

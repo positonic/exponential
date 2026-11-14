@@ -7,15 +7,18 @@ import {
   startOfISOWeek,
 } from "date-fns";
 import OpenAI from "openai";
+import { requireAi } from "~/server/services/ai/requireAi";
 import { z } from "zod";
 import { getAiInteractionLogger } from "~/server/services/AiInteractionLogger";
 import { describeEntityRef } from "./feedRenderHints";
+import { PAGE_ENTITY_TYPE } from "./pageActivity";
 import { getWorkspaceHomeStats } from "./workspaceHomeStats";
 
 // Lazy-init so unit tests that inject a mock client never construct the real
 // OpenAI SDK (which guards against browser-like environments at construction).
 let _defaultOpenAI: OpenAI | undefined;
 function getDefaultOpenAI(): OpenAI {
+  requireAi("openai", "The weekly narrative");
   // gpt-4o-mini for a ~500-token narrative typically returns in 2–5s. 30s is
   // comfortable headroom — anything longer means OpenAI is degraded and we'd
   // rather fail fast than hold a serverless function slot for the SDK default
@@ -181,6 +184,10 @@ async function generateAndStore(
       where: {
         workspaceId: args.workspaceId,
         createdAt: { gte: weekStart, lte: weekEnd },
+        // The Week-in-Review is cached and shown to the whole workspace, so it
+        // has no single viewer to check page access against. Page events name
+        // pages that may be private, so they never reach the prompt.
+        entityType: { not: PAGE_ENTITY_TYPE },
       },
       orderBy: { createdAt: "desc" },
       take: MAX_EVENTS_FOR_PROMPT,

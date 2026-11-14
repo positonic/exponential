@@ -1,6 +1,7 @@
-import type { PrismaClient } from "@prisma/client";
+import type { Prisma, PrismaClient } from "@prisma/client";
 import { createTicketWithNumber } from "~/plugins/product/server/services/createTicket";
 import { ticketUrlId } from "~/lib/fun-ids";
+import { getPublicBaseUrlFromEnv } from "~/lib/urls";
 import { buildBugBody, type SentryBug } from "./sentryPayload";
 import { notifyZulipOfSentryBug } from "./sentryZulip";
 import { notifyMatrixOfSentryBug } from "./sentryMatrix";
@@ -157,6 +158,26 @@ export interface IngestResult {
   ticketId: string;
 }
 
+/**
+ * Whether a recurring error is due another announcement. `lastNotifiedAt`
+ * lives in the ticket's `links` JSON so the throttle survives across
+ * serverless invocations without a schema change; a ticket that predates it
+ * (no timestamp) is due.
+ */
+export function isDueForRenotify(
+  links: Prisma.JsonValue | null,
+  renotifyAfterMs: number,
+  now: Date,
+): boolean {
+  const last =
+    links && typeof links === "object" && !Array.isArray(links)
+      ? links.lastNotifiedAt
+      : undefined;
+  if (typeof last !== "string") return true;
+  const lastMs = Date.parse(last);
+  return Number.isNaN(lastMs) || now.getTime() - lastMs >= renotifyAfterMs;
+}
+
 export async function ingestSentryBug(
   db: PrismaClient,
   bug: SentryBug,
@@ -175,6 +196,15 @@ export async function ingestSentryBug(
      * label should keep meaning what it says.
      */
     labels?: readonly { name: string; slug: string; color: string }[];
+    /** Lead-in for the creation announcement. Defaults to "New Sentry bug". */
+    heading?: string;
+    /**
+     * Re-announce a recurring error at most once per this many ms instead of
+     * only on creation. For failures that need a person *now* every time they
+     * keep happening (an exhausted provider account), where one ping on a
+     * months-old ticket is easy to miss. Unset ⇒ creation-only, as before.
+     */
+    renotifyAfterMs?: number;
   },
 ): Promise<IngestResult> {
   // Destination precedence: an explicit per-workspace product (from a
@@ -207,9 +237,48 @@ export async function ingestSentryBug(
       productId: product.id,
       links: { path: ["sentryIssueId"], equals: bug.issueId },
     },
-    select: { id: true },
+    select: { id: true, number: true, links: true, updatedAt: true },
   });
+  const now = new Date();
+  const baseUrl = getPublicBaseUrlFromEnv();
+  const ticketUrlFor = (ticket: { id: string; number: number }) =>
+    `${baseUrl}/w/${product.workspace.slug}/products/${product.slug}/tickets/${ticketUrlId(ticket)}`;
+
   if (existing) {
+    const renotifyAfterMs = options?.renotifyAfterMs;
+    if (
+      renotifyAfterMs !== undefined &&
+      isDueForRenotify(existing.links, renotifyAfterMs, now)
+    ) {
+      // Claim the slot before announcing, so a failed send is not retried on
+      // every request in a burst. The claim is a compare-and-set on
+      // `updatedAt`: during an outage every turn fails at once, and several
+      // requests can all read the ticket as due. Only the one whose write
+      // still sees the row it read wins; the rest find it changed and stay
+      // quiet.
+      const links =
+        existing.links && typeof existing.links === "object" && !Array.isArray(existing.links)
+          ? existing.links
+          : {};
+      const claim = await db.ticket.updateMany({
+        where: { id: existing.id, updatedAt: existing.updatedAt },
+        data: { links: { ...links, lastNotifiedAt: now.toISOString() } },
+      });
+      if (claim.count === 0) {
+        return { created: false, ticketId: existing.id };
+      }
+      const errol = await findOrCreateErrol(db);
+      const repeat = {
+        workspaceId: product.workspaceId,
+        authorId: errol.id,
+        title: bug.title,
+        ticketUrl: ticketUrlFor(existing),
+        sentryUrl: bug.url,
+        heading: "Still happening",
+      };
+      await notifyZulipOfSentryBug(db, repeat);
+      await notifyMatrixOfSentryBug(repeat);
+    }
     return { created: false, ticketId: existing.id };
   }
 
@@ -227,7 +296,14 @@ export async function ingestSentryBug(
     // `sentryIssueId` stays the key for non-Sentry origins too: it is the dedup
     // path queried above, and a second path would mean a second lookup for no
     // gain. The value's `client:` prefix says where it came from.
-    links: { sentryIssueId: bug.issueId, sentryUrl: bug.url },
+    links: {
+      sentryIssueId: bug.issueId,
+      sentryUrl: bug.url,
+      // Creation announces below, so the repeat-alert clock starts now.
+      ...(options?.renotifyAfterMs !== undefined
+        ? { lastNotifiedAt: now.toISOString() }
+        : {}),
+    },
   });
 
   // Tag it so these are filterable. `labelTicket` now takes the complete set
@@ -242,16 +318,16 @@ export async function ingestSentryBug(
     ...(source ? [source] : []),
   ]);
 
-  // Announce the new bug in Zulip (best-effort) with a deep link to the ticket.
-  // Only on creation — recurring errors that dedup above do not re-notify.
-  const baseUrl = process.env.NEXT_PUBLIC_APP_URL ?? "https://www.exponential.im";
-  const ticketUrl = `${baseUrl}/w/${product.workspace.slug}/products/${product.slug}/tickets/${ticketUrlId(ticket)}`;
+  // Announce the new bug in Zulip and Matrix (best-effort) with a deep link to
+  // the ticket. Recurring errors that dedup above re-notify only when the
+  // caller asked for it via `renotifyAfterMs`.
   const bugNotification = {
     workspaceId: product.workspaceId,
     authorId: errol.id,
     title: bug.title,
-    ticketUrl,
+    ticketUrl: ticketUrlFor(ticket),
     sentryUrl: bug.url,
+    ...(options?.heading ? { heading: options.heading } : {}),
   };
   await notifyZulipOfSentryBug(db, bugNotification);
   await notifyMatrixOfSentryBug(bugNotification);

@@ -63,7 +63,38 @@ export interface AgendaItem {
   lines?: Array<AgendaItemLine | string> | null;
   /** App-relative link to the record, when it has a page. */
   href?: string | null;
+  /**
+   * The referenced record's current state, attached by `getOccurrence` at
+   * read time (`enrichAgendaLive`). A view, never written to the snapshot, so
+   * an Action completed elsewhere shows as done on the next read without a
+   * regeneration.
+   */
+  live?: AgendaItemLive | null;
 }
+
+export interface AgendaLivePerson {
+  id: string;
+  name: string | null;
+  image: string | null;
+}
+
+export type AgendaItemLive =
+  | {
+      kind: "action";
+      status: string;
+      completedAt: string | null;
+      dueDate: string | null;
+      assignees: AgendaLivePerson[];
+    }
+  | {
+      kind: "decision";
+      status: string;
+      number: number;
+    };
+
+/** What an agenda item added by hand is (V9): a record, or a note. */
+export const AGENDA_ITEM_KINDS = ["note", "action", "decision"] as const;
+export type AgendaItemKind = (typeof AGENDA_ITEM_KINDS)[number];
 
 export interface AgendaSection {
   key: string;
@@ -87,6 +118,9 @@ export interface AgendaMatrixPost {
   eventId: string;
   postedAt: string;
   postedById: string | null;
+  /** Set when the post was taken back out of the room (the bot redacted its own event). */
+  removedAt?: string | null;
+  removedById?: string | null;
 }
 
 export interface AgendaSnapshot {
@@ -103,6 +137,19 @@ export interface AgendaSnapshot {
    * has already seen and silently swallow the message.
    */
   matrixPosts?: AgendaMatrixPost[];
+  /**
+   * When a person or agent last changed the agenda's content by hand
+   * (`addAgendaItem`). Belongs to one generation, like the narrative; a later
+   * edit than the last send means participants have an older agenda.
+   */
+  editedAt?: string | null;
+  /**
+   * How many people the last agenda notification reached, recorded when it
+   * was sent so the "Sent to N" line never shifts with later membership
+   * changes. Carried across regeneration; absent on agendas sent before it
+   * was recorded.
+   */
+  sentRecipientCount?: number | null;
 }
 
 /** One section of the ceremony's template, as stored in `Ceremony.agendaTemplate`. */
@@ -132,10 +179,27 @@ export interface SectionContext {
    * a fixture so no unit test reaches an external provider.
    */
   readCalendar?: CalendarReader;
+  /**
+   * `<refType>:<refId>` of every record the other sections of this agenda
+   * produced in the current run. Only set for the modules that run last
+   * (`carried_over`), so they can leave a record to the section that
+   * re-derived it instead of listing it twice.
+   */
+  producedRefIds?: ReadonlySet<string>;
+}
+
+/** Section types that must see what the rest of the agenda produced, so they run last. */
+export const RUN_LAST_SECTION_TYPES: ReadonlySet<string> = new Set(["carried_over"]);
+
+/** The key `producedRefIds` holds for an item: one per underlying record. */
+export function agendaRefKey(item: Pick<AgendaItem, "refType" | "refId">): string {
+  return `${item.refType}:${item.refId}`;
 }
 
 export interface SectionModule {
   type: string;
+  /** Why the section is empty when the query finds nothing; "Nothing to raise" when unset. */
+  emptyReason?: string;
   run(ctx: SectionContext, section: AgendaTemplateSection): Promise<AgendaItem[]>;
 }
 

@@ -40,6 +40,7 @@ import {
   useProjectViewState,
   filterProjects,
   computeProjectFilterCounts,
+  collectProjectGoals,
   PROJECT_FILTER_KEYS,
   DRI_ME,
   PROJECT_DEFAULT_VIEW_STATE,
@@ -486,6 +487,11 @@ export function WorkspaceProjectsConceptD({ showAllWorkspaces = false }: Workspa
     }));
   }, [workspace?.members]);
 
+  const projectGoals = useMemo(
+    () => collectProjectGoals(projectsData ?? []),
+    [projectsData],
+  );
+
   const filterCtx = useMemo(() => ({ currentUserId }), [currentUserId]);
 
   const filteredProjects = useMemo(
@@ -550,6 +556,7 @@ export function WorkspaceProjectsConceptD({ showAllWorkspaces = false }: Workspa
               filters={filters}
               onFiltersChange={setFilters}
               members={workspaceMembers}
+              goals={projectGoals}
             />
           </>
         }
@@ -561,6 +568,7 @@ export function WorkspaceProjectsConceptD({ showAllWorkspaces = false }: Workspa
               filters={filters}
               onFiltersChange={setFilters}
               members={workspaceMembers}
+              goals={projectGoals}
               counts={optionCounts}
             />
 

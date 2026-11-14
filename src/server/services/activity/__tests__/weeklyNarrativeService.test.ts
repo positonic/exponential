@@ -170,6 +170,37 @@ describe("getOrGenerateWeeklyNarrative", () => {
     expect(result.narrative).toMatch(/quiet week/i);
   });
 
+  it("never reads page events: the narrative is shared and a page may be private", async () => {
+    setSparklineTotal(0);
+    dbMock.workspaceWeeklyNarrative.findUnique.mockResolvedValue(null);
+    dbMock.workspaceActivityEvent.findMany.mockResolvedValue([]);
+    dbMock.workspaceWeeklyNarrative.upsert.mockResolvedValue({
+      id: "row-pages",
+      workspaceId: "ws-1",
+      isoYear: 2026,
+      isoWeek: 21,
+      narrative: "Quiet week.",
+      highlights: [],
+      model: "none",
+      tokensIn: 0,
+      tokensOut: 0,
+      generatedAt: WEEK_NOW,
+    } as never);
+
+    await getOrGenerateWeeklyNarrative(dbMock, {
+      workspaceId: "ws-1",
+      userId: "u-1",
+      now: WEEK_NOW,
+      openai: makeOpenAI("{}"),
+    });
+
+    const where = dbMock.workspaceActivityEvent.findMany.mock.calls[0]?.[0]?.where;
+    expect(where).toMatchObject({
+      workspaceId: "ws-1",
+      entityType: { not: "page" },
+    });
+  });
+
   it("force=true bypasses cache and calls OpenAI", async () => {
     setSparklineTotal(5);
     dbMock.workspaceWeeklyNarrative.findUnique.mockResolvedValue({
