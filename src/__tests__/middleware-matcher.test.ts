@@ -149,6 +149,15 @@ describe('middleware matcher', () => {
     });
   });
 
+  describe('leaves the analytics proxies to their rewrites', () => {
+    it.each(['/monitoring', '/ingest/e/', '/ingest/flags/', '/ingest/static/recorder.js'])(
+      '%s is not gated',
+      (route) => {
+        expect(matcherCovers(route)).toBe(false);
+      },
+    );
+  });
+
   describe('still gates page routes', () => {
     it.each([
       '/home',

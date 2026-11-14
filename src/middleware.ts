@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 import { auth } from '~/server/auth';
 import { isPublicPath } from '~/lib/publicRoutes';
+import { trailingSlashRedirectPath } from '~/lib/trailingSlash';
 
 /**
  * Route gating is DEFAULT-DENY (ticket foggy.carp): every page the matcher
@@ -20,6 +21,18 @@ export async function middleware(request: NextRequest) {
   }
 
   const { pathname } = request.nextUrl;
+
+  // Next's own trailing-slash redirect is off (skipTrailingSlashRedirect, for
+  // the PostHog proxy), so restore it here, BEFORE the allowlist check:
+  // `/features/` is public as a prefix but would render the gated `/features`.
+  const canonicalPath = trailingSlashRedirectPath(pathname);
+  if (canonicalPath) {
+    // A plain URL, not nextUrl.clone(): with skipTrailingSlashRedirect, NextURL
+    // remembers the original trailing slash and re-adds it, looping forever.
+    const url = new URL(request.url);
+    url.pathname = canonicalPath;
+    return NextResponse.redirect(url, 308);
+  }
 
   if (!isPublicPath(pathname)) {
     const session = await auth();
@@ -49,6 +62,7 @@ export const config = {
      * Match all request paths except for the ones starting with:
      * - api (API routes gate themselves: auth(), HMAC, CRON_SECRET)
      * - monitoring (Sentry browser-event tunnel)
+     * - ingest (PostHog proxy, rewritten to PostHog in next.config.js)
      * - _next/static (static files)
      * - _next/image (image optimization files)
      * - favicon.ico (favicon file)
@@ -81,6 +95,6 @@ export const config = {
      * asset stops being excluded. Add the directory or extension there and
      * here together — a miss is the same 307-on-assets bug as above.
      */
-    '/((?!api|monitoring|_next/static|_next/image|favicon.ico|signin|(?:(?:banners|doc-assets|icons|integrations|product-shots)/)?[^/]+\\.(?:png|jpe?g|gif|svg|ico|webp|avif|css|js|map|woff2?|ttf|otf|mp4|webm)$).*)',
+    '/((?!api|monitoring|ingest|_next/static|_next/image|favicon.ico|signin|(?:(?:banners|doc-assets|icons|integrations|product-shots)/)?[^/]+\\.(?:png|jpe?g|gif|svg|ico|webp|avif|css|js|map|woff2?|ttf|otf|mp4|webm)$).*)',
   ],
 };

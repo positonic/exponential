@@ -129,6 +129,56 @@ selects on `--status READY_TO_PLAN --label ai-fixable`, and Sentry files
 tickets as `BACKLOG`. A human moving the ticket to `READY_TO_PLAN` is what
 arms it — deliberate, since a raw stack trace is rarely a sufficient spec.
 
+## Product analytics (PostHog)
+
+Usage events, as opposed to errors, go to PostHog. They are captured **once, server-side**,
+by the analytics middleware on `protectedProcedure` (`src/server/api/trpc.ts`), so every
+client surface is covered without its own SDK. Decision:
+[ADR-0076](../docs/adr/0076-posthog-server-side-analytics.md).
+
+- **Event name** = procedure path (`action.create`). **Distinct id** = user id.
+- **Properties**: `procedure`, `type`, `surface`, `ok`, `error_code`, `duration_ms`. The
+  `surface` comes from the request's `tokenType` (`api`, `external-agent`, `assistant`,
+  `whatsapp`, `telegram`, `matrix`, `voice`, `browser-extension`, `native-app`) or, for
+  cookie sessions, `web` / `rsc` / `electron`. Person properties `first_seen_surface` and
+  `last_seen_surface` are set alongside.
+- **What is captured**: every mutation; queries only from non-browser surfaces. Inputs and
+  IPs never.
+- **Delivery**: events queue in memory and are flushed via `after()` in
+  `src/app/api/trpc/[trpc]/route.ts`, after the response but before Vercel freezes the
+  function.
+
+### Browser: page views and session replay
+
+`posthog-js` is initialised in `src/instrumentation-client.ts` from
+`src/lib/analytics/posthogBrowser.ts`, and `PostHogIdentify` in the signed-in layout ties the
+browser to the same user id as the server events. Signing out resets the identity.
+
+- **Captured**: `$pageview` on every URL change (App Router included), `$pageleave`, and
+  session replay when it is enabled in the PostHog project settings.
+- **Not captured**: autocapture clicks (element text would leak content) and exceptions
+  (Sentry owns those). Anonymous visitors get no person profile.
+- **Replays mask all text and inputs.** Structure, navigation and clicks stay visible; what
+  people wrote does not. Relaxing this is a privacy decision, not a config tweak.
+- **Transport**: same-origin `/ingest/*`, rewritten to PostHog's EU hosts in
+  `next.config.js`, so ad blockers and the CSP leave it alone. `/ingest` is excluded from
+  the auth middleware like `/monitoring`.
+- **Trailing slashes**: PostHog's endpoints need them, so `skipTrailingSlashRedirect` is on
+  and the middleware restores the `/foo/` → `/foo` redirect for pages
+  (`src/lib/trailingSlash.ts`). That redirect is load-bearing for auth: `/features/` is a
+  public prefix but would otherwise render the gated `/features` page.
+
+### Environment variables
+
+| Variable | Where | Notes |
+|---|---|---|
+| `NEXT_PUBLIC_POSTHOG_KEY` | Vercel production (preview optional) | Project API key. Enables browser and server analytics. Unset = disabled. |
+| `POSTHOG_KEY` | Optional | Server-side override of the key. |
+| `POSTHOG_HOST` | Optional | Server-side host, defaults to `https://eu.i.posthog.com`. The browser proxy is EU-only. |
+
+To see real events locally, put a project key in `.env.local` as `NEXT_PUBLIC_POSTHOG_KEY`,
+run the dev server, browse and perform a mutation, then watch PostHog's Activity tab.
+
 ## Other signals
 
 - **Vercel function logs** — tRPC internal errors are also `console.error`ed
