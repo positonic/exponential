@@ -7,7 +7,7 @@ icon: IconRobot
 updated: 2026-11-14
 ---
 
-**Version 1.0 · 11 November 2026.** Part of the Exponential Method.
+**Version 1.1 · 14 November 2026.** Part of the Exponential Method.
 
 How Exponential expects any agent to work in a workspace: Zoe, Claude, ChatGPT, Codex or an external agent. A workspace's AI instructions can tailor the **defaults** below; they can't override the **fixed principles**. Where Exponential enforces part of a principle, it says so below. Everything else is guidance.
 

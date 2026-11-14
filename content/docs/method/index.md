@@ -5,10 +5,10 @@ sidebarTitle: The method
 section: method
 order: 1
 icon: IconRepeat
-updated: 2026-11-11
+updated: 2026-11-14
 ---
 
-Version 1.0 · 11 November 2026
+Version 1.1 · 14 November 2026
 
 ## Keep the State. Close the loop.
 
