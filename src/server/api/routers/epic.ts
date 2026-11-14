@@ -65,8 +65,13 @@ async function recordEpicActivity(
       action,
       metadata: { title: epic.name },
     });
-  } catch {
-    /* instrumentation failure is non-fatal */
+  } catch (error) {
+    // Non-fatal, but never silent: a missing feed row should leave a trace.
+    console.error("[recordEpicActivity] failed", {
+      epicId: epic.id,
+      action,
+      error: error instanceof Error ? error.message : String(error),
+    });
   }
 }
 
