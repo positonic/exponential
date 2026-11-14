@@ -6,6 +6,10 @@
 
 An open-source productivity and project management platform built with the T3 Stack. Manage projects, track goals and key results, plan your day with AI, and collaborate across workspaces.
 
+Run your own copy in one click (see [Self-hosting](#self-hosting)):
+
+[![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/deploy/exponential)
+
 ## Features
 
 - **Project Management** - Create and track projects with status, priority, and progress across workspaces
@@ -89,6 +93,37 @@ An open-source productivity and project management platform built with the T3 St
    Open [http://localhost:3000](http://localhost:3000).
 
 ### Self-hosting
+
+#### Railway (one click)
+
+[![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/deploy/exponential)
+
+The [Railway template](https://railway.com/deploy/exponential) starts
+Postgres with pgvector, the app and the scheduler from the
+[prebuilt images](#container-images), and generates every secret. Nothing
+needs filling in. Then:
+
+1. **Claim it.** When the deploy finishes, open the **app** service's logs
+   and find `This install has no admin yet`. Open the `/setup` link it gives
+   and enter your email and the setup token: you become the instance admin
+   and sign-up turns invite-only. Do this straight away; see
+   [First run: claim the install](#first-run-claim-the-install).
+2. **Sign in again** with a code from the same logs (the template sets
+   `AUTH_LOG_SIGN_IN_CODES=true`). Anyone who can read the logs can sign in as
+   the admin, so before inviting anyone add SMTP (`SMTP_HOST`, `SMTP_PORT`,
+   `SMTP_USER`, `SMTP_PASSWORD`, `EMAIL_FROM`) or Postmark (`AUTH_POSTMARK_KEY`)
+   to the **app** service, which stops the logging. If you use a Google or
+   Discord OAuth app instead, also set `AUTH_LOG_SIGN_IN_CODES=false`: OAuth
+   alone doesn't stop codes going to the logs.
+3. **Optional:** add `OPENAI_API_KEY` or `ANTHROPIC_API_KEY` to the **app**
+   service to turn on the AI features. The Assistant (Mastra) isn't in the
+   template yet.
+
+The template runs the `latest` images, which follow `main`. To update,
+redeploy the app and scheduler; the app applies new migrations when it starts.
+The template's services and variables are edited in Railway, not in this repo.
+
+#### From source
 
 A production install needs three variables (`DATABASE_URL` for a Postgres with
 pgvector, `AUTH_SECRET`, `DATABASE_ENCRYPTION_KEY`) and one way to sign in. No
