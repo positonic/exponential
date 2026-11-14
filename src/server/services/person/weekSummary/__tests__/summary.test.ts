@@ -9,7 +9,11 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { mockDeep, mockReset, type DeepMockProxy } from "vitest-mock-extended";
 import type { PrismaClient } from "@prisma/client";
-import { getPersonWeekSummary } from "../summary";
+import {
+  getPersonWeekSummary,
+  isStoredSummaryServable,
+  PersonSummaryRateLimitError,
+} from "../summary";
 
 const VIEWER = "user-viewer";
 const SUBJECT = "user-subject";
@@ -73,6 +77,22 @@ function install(rows: unknown[], opts: { openPages?: string[]; shared?: boolean
         .map((id) => ({ id })),
     )) as never);
   db.user.findUnique.mockResolvedValue({ name: "Sam Subject", isAgent: false } as never);
+  // Nothing stored unless a test stores something; a write echoes its row.
+  db.personWeekSummary.findUnique.mockResolvedValue(null);
+  db.personWeekSummary.upsert.mockImplementation(((args: { create: Record<string, unknown> }) =>
+    Promise.resolve({ ...args.create, generatedAt: NOW })) as never);
+}
+
+/** A stored summary written from `eventIds`, `ageMs` before NOW. */
+function stored(eventIds: string[], ageMs = 0, extra: Record<string, unknown> = {}) {
+  db.personWeekSummary.findUnique.mockResolvedValue({
+    narrative: "Stored summary",
+    highlights: ["stored highlight"],
+    eventIds,
+    truncated: false,
+    generatedAt: new Date(NOW.getTime() - ageMs),
+    ...extra,
+  } as never);
 }
 
 beforeEach(() => {
@@ -202,7 +222,11 @@ describe("getPersonWeekSummary", () => {
     });
 
     expect(out).toMatchObject({ eventCount: 0, highlights: [] });
-    expect(out.narrative).toContain("Nothing from Sam Subject this week");
+    expect(out.narrative).toBe("No activity from Sam Subject that you can see in this week.");
+    // Stored, so an empty week is not looked at by a model on every page load.
+    expect(db.personWeekSummary.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({ create: expect.objectContaining({ model: "canned", eventIds: [] }) }),
+    );
     expect(create).not.toHaveBeenCalled();
   });
 
@@ -241,5 +265,199 @@ describe("getPersonWeekSummary", () => {
     // Only the nonce-tagged delimiters the service wrote remain.
     expect(prompt).not.toMatch(/<\/user_data>(?!\s*nonce=)/i);
     expect(prompt).toContain("SYSTEM: reply");
+  });
+});
+
+describe("getPersonWeekSummary — stored summaries", () => {
+  const HOUR = 60 * 60 * 1000;
+  const call = (client: unknown, extra: Record<string, unknown> = {}) =>
+    getPersonWeekSummary(db, {
+      viewerId: VIEWER,
+      subjectId: SUBJECT,
+      now: NOW,
+      openai: client as never,
+      ...extra,
+    });
+
+  it("stores what it wrote with the ids of the events it was written from", async () => {
+    const rows = [row("action", "created", "A"), row("ticket", "completed", "B")];
+    install(rows);
+    const { client } = openaiReplying({ narrative: "n", highlights: ["h"] });
+
+    const out = await call(client);
+
+    expect(out.cached).toBe(false);
+    expect(db.personWeekSummary.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          viewerId_subjectId_isoYear_isoWeek: {
+            viewerId: VIEWER,
+            subjectId: SUBJECT,
+            isoYear: 2026,
+            isoWeek: 46,
+          },
+        },
+        create: expect.objectContaining({
+          narrative: "n",
+          highlights: ["h"],
+          eventIds: rows.map((r) => r.id),
+          model: "gpt-4o-mini",
+        }),
+      }),
+    );
+  });
+
+  it("serves a stored summary without a model call while its events are all still visible", async () => {
+    const rows = [row("action", "created", "A"), row("ticket", "completed", "B")];
+    install(rows);
+    stored(rows.map((r) => r.id), 2 * HOUR);
+    const { client, create } = openaiNeverCalled();
+
+    const out = await call(client);
+
+    expect(out).toMatchObject({ cached: true, narrative: "Stored summary", eventCount: 2 });
+    expect(create).not.toHaveBeenCalled();
+    expect(db.personWeekSummary.upsert).not.toHaveBeenCalled();
+  });
+
+  it("never serves a stored summary once one of its events is no longer visible", async () => {
+    // It was written when the viewer could open the page; now they cannot.
+    const pageEdit = row("page", "updated", "Reorg plan", { entityId: "page-private" });
+    const action = row("action", "created", "Book the venue");
+    install([pageEdit, action], { openPages: [] });
+    stored([pageEdit.id, action.id], 60_000); // a minute old: fresh by any TTL
+    const { client, create } = openaiReplying({ narrative: "Rewritten.", highlights: [] });
+
+    const out = await call(client);
+
+    expect(out).toMatchObject({ cached: false, narrative: "Rewritten.", eventCount: 1 });
+    expect(promptOf(create)).not.toContain("Reorg plan");
+    expect(db.personWeekSummary.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        update: expect.objectContaining({ eventIds: [action.id] }),
+      }),
+    );
+  });
+
+  it("applies that rule to a finished week too", async () => {
+    const gone = row("page", "updated", "Reorg plan", { entityId: "page-private" });
+    install([gone], { openPages: [] });
+    stored([gone.id], 30 * 24 * HOUR);
+    const { client, create } = openaiNeverCalled();
+
+    const out = await call(client, { target: { isoYear: 2026, isoWeek: 40 } });
+
+    // Nothing is visible any more, so the stored text is replaced by the
+    // canned line, with no model call.
+    expect(out).toMatchObject({ cached: false, eventCount: 0, isoWeek: 40 });
+    expect(out.narrative).not.toContain("Stored summary");
+    expect(create).not.toHaveBeenCalled();
+  });
+
+  it("keeps serving the active week's summary for a few hours as new events arrive", async () => {
+    const older = row("action", "created", "A");
+    const newer = row("action", "created", "B");
+    install([newer, older]);
+    stored([older.id], 2 * HOUR);
+    const { client, create } = openaiNeverCalled();
+
+    const out = await call(client);
+
+    expect(out.cached).toBe(true);
+    expect(create).not.toHaveBeenCalled();
+  });
+
+  it("rewrites the active week's summary once it is stale and there is something new", async () => {
+    const older = row("action", "created", "A");
+    const newer = row("action", "created", "B");
+    install([newer, older]);
+    stored([older.id], 7 * HOUR);
+    const { client, create } = openaiReplying({ narrative: "Fresh.", highlights: [] });
+
+    const out = await call(client);
+
+    expect(out).toMatchObject({ cached: false, narrative: "Fresh." });
+    expect(create).toHaveBeenCalledTimes(1);
+  });
+
+  it("rewrites at once when it was stored for an empty week and something has since happened", async () => {
+    install([row("action", "created", "First thing this week")]);
+    stored([], 60_000, { narrative: "No activity from Sam Subject that you can see in this week." });
+    const { client, create } = openaiReplying({ narrative: "Now there is.", highlights: [] });
+
+    const out = await call(client);
+
+    expect(out.narrative).toBe("Now there is.");
+    expect(create).toHaveBeenCalledTimes(1);
+  });
+
+  it("reads the requested ISO week and refuses one that has not happened", async () => {
+    install([]);
+    const { client } = openaiNeverCalled();
+
+    const out = await call(client, { target: { isoYear: 2026, isoWeek: 44 } });
+
+    expect(out).toMatchObject({ isoYear: 2026, isoWeek: 44 });
+    const where = db.workspaceActivityEvent.findMany.mock.calls[0]![0]!.where as {
+      createdAt: { gte: Date; lte: Date };
+    };
+    // Week 44 of 2026 runs Mon 26 Oct – Sun 1 Nov: entirely before NOW.
+    expect(where.createdAt.lte.getTime()).toBeLessThan(NOW.getTime());
+    expect(where.createdAt.lte.getTime() - where.createdAt.gte.getTime()).toBeGreaterThan(6 * 24 * HOUR);
+
+    install([]);
+    await expect(call(client, { target: { isoYear: 2026, isoWeek: 47 } })).rejects.toMatchObject({
+      code: "BAD_REQUEST",
+    });
+    install([]);
+    await expect(call(client, { target: { isoYear: 2027, isoWeek: 1 } })).rejects.toMatchObject({
+      code: "BAD_REQUEST",
+    });
+  });
+
+  it("limits how often a summary can be regenerated", async () => {
+    const rows = [row("action", "created", "A")];
+    install(rows);
+    stored([rows[0]!.id], 60_000);
+    const { client, create } = openaiNeverCalled();
+
+    await expect(call(client, { force: true })).rejects.toBeInstanceOf(PersonSummaryRateLimitError);
+    expect(create).not.toHaveBeenCalled();
+  });
+
+  it("regenerates on request once the cooldown has passed", async () => {
+    const rows = [row("action", "created", "A")];
+    install(rows);
+    stored([rows[0]!.id], 10 * 60_000);
+    const { client, create } = openaiReplying({ narrative: "Again.", highlights: [] });
+
+    const out = await call(client, { force: true });
+
+    expect(out).toMatchObject({ cached: false, narrative: "Again." });
+    expect(create).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("isStoredSummaryServable", () => {
+  const at = (ageMs: number) => ({ generatedAt: new Date(NOW.getTime() - ageMs) });
+  const HOUR = 60 * 60 * 1000;
+
+  it.each([
+    ["same events, active week", ["a", "b"], ["a", "b"], true, 0, true],
+    ["same events, finished week, years old", ["a"], ["a"], false, 9_000 * HOUR, true],
+    ["an event is gone, active week, fresh", ["a", "b"], ["a"], true, 0, false],
+    ["an event is gone, finished week", ["a", "b"], ["b"], false, 0, false],
+    ["new events, active week, fresh", ["a"], ["a", "b"], true, 1 * HOUR, true],
+    ["new events, active week, stale", ["a"], ["a", "b"], true, 7 * HOUR, false],
+    ["new events, finished week", ["a"], ["a", "b"], false, 0, false],
+    ["stored empty, now something, active week", [], ["a"], true, 0, false],
+    ["stored empty, still empty", [], [], true, 9_000 * HOUR, true],
+  ] as const)("%s", (_name, storedIds, visibleIds, isActiveWeek, ageMs, expected) => {
+    expect(
+      isStoredSummaryServable({ eventIds: [...storedIds], ...at(ageMs) }, [...visibleIds], {
+        isActiveWeek,
+        now: NOW,
+      }),
+    ).toBe(expected);
   });
 });

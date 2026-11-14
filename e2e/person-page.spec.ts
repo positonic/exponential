@@ -102,6 +102,8 @@ test.describe("Person page", () => {
     await expect(page.getByText("Your workspaces")).toBeVisible({
       timeout: FIRST_PAINT_TIMEOUT,
     });
+    // Your own page never carries the summary written about other people.
+    await expect(page.getByTestId("person-week-summary")).toHaveCount(0);
     await expect(
       page.getByRole("tablist", { name: "Filter activity by workspace" }).getByRole("tab", {
         name: fixture.otherWorkspaceName,

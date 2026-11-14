@@ -5,11 +5,16 @@ import {
   endOfISOWeek,
   getISOWeek,
   getISOWeekYear,
+  setISOWeek,
+  setISOWeekYear,
   startOfISOWeek,
 } from "date-fns";
 import { personNotFound, resolvePersonScope } from "../personPage";
-import { gatherVisibleWeek } from "./gather";
+import { gatherVisibleWeek, type VisibleWeek } from "./gather";
 import { synthesizeSummary, type SummaryOpenAIClient } from "./synthesize";
+
+const STALE_AFTER_MS = 6 * 60 * 60 * 1000; // 6h — only the active week goes stale
+const REGENERATE_COOLDOWN_MS = 5 * 60 * 1000; // 5min
 
 /**
  * Person week summary: an AI-written summary of one week of someone else's
@@ -31,13 +36,79 @@ export interface PersonWeekSummary {
   /** True when the week held more visible events than one summary reads. */
   truncated: boolean;
   generatedAt: Date;
+  /** True when this is a stored summary rather than one just written. */
+  cached: boolean;
 }
 
+/** Force-regenerate inside the cooldown window. The router maps it to TOO_MANY_REQUESTS. */
+export class PersonSummaryRateLimitError extends Error {
+  readonly retryAfterMs: number;
+  constructor(retryAfterMs: number) {
+    super(`Summary regenerated recently; retry in ${Math.round(retryAfterMs / 1000)}s`);
+    this.name = "PersonSummaryRateLimitError";
+    this.retryAfterMs = retryAfterMs;
+  }
+}
+
+const inFlight = new Map<string, Promise<PersonWeekSummary>>();
+
+function jsonStringArray(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value.filter((v): v is string => typeof v === "string")
+    : [];
+}
+
+interface StoredSummary {
+  eventIds: string[];
+  generatedAt: Date;
+}
+
+/**
+ * May a stored summary be shown for what the viewer can see right now?
+ *
+ * The rule that matters is the first one. A stored summary was written from a
+ * set of events; if any of them is no longer visible to the viewer (a page
+ * went invite-only, a grant was removed, the viewer left a workspace) the text
+ * may describe something they can no longer see, so it is never shown again —
+ * whatever its age and whichever week it is for.
+ *
+ * Beyond that it is ordinary staleness: a finished week is shown until its
+ * visible events change; the active week is shown for a few hours even as new
+ * events arrive, unless it was written when there was nothing to see.
+ */
+export function isStoredSummaryServable(
+  stored: StoredSummary,
+  visibleEventIds: string[],
+  opts: { isActiveWeek: boolean; now: Date },
+): boolean {
+  const visible = new Set(visibleEventIds);
+  // (A week busier than one summary reads is the newest N events, so on such a
+  // week a new event also pushes an old one out of the set and lands here.
+  // That errs on the side of rewriting.)
+  if (stored.eventIds.some((id) => !visible.has(id))) return false;
+
+  const hasNewEvents = visible.size > stored.eventIds.length;
+  if (!hasNewEvents) return true;
+  if (!opts.isActiveWeek) return false;
+  if (stored.eventIds.length === 0) return false;
+  return opts.now.getTime() - stored.generatedAt.getTime() < STALE_AFTER_MS;
+}
+
+/**
+ * Read, or write and store, the summary of the subject's week as the viewer
+ * can see it. One stored row per (viewer, subject, ISO week); a row is only
+ * ever served after re-checking it against what the viewer can see now.
+ *
+ * `target` pages back to an earlier ISO week (never a future one). `force`
+ * regenerates, at most once per cooldown.
+ */
 export async function getPersonWeekSummary(
   db: PrismaClient,
   args: {
     viewerId: string;
     subjectId: string;
+    target?: { isoYear: number; isoWeek: number };
+    force?: boolean;
     now?: Date;
     openai?: SummaryOpenAIClient;
   },
@@ -53,56 +124,149 @@ export async function getPersonWeekSummary(
     });
   }
 
+  const now = args.now ?? new Date();
+  const currentYear = getISOWeekYear(now);
+  const currentWeek = getISOWeek(now);
+  const isoYear = args.target?.isoYear ?? currentYear;
+  const isoWeek = args.target?.isoWeek ?? currentWeek;
+  const isActiveWeek = isoYear === currentYear && isoWeek === currentWeek;
+  if (isoYear > currentYear || (isoYear === currentYear && isoWeek > currentWeek)) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: "That week has not happened yet.",
+    });
+  }
+
   const subject = await db.user.findUnique({
     where: { id: args.subjectId },
     select: { name: true, isAgent: true },
   });
   if (!subject) throw personNotFound();
-
-  const now = args.now ?? new Date();
-  const isoYear = getISOWeekYear(now);
-  const isoWeek = getISOWeek(now);
   const name = subject.name ?? "This person";
 
+  // What the viewer can see of that week right now. Read on every call, cached
+  // or not: it is what the stored row is checked against, and it is only
+  // database reads.
+  const ref = setISOWeek(setISOWeekYear(now, isoYear), isoWeek);
   const week = await gatherVisibleWeek(db, {
     viewerId: args.viewerId,
     subjectId: args.subjectId,
     subjectName: name,
     workspaceIds: scope.visibleWorkspaces.map((workspace) => workspace.id),
-    weekStart: startOfISOWeek(now),
-    weekEnd: endOfISOWeek(now),
+    weekStart: startOfISOWeek(ref),
+    weekEnd: endOfISOWeek(ref),
   });
+  const visibleEventIds = week.events.map((event) => event.id);
 
-  // Nothing visible: say so without a model call.
-  if (week.events.length === 0) {
-    return {
-      isoYear,
-      isoWeek,
-      narrative: `Nothing from ${name} this week in the workspaces you share.`,
-      highlights: [],
-      eventCount: 0,
-      truncated: false,
-      generatedAt: now,
-    };
-  }
-
-  const result = await synthesizeSummary(
-    { name, isAgent: subject.isAgent },
-    week.events,
-    {
-      nonce: randomBytes(8).toString("hex"),
-      truncated: week.truncated,
-      openai: args.openai,
-    },
-  );
-
-  return {
+  const key = {
+    viewerId: args.viewerId,
+    subjectId: args.subjectId,
     isoYear,
     isoWeek,
-    narrative: result.narrative,
-    highlights: result.highlights,
-    eventCount: week.events.length,
-    truncated: week.truncated,
-    generatedAt: now,
+  };
+  const existing = await db.personWeekSummary.findUnique({
+    where: { viewerId_subjectId_isoYear_isoWeek: key },
+  });
+
+  if (existing) {
+    const stored = {
+      eventIds: jsonStringArray(existing.eventIds),
+      generatedAt: existing.generatedAt,
+    };
+    const servable = isStoredSummaryServable(stored, visibleEventIds, {
+      isActiveWeek,
+      now,
+    });
+    const ageMs = now.getTime() - existing.generatedAt.getTime();
+    // The cooldown only holds back a summary that could otherwise be shown.
+    // One that must not be shown is always rewritten.
+    if (args.force && servable && ageMs < REGENERATE_COOLDOWN_MS) {
+      throw new PersonSummaryRateLimitError(REGENERATE_COOLDOWN_MS - ageMs);
+    }
+    if (!args.force && servable) {
+      return {
+        isoYear,
+        isoWeek,
+        narrative: existing.narrative,
+        highlights: jsonStringArray(existing.highlights),
+        eventCount: stored.eventIds.length,
+        truncated: existing.truncated,
+        generatedAt: existing.generatedAt,
+        cached: true,
+      };
+    }
+  }
+
+  const flightKey = `${args.viewerId}:${args.subjectId}:${isoYear}:${isoWeek}`;
+  if (!args.force) {
+    const pending = inFlight.get(flightKey);
+    if (pending) return pending;
+  }
+
+  const work = writeAndStore(db, {
+    key,
+    subject: { name, isAgent: subject.isAgent },
+    week,
+    openai: args.openai,
+  }).finally(() => {
+    inFlight.delete(flightKey);
+  });
+  if (!args.force) inFlight.set(flightKey, work);
+  return work;
+}
+
+async function writeAndStore(
+  db: PrismaClient,
+  args: {
+    key: { viewerId: string; subjectId: string; isoYear: number; isoWeek: number };
+    subject: { name: string; isAgent: boolean };
+    week: VisibleWeek;
+    openai?: SummaryOpenAIClient;
+  },
+): Promise<PersonWeekSummary> {
+  const eventIds = args.week.events.map((event) => event.id);
+
+  // Nothing visible: say so without a model call. Stored under the canned
+  // model flag so an empty week is not regenerated on every page load.
+  const written =
+    args.week.events.length === 0
+      ? {
+          // Stored and shown later too, so it does not say "this week".
+          narrative: `No activity from ${args.subject.name} that you can see in this week.`,
+          highlights: [],
+          model: "canned",
+          tokensIn: null,
+          tokensOut: null,
+        }
+      : await synthesizeSummary(args.subject, args.week.events, {
+          nonce: randomBytes(8).toString("hex"),
+          truncated: args.week.truncated,
+          openai: args.openai,
+        });
+
+  const data = {
+    narrative: written.narrative,
+    highlights: written.highlights,
+    eventIds,
+    truncated: args.week.truncated,
+    model: written.model,
+    tokensIn: written.tokensIn,
+    tokensOut: written.tokensOut,
+  };
+  const row = await db.personWeekSummary.upsert({
+    where: { viewerId_subjectId_isoYear_isoWeek: args.key },
+    create: { ...args.key, ...data },
+    update: { ...data, generatedAt: new Date() },
+  });
+
+  return {
+    isoYear: row.isoYear,
+    isoWeek: row.isoWeek,
+    narrative: row.narrative,
+    highlights: jsonStringArray(row.highlights),
+    eventCount: eventIds.length,
+    truncated: row.truncated,
+    generatedAt: row.generatedAt,
+    cached: false,
   };
 }

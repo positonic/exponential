@@ -162,6 +162,8 @@ model User {
   weeklyReviewSharing            WeeklyReviewSharing[]
   weeklyReviewCompletions        WeeklyReviewCompletion[]
   weeklyWorkDigests              WeeklyWorkDigest[]
+  personWeekSummariesViewed      PersonWeekSummary[]             @relation("PersonWeekSummaryViewer")
+  personWeekSummariesAbout       PersonWeekSummary[]             @relation("PersonWeekSummarySubject")
   portfolioReviewCompletions     PortfolioReviewCompletion[]
   workspaceWeeklyFocuses         WorkspaceWeeklyFocus[]
   wheelOfLifeAssessments         WheelOfLifeAssessment[]
@@ -840,6 +842,40 @@ model WeeklyWorkDigest {
 
   @@unique([userId, isoYear, isoWeek])
   @@index([userId, generatedAt])
+}
+
+// Cached Person week summary (Person page, V2): an AI summary of one person's
+// (`subjectId`) ISO week, written only from the activity events ONE viewer
+// (`viewerId`) can see on that person's page. One row per (viewer, subject, ISO
+// week). It is a different artifact from WeeklyWorkDigest: that one is a
+// person's own, private digest drawing on meetings and assigned items
+// (ADR-0018); this one never reads either.
+//
+// `eventIds` is what makes the cache safe to serve: the ids of the events the
+// text was written from. A read re-checks them against what the viewer can see
+// now, and a row naming an event that is no longer visible (a page went
+// invite-only, a grant was removed) is regenerated instead of shown.
+// See src/server/services/person/weekSummary/.
+model PersonWeekSummary {
+  id          String   @id @default(cuid())
+  viewerId    String
+  subjectId   String
+  isoYear     Int
+  isoWeek     Int // 1–53
+  narrative   String   @db.Text
+  highlights  Json // string[] - at most 3
+  eventIds    Json // string[] - WorkspaceActivityEvent ids the summary was written from
+  truncated   Boolean  @default(false) // the week held more visible events than one summary reads
+  model       String // e.g. "gpt-4o-mini" or "canned" for a week with nothing visible
+  tokensIn    Int?
+  tokensOut   Int?
+  generatedAt DateTime @default(now())
+
+  viewer  User @relation("PersonWeekSummaryViewer", fields: [viewerId], references: [id], onDelete: Cascade)
+  subject User @relation("PersonWeekSummarySubject", fields: [subjectId], references: [id], onDelete: Cascade)
+
+  @@unique([viewerId, subjectId, isoYear, isoWeek])
+  @@index([subjectId])
 }
 
 // Per-workspace settings for the resident copywriter that drafts a Workspace
