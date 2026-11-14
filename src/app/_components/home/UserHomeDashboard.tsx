@@ -51,7 +51,8 @@ export function UserHomeDashboard() {
 
   // Zoe canvas experiment (ADR-0040): with the sticky ?canvas=1 opt-in, sends
   // from the hero input / chips answer in the page instead of the drawer.
-  const canvasEnabled = useCanvasOptIn();
+  // Off with no Assistant: every send would fail as not configured.
+  const canvasEnabled = useCanvasOptIn() && hasAssistant;
   const canvas = useCanvasEngagement({ workspaceId, enabled: canvasEnabled });
   const canvasActive = canvasEnabled && canvas.engaged;
 

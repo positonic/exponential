@@ -114,8 +114,22 @@ export function aiCapabilityLines(env: AiEnv): string[] {
   if (off.length === 0) return [head];
   return [
     head,
-    ...off.map((option) => `[selfhost]   To turn on ${option.turnsOn}: set ${option.variable} and restart.`),
+    ...off.map((option) => `[selfhost]   To turn on ${option.turnsOn}: ${howToSet(option.variable, env)}.`),
   ];
+}
+
+/**
+ * The instruction for one variable. Under Docker Compose (`with-secrets.sh`
+ * passes `SELFHOST_MASTRA_HOST`) the Assistant is switched on by the
+ * `assistant` profile, which also points `MASTRA_API_URL` at the bundled
+ * Mastra, so telling the operator to set the URL would send them looking for a
+ * service they don't run.
+ */
+function howToSet(variable: string, env: AiEnv): string {
+  if (variable === "MASTRA_API_URL" && isSet(env.SELFHOST_MASTRA_HOST)) {
+    return "start Compose with `--profile assistant` (it needs ANTHROPIC_API_KEY)";
+  }
+  return `set ${variable} and restart`;
 }
 
 const WHAT_IS_MISSING: Record<AiRequirement, string> = {

@@ -109,6 +109,32 @@ describe("aiCapabilityLines", () => {
     expect(lines[0]).toMatch(/AI features: OpenAI, Anthropic, Assistant \(Mastra\)/);
   });
 
+  it("tells a plain install to set MASTRA_API_URL for the Assistant", () => {
+    const text = aiCapabilityLines(PRODUCTION).join("\n");
+
+    expect(text).toMatch(/set MASTRA_API_URL and restart/);
+    expect(text).not.toMatch(/--profile assistant/);
+  });
+
+  it("under Docker Compose, points at the assistant profile instead of MASTRA_API_URL", () => {
+    const text = aiCapabilityLines({ ...PRODUCTION, SELFHOST_MASTRA_HOST: "mastra" }).join("\n");
+
+    expect(text).toMatch(/start Compose with `--profile assistant` \(it needs ANTHROPIC_API_KEY\)/);
+    expect(text).not.toMatch(/set MASTRA_API_URL/);
+    expect(text).toMatch(/set OPENAI_API_KEY and restart/);
+  });
+
+  it("under Docker Compose with the profile on, the Assistant shows as on", () => {
+    const lines = aiCapabilityLines({
+      ...PRODUCTION,
+      SELFHOST_MASTRA_HOST: "mastra",
+      MASTRA_API_URL: "http://mastra:4111",
+    });
+
+    expect(lines[0]).toMatch(/AI features: Assistant \(Mastra\)/);
+    expect(lines.join("\n")).not.toMatch(/--profile assistant/);
+  });
+
   it("never prints a key's value", () => {
     const text = aiCapabilityLines(ALL_KEYS).join("\n");
 

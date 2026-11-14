@@ -5002,7 +5002,8 @@ function determineContextType(content: string): 'decision' | 'action_item' | 'de
   return 'discussion';
 }
 
-async function extractInsightsFromTranscriptions(transcriptions: any[], _insightTypes?: string[], openaiClient?: OpenAI) {
+/** Exported for tests. */
+export async function extractInsightsFromTranscriptions(transcriptions: any[], _insightTypes?: string[], openaiClient?: OpenAI) {
   const insights = {
     decisions: [] as any[],
     actionItems: [] as any[],
