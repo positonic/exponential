@@ -1,12 +1,12 @@
 export { GradientShader } from "./GradientShader";
 export { HeroSection } from "./HeroSection";
-export { FactsSection } from "./FactsSection";
 export { FeaturesMenu } from "./FeaturesMenu";
 export { ResourcesMenu } from "./ResourcesMenu";
-export { ProductPillarsSection } from "./ProductPillarsSection";
+export { ProofStrip } from "./ProofStrip";
+export { PillarsSection } from "./PillarsSection";
+export { FeatureTabsSection } from "./FeatureTabsSection";
 export { AgentAccessSection } from "./AgentAccessSection";
 export { SelfHostSection } from "./SelfHostSection";
-export { MethodSection } from "./MethodSection";
 export { PricingSection } from "./PricingSection";
 export { FinalCTASection } from "./FinalCTASection";
 export { FooterSection } from "./FooterSection";

@@ -1,87 +1,38 @@
-import { Container } from "@mantine/core";
-import { IconCheck } from "@tabler/icons-react";
 import { CTAButton } from "./shared/CTAButton";
 
 interface PricingSectionProps {
   id?: string;
 }
 
-const features = [
-  "Full platform access",
-  "Assistant and meeting features included",
-  "Unlimited goals & projects",
-  "Team collaboration",
-  "Bring your own agents",
-  "No credit card required",
-];
-
+/**
+ * Pricing, as one statement. There is a single hosted plan and it is free,
+ * so a plan card says nothing a sentence does not. When there is more than
+ * one plan, this becomes a link to a pricing page.
+ */
 export function PricingSection({ id }: PricingSectionProps) {
   return (
-    <section id={id} className="bg-surface-secondary py-20 md:py-28">
-      <Container size="sm">
-        <div className="text-center mb-12">
-          <p className="text-accent-indigo uppercase tracking-wider text-sm font-semibold mb-4">
-            Pricing
-          </p>
-          <h2 className="text-3xl md:text-4xl font-bold text-text-primary font-inter">
-            Free to start, on our servers or yours
-          </h2>
-        </div>
-
-        {/* Pricing Card */}
-        <div className="bg-background-primary border-2 border-accent-indigo/40 rounded-2xl p-8 md:p-12 text-center relative overflow-hidden shadow-xl">
-          {/* Background decoration */}
-          <div
-            className="absolute inset-0 pointer-events-none"
-            style={{
-              background:
-                "radial-gradient(circle at top right, var(--color-accent-indigo) 0%, transparent 50%)",
-              opacity: 0.08,
-            }}
-          />
-
-          <div className="relative z-10">
-            {/* Badge */}
-            <span className="inline-block px-5 py-2 rounded-full bg-gradient-to-r from-accent-indigo/20 to-accent-periwinkle/20 text-accent-indigo text-sm font-bold mb-6 border border-accent-indigo/30">
-              HOSTED
-            </span>
-
-            {/* Price */}
-            <div className="mb-8">
-              <span className="text-6xl md:text-7xl font-bold text-text-primary font-inter">$0</span>
-              <span className="text-text-secondary ml-2 text-lg">/month</span>
-            </div>
-
-            {/* Features */}
-            <ul className="space-y-4 mb-10 text-left max-w-xs mx-auto">
-              {features.map((feature, index) => (
-                <li key={index} className="flex items-center gap-3">
-                  <div className="w-5 h-5 rounded-full bg-brand-success/20 flex items-center justify-center flex-shrink-0">
-                    <IconCheck
-                      size={14}
-                      className="text-brand-success"
-                      stroke={2.5}
-                    />
-                  </div>
-                  <span className="text-text-secondary">{feature}</span>
-                </li>
-              ))}
-            </ul>
-
-            {/* CTA */}
-            <CTAButton href="/signin" variant="primary" size="large">
-              Get started free
-            </CTAButton>
-
-            <p className="text-text-muted text-sm mt-4">
-              Self-hosting is free under AGPL-3.0.{" "}
-              <a href="#self-host" className="text-accent-indigo hover:underline">
-                See how
-              </a>
+    <section id={id} className="mkt-section border-t border-border-primary">
+      <div className="mkt-container mkt-reveal">
+        <div className="flex flex-col gap-8 md:flex-row md:items-end md:justify-between">
+          <div className="max-w-2xl">
+            <p className="mkt-eyebrow mb-4">Pricing</p>
+            <h2 className="mkt-h2 mb-4">Free to start, on our servers or yours</h2>
+            <p className="mkt-body">
+              The hosted workspace is $0 a month with no credit card: the full
+              platform, the assistant and meeting features, and your own
+              agents. Self-hosting is free under AGPL-3.0.
             </p>
           </div>
+          <div className="flex shrink-0 flex-wrap items-center gap-x-8 gap-y-5">
+            <CTAButton href="/signin" variant="pill" size="large">
+              Get started free
+            </CTAButton>
+            <CTAButton href="#self-host" variant="text">
+              Self-host
+            </CTAButton>
+          </div>
         </div>
-      </Container>
+      </div>
     </section>
   );
 }

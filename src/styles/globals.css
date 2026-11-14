@@ -491,6 +491,317 @@
 }
 
 /* =================================================================
+   Marketing surface (`.mkt`) - the public home page
+
+   One place for the marketing look. A page opts in by putting `mkt` on
+   its root element; inside it the ordinary semantic tokens
+   (`bg-background-primary`, `text-text-muted`, `border-border-primary`)
+   resolve to the near-black, almost monochrome marketing palette, so
+   sections keep using the same Tailwind classes as the app.
+
+   Rules of the surface:
+   - Colour comes from the product, not the chrome. The brand blue is for
+     the logo, focus rings and link hover only. The primary button is a
+     light pill (`.mkt-btn-primary`), never a brand fill.
+   - One H1 style, one H2 style, one eyebrow style. Use the classes below
+     rather than Tailwind text sizes on a marketing heading.
+   - The palette below is dark-mode only. In light mode the surface keeps
+     the app's light tokens and the pill inverts by itself.
+   ================================================================= */
+:root {
+  /* Raw palette. Referenced only by the `.mkt` mapping below. */
+  --mkt-bg: #0A0B0D;
+  --mkt-bg-elevated: #111214;
+  --mkt-bg-raised: #18191C;
+  --mkt-border: rgba(255, 255, 255, 0.08);
+  --mkt-border-strong: rgba(255, 255, 255, 0.16);
+  --mkt-text: #F7F8F8;
+  --mkt-text-muted: #8A8F98;
+
+  /* The primary button: text colour as the fill, page colour as the label.
+     Declared here too so the pill works outside a `.mkt` scope. */
+  --mkt-cta-bg: var(--color-text-primary);
+  --mkt-cta-text: var(--color-bg-primary);
+}
+
+/* `body:has(.mkt)` as well as `.mkt`: Mantine portals menus and modals to
+   the body, outside the page's root element, and the feedback button sits
+   beside it. A browser without `:has()` drops this whole rule and shows the
+   page in the app's own dark palette, which is still coherent. */
+[data-mantine-color-scheme="dark"] body:has(.mkt),
+[data-mantine-color-scheme="dark"] .mkt {
+  --color-bg-primary: var(--mkt-bg);
+  --color-bg-secondary: var(--mkt-bg-elevated);
+  --color-bg-tertiary: var(--mkt-bg-raised);
+  --color-bg-elevated: var(--mkt-bg-elevated);
+  --color-surface-primary: var(--mkt-bg-elevated);
+  --color-surface-secondary: var(--mkt-bg-elevated);
+  --color-surface-tertiary: var(--mkt-bg-raised);
+  --color-surface-hover: var(--mkt-bg-raised);
+  --color-surface-muted: var(--mkt-bg-elevated);
+  --color-text-primary: var(--mkt-text);
+  --color-text-secondary: var(--mkt-text-muted);
+  --color-text-muted: var(--mkt-text-muted);
+  --color-border-primary: var(--mkt-border);
+  --color-border-secondary: var(--mkt-border);
+  --color-border-subtle: var(--mkt-border);
+  --color-border-strong: var(--mkt-border-strong);
+}
+
+/* Mantine paints the body its own grey; without this it shows on overscroll
+   and around the page on very wide screens. */
+[data-mantine-color-scheme="dark"] body:has(.mkt) {
+  background-color: var(--mkt-bg);
+}
+
+body:has(.mkt),
+.mkt {
+  /* Custom properties that hold a var() are resolved where they are
+     declared, so the ones derived from the tokens remapped above have to be
+     declared again here. */
+  --mkt-cta-bg: var(--color-text-primary);
+  --mkt-cta-text: var(--color-bg-primary);
+  --mantine-color-text: var(--color-text-primary);
+  --color-bg-nav: color-mix(in srgb, var(--color-bg-primary) 80%, transparent);
+
+  /* Inter for everything, body text included. Mantine components read the
+     variable; plain elements inherit the property. */
+  --mantine-font-family: var(--font-inter, "Inter"), ui-sans-serif, system-ui, sans-serif;
+  font-family: var(--mantine-font-family);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+.mkt-container {
+  width: 100%;
+  max-width: 75rem; /* 1200px */
+  margin-inline: auto;
+  padding-inline: 1.5rem;
+}
+
+/* 80px on a phone, 144px on a desktop. */
+.mkt-section {
+  padding-block: clamp(5rem, 3.6rem + 6vw, 9rem);
+  scroll-margin-top: 4rem;
+}
+
+/* 36px on a phone, 60px from ~1024px up. */
+.mkt-h1 {
+  font-size: clamp(2.25rem, 1.2rem + 4vw, 3.75rem);
+  font-weight: 520;
+  letter-spacing: -0.022em;
+  line-height: 1.1;
+  text-wrap: balance;
+  color: var(--color-text-primary);
+}
+
+/* 28px on a phone, 40px from ~1200px up. The same on every section. */
+.mkt-h2 {
+  font-size: clamp(1.75rem, 1.3rem + 1.6vw, 2.5rem);
+  font-weight: 520;
+  letter-spacing: -0.02em;
+  line-height: 1.15;
+  text-wrap: balance;
+  color: var(--color-text-primary);
+}
+
+.mkt-h3 {
+  font-size: 1.125rem;
+  font-weight: 550;
+  letter-spacing: -0.01em;
+  line-height: 1.35;
+  color: var(--color-text-primary);
+}
+
+.mkt-lead {
+  font-size: clamp(1.0625rem, 1rem + 0.35vw, 1.25rem);
+  line-height: 1.55;
+  text-wrap: pretty;
+  color: var(--color-text-muted);
+}
+
+.mkt-body {
+  font-size: 1.0625rem;
+  line-height: 1.6;
+  text-wrap: pretty;
+  color: var(--color-text-muted);
+}
+
+.mkt-eyebrow {
+  font-size: 0.8125rem;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+
+.mkt-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  border-radius: var(--radius-full);
+  padding: 0.5rem 1rem;
+  font-size: 0.875rem;
+  font-weight: 550;
+  line-height: 1.25rem;
+  white-space: nowrap;
+  transition: background-color 150ms ease, border-color 150ms ease, color 150ms ease;
+}
+
+.mkt-btn-lg {
+  padding: 0.75rem 1.5rem;
+  font-size: 1rem;
+  line-height: 1.5rem;
+}
+
+.mkt-btn-primary {
+  background-color: var(--mkt-cta-bg);
+  color: var(--mkt-cta-text);
+}
+
+.mkt-btn-primary:hover {
+  background-color: color-mix(in srgb, var(--mkt-cta-bg) 86%, var(--mkt-cta-text));
+}
+
+.mkt-btn-ghost {
+  border: 1px solid var(--color-border-strong);
+  color: var(--color-text-primary);
+}
+
+.mkt-btn-ghost:hover {
+  background-color: var(--color-surface-hover);
+}
+
+/* A text link with an arrow: the secondary action next to a pill. */
+.mkt-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  font-weight: 500;
+  color: var(--color-text-primary);
+  transition: color 150ms ease;
+}
+
+.mkt-link:hover {
+  color: var(--color-link);
+}
+
+.mkt-btn:focus-visible,
+.mkt-link:focus-visible {
+  outline: 2px solid var(--color-border-focus);
+  outline-offset: 3px;
+}
+
+/* A short fact in a row of facts. Not a control. */
+.mkt-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  border: 1px solid var(--color-border-primary);
+  border-radius: var(--radius-full);
+  padding: 0.375rem 0.875rem;
+  font-size: 0.875rem;
+  line-height: 1.25rem;
+  color: var(--color-text-muted);
+}
+
+/* The feature section's tab switcher: a segmented pill. */
+.mkt-tablist {
+  display: flex;
+  width: fit-content;
+  max-width: 100%;
+  margin-inline: auto;
+  gap: 0.25rem;
+  overflow-x: auto;
+  border: 1px solid var(--color-border-primary);
+  border-radius: var(--radius-full);
+  padding: 0.25rem;
+}
+
+.mkt-tab {
+  border-radius: var(--radius-full);
+  padding: 0.5rem 1.125rem;
+  font-size: 0.9375rem;
+  font-weight: 500;
+  line-height: 1.5rem;
+  white-space: nowrap;
+  color: var(--color-text-muted);
+  transition: background-color 150ms ease, color 150ms ease;
+}
+
+.mkt-tab:hover {
+  color: var(--color-text-primary);
+}
+
+.mkt-tab[aria-selected="true"] {
+  background-color: var(--color-surface-hover);
+  color: var(--color-text-primary);
+}
+
+.mkt-tab:focus-visible {
+  outline: 2px solid var(--color-border-focus);
+  outline-offset: 2px;
+}
+
+/* Motion. All of it is opt-out: nothing below runs for a visitor who asked
+   for reduced motion, and nothing is hidden until an animation reveals it
+   unless that animation is certain to run. */
+@keyframes mkt-rise {
+  from {
+    opacity: 0;
+    transform: translateY(0.75rem);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes mkt-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  /* On load: the hero's lines arrive one after another. */
+  .mkt-rise {
+    animation: mkt-rise 600ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
+  }
+  .mkt-rise:nth-child(2) {
+    animation-delay: 70ms;
+  }
+  .mkt-rise:nth-child(3) {
+    animation-delay: 140ms;
+  }
+  .mkt-rise:nth-child(4) {
+    animation-delay: 210ms;
+  }
+  .mkt-rise:last-child:not(:first-child):not(:nth-child(4)) {
+    animation-delay: 280ms;
+  }
+
+  .mkt-tabpanel:not([hidden]) {
+    animation: mkt-fade 250ms ease both;
+  }
+
+  /* On scroll: a section's content rises as it enters the viewport. Driven
+     by the scroll position itself, so there is no script and nothing to
+     observe; a browser without scroll timelines shows the content as is. */
+  @supports (animation-timeline: view()) {
+    .mkt-reveal {
+      animation: mkt-rise linear both;
+      animation-timeline: view();
+      animation-range: entry 0% entry 40%;
+    }
+  }
+}
+
+/* =================================================================
    Mantine Component Theme Overrides
    Mantine v7's styles prop only supports flat CSS properties (inline
    styles), not CSS selectors. These rules provide the interactive

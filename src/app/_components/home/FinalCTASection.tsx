@@ -1,4 +1,3 @@
-import { Container } from "@mantine/core";
 import { CTAButton } from "./shared/CTAButton";
 
 interface FinalCTASectionProps {
@@ -7,44 +6,21 @@ interface FinalCTASectionProps {
 
 export function FinalCTASection({ id }: FinalCTASectionProps) {
   return (
-    <section id={id} className="bg-cta-gradient py-20 md:py-28 relative overflow-hidden">
-      {/* Background decorations */}
-      <div
-        className="absolute inset-0 pointer-events-none"
-        style={{
-          background:
-            "radial-gradient(circle at 20% 50%, var(--color-cta-overlay-light) 0%, transparent 40%)",
-        }}
-      />
-      <div
-        className="absolute inset-0 pointer-events-none"
-        style={{
-          background:
-            "radial-gradient(circle at 80% 50%, var(--color-cta-overlay-lighter) 0%, transparent 40%)",
-        }}
-      />
+    <section id={id} className="mkt-section border-t border-border-primary">
+      <div className="mkt-container mkt-reveal text-center">
+        <h2 className="mkt-h2 mb-5">
+          One place for your team, your agents and the work
+        </h2>
 
-      <Container size="md" className="relative z-10">
-        <div className="text-center">
-          <h2 className="text-3xl md:text-4xl lg:text-5xl font-bold text-white mb-6">
-            One place for your people,
-            <br />
-            your agents and the work
-          </h2>
+        <p className="mkt-body max-w-xl mx-auto mb-10">
+          Open source and free to start. Bring your team, connect an agent,
+          and see what changed this week.
+        </p>
 
-          <p className="text-xl text-white/80 mb-10 max-w-xl mx-auto">
-            Open source and free to start. Bring your team, connect an agent, and see what changed this week.
-          </p>
-
-          <CTAButton
-            href="/signin"
-            variant="primary"
-            size="large"
-          >
-            Get started free
-          </CTAButton>
-        </div>
-      </Container>
+        <CTAButton href="/signin" variant="pill" size="large">
+          Get started free
+        </CTAButton>
+      </div>
     </section>
   );
 }

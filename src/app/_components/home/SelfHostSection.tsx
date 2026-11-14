@@ -1,11 +1,4 @@
-import { Container } from "@mantine/core";
-import Link from "next/link";
-import {
-  IconArrowRight,
-  IconBrandDocker,
-  IconDatabase,
-  IconKey,
-} from "@tabler/icons-react";
+import { IconBrandDocker, IconDatabase, IconKey } from "@tabler/icons-react";
 import { SOCIAL_PROFILES } from "~/lib/brand";
 import { Panel } from "~/app/_components/ui";
 import { CTAButton } from "./shared/CTAButton";
@@ -20,108 +13,58 @@ interface SelfHostSectionProps {
 
 // Mirrors the "Self-hosting" section of the README. Says plainly what an
 // install depends on, so "self-host" is not read as more than it is.
-const points = [
-  {
-    icon: IconBrandDocker,
-    title: "One command with Docker Compose",
-    description:
-      "Postgres, the app and the scheduler start together on any Docker host, from a checkout of the repository.",
-  },
-  {
-    icon: IconDatabase,
-    title: "Your database, your data",
-    description:
-      "Everything lives in a Postgres you run. No account with us is needed, and nothing has to be configured before the first start.",
-  },
-  {
-    icon: IconKey,
-    title: "AI is optional, with your own key",
-    description:
-      "The workspace runs without a model provider. Add an OpenAI or Anthropic key for the AI features, and start the optional assistant service for chat. Those requests go to the provider you choose.",
-  },
+const facts = [
+  { icon: IconBrandDocker, label: "One command with Docker Compose" },
+  { icon: IconDatabase, label: "Your Postgres, your data" },
+  { icon: IconKey, label: "AI is optional, with your own key" },
 ];
 
 export function SelfHostSection({ id }: SelfHostSectionProps) {
   return (
-    <section id={id} className="bg-background-primary py-20 md:py-28 scroll-mt-20">
-      <Container size="lg">
-        <div className="text-center mb-12 md:mb-16">
-          <p className="text-accent-indigo uppercase tracking-wider text-sm font-semibold mb-4">
-            Run it yourself
-          </p>
-          <h2 className="text-3xl md:text-4xl font-bold text-text-primary mb-4 font-inter">
-            Self-host the whole thing
-          </h2>
-          <p className="text-lg text-text-secondary max-w-2xl mx-auto">
-            The code is AGPL-3.0. Run it on Railway or on any server you control.
-          </p>
-        </div>
-
-        <div className="text-center mb-10">
-          <CTAButton href={RAILWAY_DEPLOY_URL} variant="primary" size="large">
-            Deploy on Railway
-          </CTAButton>
-          <p className="text-text-muted text-sm mt-4">
-            One click, in your own Railway account. Or use Docker Compose on
-            any host:
-          </p>
-        </div>
-
-        <Panel radius="xl" padding="none" className="overflow-hidden max-w-3xl mx-auto mb-12">
-          <pre className="p-5 text-sm leading-7 overflow-x-auto font-mono">
-            <div>
-              <span className="text-text-muted select-none">$ </span>
-              <span className="text-text-primary">
-                git clone {SOCIAL_PROFILES.github}.git
-              </span>
+    <section id={id} className="mkt-section border-t border-border-primary">
+      <div className="mkt-container mkt-reveal">
+        <div className="grid grid-cols-1 items-center gap-12 lg:grid-cols-2 lg:gap-16">
+          <div>
+            <p className="mkt-eyebrow mb-4">Self-host</p>
+            <h2 className="mkt-h2 mb-4">Run the whole thing yourself</h2>
+            <p className="mkt-body mb-8 max-w-lg">
+              The code is AGPL-3.0. Deploy it to your own Railway account in
+              one click, or start it on any server with Docker.
+            </p>
+            <div className="flex flex-wrap items-center gap-x-8 gap-y-5">
+              <CTAButton href={RAILWAY_DEPLOY_URL} variant="ghost" size="large">
+                Deploy on Railway
+              </CTAButton>
+              <CTAButton href={`${SOCIAL_PROFILES.github}#self-hosting`} variant="text">
+                Self-hosting guide
+              </CTAButton>
             </div>
-            <div>
-              <span className="text-text-muted select-none">$ </span>
-              <span className="text-text-primary">cd exponential</span>
-            </div>
-            <div>
-              <span className="text-text-muted select-none">$ </span>
-              <span className="text-text-primary">
-                docker compose up -d --build
-              </span>
-            </div>
-          </pre>
-        </Panel>
+          </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-10">
-          {points.map((point) => {
-            const Icon = point.icon;
-            return (
-              <div
-                key={point.title}
-                className="border border-border-primary rounded-xl p-6"
-              >
-                <Icon
-                  size={28}
-                  stroke={1.5}
-                  className="text-accent-indigo mb-4"
-                />
-                <h3 className="text-lg font-semibold text-text-primary mb-2">
-                  {point.title}
-                </h3>
-                <p className="text-text-secondary leading-relaxed">
-                  {point.description}
-                </p>
+          <div>
+            <Panel radius="xl" padding="none" className="mb-5 overflow-hidden">
+              <div className="border-b border-border-primary px-4 py-2.5 text-xs font-medium text-text-muted">
+                From a checkout of the repository
               </div>
-            );
-          })}
+              <pre className="overflow-x-auto p-5 font-mono text-sm leading-7">
+                <span className="select-none text-text-muted">$ </span>
+                <span className="text-text-primary">docker compose up -d --build</span>
+              </pre>
+            </Panel>
+            <ul className="flex flex-wrap gap-2.5">
+              {facts.map((fact) => {
+                const Icon = fact.icon;
+                return (
+                  <li key={fact.label} className="mkt-chip">
+                    <Icon size={15} stroke={1.5} />
+                    {fact.label}
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
         </div>
-
-        <div className="text-center">
-          <Link
-            href={`${SOCIAL_PROFILES.github}#self-hosting`}
-            className="inline-flex items-center gap-1.5 text-accent-indigo font-semibold hover:underline"
-          >
-            Read the self-hosting guide
-            <IconArrowRight size={18} stroke={2} />
-          </Link>
-        </div>
-      </Container>
+      </div>
     </section>
   );
 }
