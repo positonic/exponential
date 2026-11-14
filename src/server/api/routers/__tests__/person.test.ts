@@ -190,11 +190,37 @@ function workspaceMatches(ws: WorkspaceFixture, where: Where | undefined): boole
   });
 }
 
+function entityTypeMatches(entityType: string, filter: unknown): boolean {
+  if (typeof filter === "string") return entityType === filter;
+  const { notIn, startsWith } = filter as { notIn?: string[]; startsWith?: string };
+  if (notIn?.includes(entityType)) return false;
+  if (startsWith !== undefined && !entityType.startsWith(startsWith)) return false;
+  return true;
+}
+
+/** Evaluate an event `where`: workspace, actor, source and the page cursor. */
 function eventMatches(row: EventFixture, where: Where | undefined): boolean {
   if (!where) return true;
   const workspaceId = where.workspaceId as { in: string[] } | undefined;
   if (workspaceId && !workspaceId.in.includes(row.workspaceId)) return false;
   if (typeof where.userId === "string" && row.userId !== where.userId) return false;
+  if (where.entityType !== undefined && !entityTypeMatches(row.entityType, where.entityType)) {
+    return false;
+  }
+  const not = where.NOT as { entityType?: unknown } | undefined;
+  if (not?.entityType !== undefined && entityTypeMatches(row.entityType, not.entityType)) {
+    return false;
+  }
+  // The feed's "strictly older than the cursor" clause.
+  const cursor = where.OR as
+    | [{ createdAt: { lt: Date } }, { AND: [{ createdAt: Date }, { id: { lt: string } }] }]
+    | undefined;
+  if (cursor) {
+    const before = cursor[0].createdAt.lt.getTime();
+    const [{ createdAt: same }, { id }] = cursor[1].AND;
+    const at = row.createdAt.getTime();
+    if (!(at < before || (at === same.getTime() && row.id < id.lt))) return false;
+  }
   return true;
 }
 
@@ -224,7 +250,10 @@ function installWorld(dbMock: DeepMockProxy<PrismaClient>, world: World) {
   const matching = (where: Where | undefined) =>
     world.events
       .filter((row) => eventMatches(row, where))
-      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+      .sort(
+        (a, b) =>
+          b.createdAt.getTime() - a.createdAt.getTime() || b.id.localeCompare(a.id),
+      );
 
   dbMock.workspaceActivityEvent.findMany.mockImplementation(((args: {
     where?: Where;
@@ -364,6 +393,70 @@ describe("person router", () => {
       });
 
       expect(page).toEqual({ events: [], nextCursor: null });
+    });
+
+    it("loads older events page by page without skipping or repeating any", async () => {
+      const caller = asViewer();
+
+      const first = await caller.person.getFeed({ userId: SUBJECT, limit: 2 });
+      const second = await caller.person.getFeed({
+        userId: SUBJECT,
+        limit: 2,
+        cursor: first.nextCursor ?? undefined,
+      });
+
+      expect(first.events.map((e) => e.entityRef)).toEqual([
+        "Alpha new",
+        "Beta before leaving",
+      ]);
+      expect(first.nextCursor).not.toBeNull();
+      expect(second.events.map((e) => e.entityRef)).toEqual(["Alpha old"]);
+      expect(second.nextCursor).toBeNull();
+    });
+
+    it("filters by activity source", async () => {
+      world.events.push({
+        ...event("alpha", SUBJECT, "2026-11-13T11:00:00Z", "Merged the feed PR"),
+        entityType: "github_pull_request",
+      });
+      const caller = asViewer();
+
+      const github = await caller.person.getFeed({ userId: SUBJECT, source: "github" });
+      const internal = await caller.person.getFeed({ userId: SUBJECT, source: "internal" });
+
+      expect(github.events.map((e) => e.entityRef)).toEqual(["Merged the feed PR"]);
+      expect(internal.events.map((e) => e.entityRef)).toEqual([
+        "Alpha new",
+        "Beta before leaving",
+        "Alpha old",
+      ]);
+    });
+
+    it("keeps the workspace filter inside the viewer's scope when paging", async () => {
+      const caller = asViewer();
+
+      // A cursor cannot widen the scope: gamma stays invisible on every page.
+      const first = await caller.person.getFeed({ userId: SUBJECT, limit: 1 });
+      const rest = await caller.person.getFeed({
+        userId: SUBJECT,
+        cursor: first.nextCursor ?? undefined,
+      });
+
+      const all = [...first.events, ...rest.events].map((e) => e.entityRef);
+      expect(all).toEqual(["Alpha new", "Beta before leaving", "Alpha old"]);
+    });
+
+    it("shows a departed subject's events only from the viewer's workspaces", async () => {
+      // Sam has left alpha too: nothing is shared any more.
+      world.workspaces[0]!.members = [VIEWER];
+
+      const page = await asViewer().person.getFeed({ userId: SUBJECT });
+
+      expect(page.events.map((e) => e.entityRef)).toEqual([
+        "Alpha new",
+        "Beta before leaving",
+        "Alpha old",
+      ]);
     });
 
     it("does not count a project-only guest's workspace as visible", async () => {

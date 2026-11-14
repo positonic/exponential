@@ -1051,6 +1051,19 @@ a.wsa-feed__avatar {
   color: var(--activity-accent-milestone);
 }
 
+/* Day grouping (Person page): a quiet date heading over each day's rows. Each
+   day is its own section, so the first row under a heading drops its rule. */
+.wsa-feed__day + .wsa-feed__day {
+  margin-top: 14px;
+}
+.wsa-feed__day-label {
+  margin: 0;
+  padding: 6px 0 2px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-text-secondary);
+}
+
 .wsa-feed__footer {
   margin-top: 12px;
   padding-top: 10px;

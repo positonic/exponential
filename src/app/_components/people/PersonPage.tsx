@@ -1,7 +1,6 @@
 'use client';
 
 import { Container, Skeleton, Stack } from '@mantine/core';
-import { IconClipboardList } from '@tabler/icons-react';
 import {
   notFound,
   usePathname,
@@ -9,16 +8,10 @@ import {
   useSearchParams,
 } from 'next/navigation';
 import { api } from '~/trpc/react';
-import {
-  ActivityRow,
-  type FeedRowEvent,
-} from '~/app/_components/home/activity/activityRow';
-
+import { PersonFeed } from './PersonFeed';
 import { PersonHeader } from './PersonHeader';
 
 import '~/app/_components/home/activity/activity-home.css';
-
-const PAGE_SIZE = 50;
 
 interface PersonPageProps {
   userId: string;
@@ -30,7 +23,7 @@ interface PersonPageProps {
  * subject the viewer cannot see is the app's ordinary 404 — never a page that
  * confirms the account exists.
  *
- * The workspace filter lives in the URL as `?workspace=<id>`.
+ * Both filters live in the URL: `?workspace=<id>` and `?source=<source>`.
  */
 export function PersonPage({ userId }: PersonPageProps) {
   const router = useRouter();
@@ -47,10 +40,7 @@ export function PersonPage({ userId }: PersonPageProps) {
       (workspace) => workspace.id === requestedWorkspace,
     )?.id ?? null;
 
-  const feed = api.person.getFeed.useQuery(
-    { userId, limit: PAGE_SIZE, workspaceId: workspaceId ?? undefined },
-    { retry: false, enabled: person.isSuccess },
-  );
+  const source = searchParams.get('source') ?? 'all';
 
   // Each filter lives in the URL; its default value is left out of it.
   function setParam(key: string, next: string | null) {
@@ -74,12 +64,7 @@ export function PersonPage({ userId }: PersonPageProps) {
     );
   }
 
-  const { user } = person.data;
-  const name = user.name ?? 'Unnamed';
-  const events: FeedRowEvent[] = (feed.data?.events ?? []).map((event) => ({
-    ...event,
-    createdAt: new Date(event.createdAt),
-  }));
+  const name = person.data.user.name ?? 'Unnamed';
 
   return (
     <Container size="md" className="w-full py-8">
@@ -90,31 +75,15 @@ export function PersonPage({ userId }: PersonPageProps) {
           onWorkspaceChange={(next) => setParam('workspace', next)}
         />
 
-        <section className="wsa-card" aria-label={`${name}'s activity`}>
-          <div className="wsa-card__head">
-            <h2 className="wsa-card__title">
-              <IconClipboardList size={14} stroke={1.8} />
-              Activity
-            </h2>
-          </div>
-
-          {feed.isLoading ? (
-            <Stack gap="sm">
-              <Skeleton height={36} />
-              <Skeleton height={36} />
-              <Skeleton height={36} />
-            </Stack>
-          ) : events.length === 0 ? (
-            <p className="wsa-feed__empty">
-              Nothing from {name} yet
-              {workspaceId ? ' in this workspace' : ' in your workspaces'}.
-            </p>
-          ) : (
-            events.map((event) => (
-              <ActivityRow key={event.id} event={event} showWorkspaceBadge />
-            ))
-          )}
-        </section>
+        <PersonFeed
+          userId={userId}
+          name={name}
+          workspaceId={workspaceId}
+          source={source}
+          onSourceChange={(next) =>
+            setParam('source', next === 'all' ? null : next)
+          }
+        />
       </Stack>
     </Container>
   );
