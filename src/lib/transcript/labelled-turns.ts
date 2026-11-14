@@ -29,6 +29,38 @@ const META_HEADER_KEYS: ReadonlySet<string> = new Set([
  *  few inner words, and stop at the first colon (the class excludes `:`). */
 const SPEAKER_RE = /^([A-Za-z][A-Za-z0-9 .'’-]{0,40}):\s*/;
 
+/** `[m:ss]` or `[h:mm:ss]` at the start of a line, the shape Granola writes
+ *  (`[12:07] Microphone: text`). Minutes run past 59 in the two-part form. */
+const TIMESTAMP_RE = /^\[(\d{1,4}):([0-5]\d)(?::([0-5]\d))?\]\s*/;
+
+interface ParsedLine {
+  /** Seconds from the start of the recording, or `null` without a timestamp. */
+  startTime: number | null;
+  hasTimestamp: boolean;
+  /** The speaker label, or `null` when the line carries none. */
+  label: string | null;
+  /** The line without its timestamp and label. */
+  text: string;
+}
+
+/** Read the optional leading timestamp and the optional speaker label of a line. */
+function parseLine(line: string): ParsedLine {
+  const stamp = TIMESTAMP_RE.exec(line);
+  const rest = stamp ? line.slice(stamp[0].length) : line;
+  let startTime: number | null = null;
+  if (stamp) {
+    const [first, second, third] = [Number(stamp[1]), Number(stamp[2]), stamp[3]];
+    startTime = third === undefined ? first * 60 + second : first * 3600 + second * 60 + Number(third);
+  }
+  const match = SPEAKER_RE.exec(rest);
+  return {
+    startTime,
+    hasTimestamp: stamp !== null,
+    label: match ? match[1]!.trim() : null,
+    text: (match ? rest.slice(match[0].length) : rest).trim(),
+  };
+}
+
 function isMetaLabel(label: string): boolean {
   return META_HEADER_KEYS.has(label.trim().toLowerCase());
 }
@@ -52,8 +84,9 @@ function turnLines(transcription: string): string[] {
 /**
  * Identity-relative plain-text pastes (device / manual): `Name: text` lines with
  * multi-line accumulation. `Me` (case-insensitive) or a host participant maps to
- * `me`; other distinct speakers rotate `them` / `alt`. Timeless → `startTime`
- * stays `null`.
+ * `me`; other distinct speakers rotate `them` / `alt`. A line may open with a
+ * `[m:ss]` timestamp (Granola), which becomes the turn's `startTime` and always
+ * starts a new turn; without one, `startTime` stays `null`.
  */
 export const labelledTurnsParser: TranscriptParser = {
   name: "labelled-turns",
@@ -62,8 +95,9 @@ export const labelledTurnsParser: TranscriptParser = {
     if (typeof input.transcription !== "string") return false;
     if (input.transcription.trim().length === 0) return false;
     return turnLines(input.transcription).some((line) => {
-      const match = SPEAKER_RE.exec(line.trim());
-      return match !== null && !isMetaLabel(match[1]!);
+      const parsed = parseLine(line.trim());
+      if (parsed.hasTimestamp) return true;
+      return parsed.label !== null && !isMetaLabel(parsed.label);
     });
   },
 
@@ -78,20 +112,24 @@ export const labelledTurnsParser: TranscriptParser = {
       const line = rawLine.trim();
       if (!line) continue;
 
-      const match = SPEAKER_RE.exec(line);
+      const parsed = parseLine(line);
 
       // A known meta header (`Date:` etc.) is dropped entirely — never a turn.
-      if (match && isMetaLabel(match[1]!)) continue;
+      // A timestamped line is speech, whatever its label reads like.
+      if (parsed.label && !parsed.hasTimestamp && isMetaLabel(parsed.label)) continue;
 
-      if (match) {
+      if (parsed.label) {
         if (current) turns.push(current);
-        const speaker = match[1]!.trim();
         current = {
-          text: line.slice(match[0].length).trim(),
-          speaker,
-          flavor: assignFlavor(speaker),
-          startTime: null,
+          text: parsed.text,
+          speaker: parsed.label,
+          flavor: assignFlavor(parsed.label),
+          startTime: parsed.startTime,
         };
+      } else if (parsed.hasTimestamp) {
+        // A timestamp with no label still marks a new turn; never invent a speaker.
+        if (current) turns.push(current);
+        current = { text: parsed.text, speaker: null, flavor: null, startTime: parsed.startTime };
       } else if (current) {
         // Continuation line — accumulate into the current turn.
         current.text = `${current.text} ${line}`.trim();

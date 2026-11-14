@@ -373,7 +373,7 @@ export async function generateDraftDecisions(
         }
         if (run.chunksSkipped > 0) {
           result.warnings.push(
-            `The transcript was longer than one extraction pass covers, so ${run.chunksSkipped} of its ${run.chunksTotal} sections were not read. Decisions made only in those sections will be missing.`,
+            `The transcript was longer than one extraction pass covers, so the last ${run.chunksSkipped} of its ${run.chunksTotal} sections were not read. Decisions made only in those sections will be missing.`,
           );
         }
         // Every chunk failing looks exactly like "no decisions here" to the
