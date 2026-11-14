@@ -52,6 +52,17 @@ export interface GitHubRef {
 }
 
 /**
+ * Agent-run detail (ADR-0067) attached to `agent_run` rows so the feed can show
+ * what the run said under the sentence. `null` on every other event type.
+ */
+export interface AgentRunRef {
+  /** The action the run worked on. */
+  actionId: string;
+  /** The start of the run's public summary, or `null` when it left none. */
+  summary: string | null;
+}
+
+/**
  * One event in the workspace activity feed, joined with the actor user and
  * pre-resolved render hint. The component renders this directly without
  * needing any registry lookups of its own.
@@ -90,6 +101,8 @@ export interface ActivityFeedEvent {
   channel: ChannelSummaryRef | null;
   /** GitHub detail; `null` unless the row is GitHub-origin. */
   github: GitHubRef | null;
+  /** Agent-run detail; `null` unless `entityType === "agent_run"`. */
+  agentRun: AgentRunRef | null;
   /**
    * OKR drawer deep-link target for the goals page, e.g. `objective:42` or
    * `keyResult:cuid` (the `drawer` query-param format parsed by
@@ -196,6 +209,18 @@ function toGitHubRef(entityType: string, metadata: unknown): GitHubRef {
     merged: readMetaBoolean(metadata, "merged"),
   };
 }
+/**
+ * Build the `AgentRunRef` for an `agent_run` row from the metadata written by
+ * `onRunFinished`. Rows without an `actionId` (none are written that way) and
+ * every other entity type get `null`.
+ */
+function toAgentRunRef(row: FeedRow): AgentRunRef | null {
+  if (row.entityType !== "agent_run") return null;
+  const actionId = readMetaString(row.metadata, "actionId");
+  if (!actionId) return null;
+  return { actionId, summary: readMetaString(row.metadata, "summary") };
+}
+
 /**
  * Compute the OKR drawer target for a feed row. Objective rows carry the goal
  * id in `entityId`; child rows (updates, comments, check-ins) point at their
@@ -338,6 +363,7 @@ async function toFeedEvents(
         source === GITHUB_SOURCE
           ? toGitHubRef(row.entityType, row.metadata)
           : null,
+      agentRun: toAgentRunRef(row),
       drawerParam: deriveDrawerParam(row),
     };
   });

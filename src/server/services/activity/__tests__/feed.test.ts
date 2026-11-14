@@ -303,3 +303,82 @@ describe("getActivityFeed — OKR drawer deep-links (drawerParam)", () => {
     ).toBeNull();
   });
 });
+
+describe("agent-run rows", () => {
+  let db: DeepMockProxy<PrismaClient>;
+
+  beforeEach(() => {
+    db = mockDeep<PrismaClient>();
+    mockReset(db);
+  });
+
+  function agentRunRow(overrides: Record<string, unknown> = {}) {
+    return {
+      id: "evt-run",
+      createdAt: new Date("2026-11-14T10:00:00.000Z"),
+      entityType: "agent_run",
+      entityId: "run-a1b2c3d4e5",
+      action: "completed",
+      metadata: {
+        title: "Fix sharing bug",
+        actionId: "action-1",
+        status: "SUCCEEDED",
+        summary: "Found the missing grant check and added a test.",
+      },
+      user: { id: "shadow-1", name: "Aria", image: null, isAgent: true },
+      ...overrides,
+    };
+  }
+
+  it("names the action the run worked on and carries the run's summary", async () => {
+    db.workspaceActivityEvent.findMany.mockResolvedValue([agentRunRow()] as never);
+
+    const { events } = await getActivityFeed(db, { workspaceId: WORKSPACE_ID });
+
+    const event = events[0]!;
+    expect(event.entityRef).toBe("Fix sharing bug");
+    expect(event.hint.template).toBe("{actor} completed a run on {entityRef}");
+    expect(event.agentRun).toEqual({
+      actionId: "action-1",
+      summary: "Found the missing grant check and added a test.",
+    });
+  });
+
+  it("renders a run that did not succeed as failed, with no summary when it left none", async () => {
+    db.workspaceActivityEvent.findMany.mockResolvedValue([
+      agentRunRow({
+        action: "failed",
+        metadata: { title: "Fix sharing bug", actionId: "action-1", status: "TIMED_OUT", summary: null },
+      }),
+    ] as never);
+
+    const { events } = await getActivityFeed(db, { workspaceId: WORKSPACE_ID });
+
+    expect(events[0]!.hint).toEqual({
+      template: "{actor}'s run failed on {entityRef}",
+      iconKind: "failed",
+    });
+    expect(events[0]!.agentRun).toEqual({ actionId: "action-1", summary: null });
+  });
+
+  it("falls back to the id slice for a run recorded before titles were stored", async () => {
+    db.workspaceActivityEvent.findMany.mockResolvedValue([
+      agentRunRow({ metadata: { actionId: "action-1", status: "SUCCEEDED", summary: null } }),
+    ] as never);
+
+    const { events } = await getActivityFeed(db, { workspaceId: WORKSPACE_ID });
+
+    expect(events[0]!.entityRef).toBe("run-a1b2");
+    expect(events[0]!.hint.template).toBe("{actor} completed a run on {entityRef}");
+  });
+
+  it("leaves agentRun null on every other kind of row", async () => {
+    db.workspaceActivityEvent.findMany.mockResolvedValue([
+      agentRunRow({ entityType: "action", action: "created", metadata: { title: "Write docs" } }),
+    ] as never);
+
+    const { events } = await getAggregatedActivityFeed(db, { workspaceIds: [WORKSPACE_ID] });
+
+    expect(events[0]!.agentRun).toBeNull();
+  });
+});

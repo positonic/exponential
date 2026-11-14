@@ -28,7 +28,7 @@ export async function onRunFinished(db: PrismaClient, runId: string): Promise<vo
       finishedAt: true,
       summary: true,
       agent: { select: { id: true, ownerId: true, shadowUserId: true } },
-      action: { select: { workspaceId: true, project: { select: { workspaceId: true } } } },
+      action: { select: { name: true, workspaceId: true, project: { select: { workspaceId: true } } } },
     },
   });
   if (!run) return;
@@ -53,7 +53,14 @@ export async function onRunFinished(db: PrismaClient, runId: string): Promise<vo
       entityType: "agent_run",
       entityId: run.id,
       action: run.status === "SUCCEEDED" ? "completed" : "failed",
-      metadata: { actionId: run.actionId, status: run.status, summary: run.summary?.slice(0, 200) ?? null },
+      // `title` is the action the run worked on, so the feed row names it
+      // ("Aria completed a run on <action>") rather than a slice of the run id.
+      metadata: {
+        title: run.action.name,
+        actionId: run.actionId,
+        status: run.status,
+        summary: run.summary?.slice(0, 200) ?? null,
+      },
     }).catch(() => {
       /* instrumentation failure is non-fatal */
     });

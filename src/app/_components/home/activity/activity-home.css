@@ -1006,6 +1006,7 @@
 .wsa-feed__icon[data-kind='commented']      { color: var(--activity-accent-knowledge); }
 .wsa-feed__icon[data-kind='tracked']        { color: var(--activity-accent-ritual); }
 .wsa-feed__icon[data-kind='deleted']        { color: var(--color-text-muted); }
+.wsa-feed__icon[data-kind='failed']         { color: var(--color-brand-error); }
 .wsa-feed__icon[data-kind='channel_summary'] { color: var(--color-brand-success); }
 .wsa-feed__icon[data-kind='github']         { color: var(--color-text-secondary); }
 /* A merged PR is the "work shipped" row — the same emphasis treatment as a

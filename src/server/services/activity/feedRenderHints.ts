@@ -22,6 +22,7 @@ export type IconKind =
   | "milestone"
   | "tracked"
   | "deleted"
+  | "failed"
   | "channel_summary"
   | "github"
   | "shipped"
@@ -56,6 +57,19 @@ const HINTS: Record<string, FeedRenderHint> = {
   [key("action", "completed")]: {
     template: "{actor} completed action {entityRef}",
     iconKind: "completed",
+  },
+
+  // Agent runs (ADR-0067). The event's metadata carries the action the run
+  // worked on as `title`, so {entityRef} names the action; the run's summary
+  // renders as a second line (`ActivityFeedEvent.agentRun`). Anything other
+  // than a success is recorded as "failed" (failed, timed out, cancelled).
+  [key("agent_run", "completed")]: {
+    template: "{actor} completed a run on {entityRef}",
+    iconKind: "completed",
+  },
+  [key("agent_run", "failed")]: {
+    template: "{actor}'s run failed on {entityRef}",
+    iconKind: "failed",
   },
 
   // Action comments
@@ -101,6 +115,21 @@ const HINTS: Record<string, FeedRenderHint> = {
   [key("feature", "status_changed")]: {
     template: "{actor} changed status on feature {entityRef}",
     iconKind: "status_changed",
+  },
+
+  // Insights (product plugin). Insight events carry no title in metadata, so
+  // {entityRef} is the id slice; a comment's {entityRef} is its snippet.
+  [key("insight", "updated")]: {
+    template: "{actor} updated insight {entityRef}",
+    iconKind: "updated",
+  },
+  [key("insight", "status_changed")]: {
+    template: "{actor} changed status on insight {entityRef}",
+    iconKind: "status_changed",
+  },
+  [key("insight_comment", "created")]: {
+    template: "{actor} commented on an insight: {entityRef}",
+    iconKind: "commented",
   },
 
   // Feature scopes. A scope has no name of its own (only a version like "V1"),
@@ -229,6 +258,12 @@ const HINTS: Record<string, FeedRenderHint> = {
     template: "{actor} had a meeting {entityRef}",
     iconKind: "created",
   },
+  // Draft decisions were extracted from a meeting (one event per extraction
+  // run; the drafts themselves have no events).
+  [key("meeting", "updated")]: {
+    template: "{actor} updated a meeting {entityRef}",
+    iconKind: "updated",
+  },
   // A meeting's transcript was auto-summarized by the cron sweep (ADR-0018,
   // royal.raven). Emitted once when the summary lands; the meeting title rides
   // in metadata so {entityRef} renders the title, not a CUID. Reuses the
@@ -252,6 +287,11 @@ const HINTS: Record<string, FeedRenderHint> = {
   [key("ceremony_occurrence", "captured")]: {
     template: "{actor} linked a recording to {entityRef}",
     iconKind: "milestone",
+  },
+  // An occurrence was moved to another time or skipped by its owner.
+  [key("ceremony_occurrence", "updated")]: {
+    template: "{actor} updated {entityRef}",
+    iconKind: "updated",
   },
   // Circulation is usually the hourly cron (system actor, rendered as such).
   [key("ceremony_occurrence", "agenda_circulated")]: {
@@ -355,7 +395,7 @@ const HINTS: Record<string, FeedRenderHint> = {
 };
 
 /** Default hint used when no entry exists for the (entityType, action) pair. */
-const FALLBACK: FeedRenderHint = {
+export const FALLBACK_FEED_HINT: FeedRenderHint = {
   template: "{actor} touched {entityRef}",
   iconKind: "fallback",
 };
@@ -370,7 +410,7 @@ export function resolveFeedHint(
   entityType: string,
   action: string,
 ): FeedRenderHint {
-  return HINTS[key(entityType, action)] ?? FALLBACK;
+  return HINTS[key(entityType, action)] ?? FALLBACK_FEED_HINT;
 }
 
 /**
