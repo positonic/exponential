@@ -26,6 +26,7 @@ import {
 } from "@tabler/icons-react";
 import { useState } from "react";
 import { api } from "~/trpc/react";
+import { PersonLink } from "~/app/_components/people/PersonLink";
 
 type Role = "admin" | "editor" | "viewer";
 
@@ -141,7 +142,9 @@ export function ProjectMembersPanel({ projectId }: ProjectMembersPanelProps) {
               <Stack gap={0}>
                 <Group gap="xs">
                   <Text fw={600} className="text-text-primary">
-                    {creator.name ?? creator.email ?? "Unnamed"}
+                    <PersonLink userId={creator.id}>
+                      {creator.name ?? creator.email ?? "Unnamed"}
+                    </PersonLink>
                   </Text>
                   <Tooltip label="Project creator">
                     <IconCrown size={14} className="text-brand-primary" />
@@ -184,7 +187,7 @@ export function ProjectMembersPanel({ projectId }: ProjectMembersPanelProps) {
                   </Avatar>
                   <Stack gap={0} style={{ minWidth: 0 }}>
                     <Text fw={500} className="text-text-primary" truncate>
-                      {displayName}
+                      <PersonLink userId={member.user.id}>{displayName}</PersonLink>
                     </Text>
                     <Text size="xs" className="text-text-muted" truncate>
                       {member.user.email}
