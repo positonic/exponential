@@ -11,6 +11,7 @@ import { requireAi } from "~/server/services/ai/requireAi";
 import { z } from "zod";
 import { getAiInteractionLogger } from "~/server/services/AiInteractionLogger";
 import { describeEntityRef } from "./feedRenderHints";
+import { PAGE_ENTITY_TYPE } from "./pageActivity";
 import { getWorkspaceHomeStats } from "./workspaceHomeStats";
 
 // Lazy-init so unit tests that inject a mock client never construct the real
@@ -183,6 +184,10 @@ async function generateAndStore(
       where: {
         workspaceId: args.workspaceId,
         createdAt: { gte: weekStart, lte: weekEnd },
+        // The Week-in-Review is cached and shown to the whole workspace, so it
+        // has no single viewer to check page access against. Page events name
+        // pages that may be private, so they never reach the prompt.
+        entityType: { not: PAGE_ENTITY_TYPE },
       },
       orderBy: { createdAt: "desc" },
       take: MAX_EVENTS_FOR_PROMPT,

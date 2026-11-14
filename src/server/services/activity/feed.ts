@@ -9,6 +9,8 @@ import {
   GITHUB_ENTITY_PREFIX,
   GITHUB_SOURCE,
 } from "./deriveActivitySource";
+import { buildKnowledgePageAccessWhere } from "~/server/services/access/resolvers/knowledgePageResolver";
+import { PAGE_ENTITY_TYPE } from "./pageActivity";
 
 /**
  * Channel-summary detail (ADR-0023) attached to `channel_summary` rows so the
@@ -370,6 +372,152 @@ async function toFeedEvents(
 }
 
 /**
+ * How many extra fetches a reader makes when the access filter empties a whole
+ * page of rows while older rows remain, before giving up and returning the
+ * empty page with its cursor.
+ */
+const MAX_FILTER_ROUNDS = 3;
+
+/**
+ * Drop `page` rows whose page the viewer cannot open; every other row passes
+ * through untouched.
+ *
+ * Access is checked here, when the feed is read, with the same clause every
+ * other page listing uses (`buildKnowledgePageAccessWhere`). So a page that
+ * goes invite-only, or a grant that is removed, hides its old rows at once —
+ * and a deleted page fails the check too. One query per fetched page of rows.
+ */
+async function dropInaccessiblePageRows<T extends FeedRow>(
+  db: PrismaClient,
+  viewerId: string,
+  rows: T[],
+): Promise<T[]> {
+  const pageIds = [
+    ...new Set(
+      rows
+        .filter((row) => row.entityType === PAGE_ENTITY_TYPE)
+        .map((row) => row.entityId),
+    ),
+  ];
+  if (pageIds.length === 0) return rows;
+
+  const accessible = await db.knowledgePage.findMany({
+    where: {
+      AND: [{ id: { in: pageIds } }, buildKnowledgePageAccessWhere(viewerId)],
+    },
+    select: { id: true },
+  });
+  const accessibleIds = new Set(accessible.map((page) => page.id));
+
+  return rows.filter(
+    (row) =>
+      row.entityType !== PAGE_ENTITY_TYPE || accessibleIds.has(row.entityId),
+  );
+}
+
+/** The feed's "strictly older than the cursor" clause, or nothing. */
+function olderThan(
+  cursor: CursorShape | null,
+): Prisma.WorkspaceActivityEventWhereInput {
+  if (!cursor) return {};
+  // Stable compound ordering for a descending sort:
+  //   createdAt < cursor.createdAt                         -- strictly older
+  //   OR (createdAt = cursor.createdAt AND id < cursor.id) -- tiebreaker
+  return {
+    OR: [
+      { createdAt: { lt: new Date(cursor.createdAt) } },
+      {
+        AND: [
+          { createdAt: new Date(cursor.createdAt) },
+          { id: { lt: cursor.id } },
+        ],
+      },
+    ],
+  };
+}
+
+/**
+ * Shared page reader behind both feed functions: fetch a page of rows ordered
+ * by `(createdAt desc, id desc)`, drop the page rows the viewer cannot open,
+ * and return what is left with a cursor.
+ *
+ * The cursor always points at the last row *fetched*, not the last row shown,
+ * so filtering never skips or repeats a row. A filtered page can therefore
+ * come back short. If it comes back empty while older rows remain, the reader
+ * fetches again (up to {@link MAX_FILTER_ROUNDS} times) so the UI is not left
+ * showing nothing above a "Load more" button.
+ */
+async function readFeedPage(
+  db: PrismaClient,
+  args: {
+    scope: Prisma.WorkspaceActivityEventWhereInput;
+    withWorkspace: boolean;
+    viewerId: string;
+    cursor?: string;
+    limit?: number;
+    source?: string;
+    actorUserId?: string;
+  },
+): Promise<ActivityFeedPage> {
+  const limit = Math.max(
+    1,
+    Math.min(MAX_PAGE_SIZE, args.limit ?? FEED_PAGE_SIZE),
+  );
+
+  let cursor = args.cursor ? decodeCursor(args.cursor) : null;
+  let nextCursor: string | null = null;
+
+  for (let round = 0; round <= MAX_FILTER_ROUNDS; round++) {
+    const where: Prisma.WorkspaceActivityEventWhereInput = {
+      ...args.scope,
+      ...sourceWhere(args.source),
+      ...(args.actorUserId ? { userId: args.actorUserId } : {}),
+      ...olderThan(cursor),
+    };
+
+    // Fetch one extra row so we can decide whether nextCursor should be set
+    // without a second COUNT query.
+    const rows: FeedRow[] = await db.workspaceActivityEvent.findMany({
+      where,
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+      take: limit + 1,
+      select: {
+        id: true,
+        createdAt: true,
+        entityType: true,
+        entityId: true,
+        action: true,
+        metadata: true,
+        user: {
+          select: { id: true, name: true, image: true, isAgent: true },
+        },
+        ...(args.withWorkspace
+          ? { workspace: { select: { id: true, name: true, slug: true } } }
+          : {}),
+      },
+    });
+
+    const hasMore = rows.length > limit;
+    const page = hasMore ? rows.slice(0, limit) : rows;
+    const last = page[page.length - 1];
+    const lastCursor: CursorShape | null = last
+      ? { createdAt: last.createdAt.toISOString(), id: last.id }
+      : null;
+    nextCursor = hasMore && lastCursor ? encodeCursor(lastCursor) : null;
+
+    const visible = await dropInaccessiblePageRows(db, args.viewerId, page);
+    if (visible.length > 0 || !hasMore) {
+      return { events: await toFeedEvents(db, visible), nextCursor };
+    }
+    // Every row on this page was a page the viewer cannot open. Keep going
+    // from where this fetch ended.
+    cursor = lastCursor;
+  }
+
+  return { events: [], nextCursor };
+}
+
+/**
  * Reader for the workspace home activity feed. Returns the most recent
  * events for the workspace ordered by `(createdAt desc, id desc)`, with
  * cursor-based pagination keyed on the same compound tuple.
@@ -382,11 +530,16 @@ async function toFeedEvents(
  * `user` is left-side (User?) so events whose actor was deleted still
  * appear with `actor: null` and the component renders "Someone" as the
  * actor name.
+ *
+ * Workspace membership is the caller's check. Page rows are the exception:
+ * they are filtered here against `viewerId` (see {@link readFeedPage}).
  */
 export async function getActivityFeed(
   db: PrismaClient,
   args: {
     workspaceId: string;
+    /** Who is reading. Page rows are shown only if this user can open the page. */
+    viewerId: string;
     cursor?: string;
     limit?: number;
     /** Filter by derived source: `all` (default) | `internal` | a provider. */
@@ -395,70 +548,15 @@ export async function getActivityFeed(
     actorUserId?: string;
   },
 ): Promise<ActivityFeedPage> {
-  const limit = Math.max(
-    1,
-    Math.min(MAX_PAGE_SIZE, args.limit ?? FEED_PAGE_SIZE),
-  );
-
-  const decoded = args.cursor ? decodeCursor(args.cursor) : null;
-
-  // Stable compound ordering. The OR captures the typical "stable cursor"
-  // pattern for descending sort:
-  //   createdAt < cursor.createdAt  -- strictly older days
-  //   OR (createdAt = cursor.createdAt AND id < cursor.id)  -- tiebreaker
-  const where: Prisma.WorkspaceActivityEventWhereInput = {
-    workspaceId: args.workspaceId,
-    ...sourceWhere(args.source),
-    ...(args.actorUserId ? { userId: args.actorUserId } : {}),
-    ...(decoded
-      ? {
-          OR: [
-            { createdAt: { lt: new Date(decoded.createdAt) } },
-            {
-              AND: [
-                { createdAt: new Date(decoded.createdAt) },
-                { id: { lt: decoded.id } },
-              ],
-            },
-          ],
-        }
-      : {}),
-  };
-
-  // Fetch one extra row so we can decide whether nextCursor should be set
-  // without a second COUNT query.
-  const rows = await db.workspaceActivityEvent.findMany({
-    where,
-    orderBy: [{ createdAt: "desc" }, { id: "desc" }],
-    take: limit + 1,
-    select: {
-      id: true,
-      createdAt: true,
-      entityType: true,
-      entityId: true,
-      action: true,
-      metadata: true,
-      user: {
-        select: { id: true, name: true, image: true, isAgent: true },
-      },
-    },
+  return readFeedPage(db, {
+    scope: { workspaceId: args.workspaceId },
+    withWorkspace: false,
+    viewerId: args.viewerId,
+    cursor: args.cursor,
+    limit: args.limit,
+    source: args.source,
+    actorUserId: args.actorUserId,
   });
-
-  const hasMore = rows.length > limit;
-  const page = hasMore ? rows.slice(0, limit) : rows;
-
-  const events = await toFeedEvents(db, page);
-
-  const last = page[page.length - 1];
-  const nextCursor =
-    hasMore && last
-      ? encodeCursor({
-          createdAt: last.createdAt.toISOString(),
-          id: last.id,
-        })
-      : null;
-
-  return { events, nextCursor };
 }
 
 /**
@@ -467,15 +565,18 @@ export async function getActivityFeed(
  * {@link getActivityFeed}, but scoped to a *set* of workspace ids and with
  * each event's originating workspace joined in so the UI can badge the row.
  *
- * Access is NOT enforced here — the caller is responsible for passing only
- * workspace ids the user is allowed to see (the tRPC procedure resolves these
- * via `buildWorkspaceVisibilityWhere`). Passing an empty array short-circuits
- * to an empty page without touching the DB.
+ * Workspace access is NOT enforced here — the caller is responsible for
+ * passing only workspace ids the user is allowed to see (the tRPC procedure
+ * resolves these via `buildWorkspaceAccessWhere`). Passing an empty array
+ * short-circuits to an empty page without touching the DB. Page rows are
+ * filtered here against `viewerId`, as in {@link getActivityFeed}.
  */
 export async function getAggregatedActivityFeed(
   db: PrismaClient,
   args: {
     workspaceIds: string[];
+    /** Who is reading. Page rows are shown only if this user can open the page. */
+    viewerId: string;
     cursor?: string;
     limit?: number;
     /** Filter by derived source: `all` (default) | `internal` | a provider. */
@@ -488,65 +589,13 @@ export async function getAggregatedActivityFeed(
     return { events: [], nextCursor: null };
   }
 
-  const limit = Math.max(
-    1,
-    Math.min(MAX_PAGE_SIZE, args.limit ?? FEED_PAGE_SIZE),
-  );
-
-  const decoded = args.cursor ? decodeCursor(args.cursor) : null;
-
-  const where: Prisma.WorkspaceActivityEventWhereInput = {
-    workspaceId: { in: args.workspaceIds },
-    ...sourceWhere(args.source),
-    ...(args.actorUserId ? { userId: args.actorUserId } : {}),
-    ...(decoded
-      ? {
-          OR: [
-            { createdAt: { lt: new Date(decoded.createdAt) } },
-            {
-              AND: [
-                { createdAt: new Date(decoded.createdAt) },
-                { id: { lt: decoded.id } },
-              ],
-            },
-          ],
-        }
-      : {}),
-  };
-
-  const rows = await db.workspaceActivityEvent.findMany({
-    where,
-    orderBy: [{ createdAt: "desc" }, { id: "desc" }],
-    take: limit + 1,
-    select: {
-      id: true,
-      createdAt: true,
-      entityType: true,
-      entityId: true,
-      action: true,
-      metadata: true,
-      user: {
-        select: { id: true, name: true, image: true, isAgent: true },
-      },
-      workspace: {
-        select: { id: true, name: true, slug: true },
-      },
-    },
+  return readFeedPage(db, {
+    scope: { workspaceId: { in: args.workspaceIds } },
+    withWorkspace: true,
+    viewerId: args.viewerId,
+    cursor: args.cursor,
+    limit: args.limit,
+    source: args.source,
+    actorUserId: args.actorUserId,
   });
-
-  const hasMore = rows.length > limit;
-  const page = hasMore ? rows.slice(0, limit) : rows;
-
-  const events = await toFeedEvents(db, page);
-
-  const last = page[page.length - 1];
-  const nextCursor =
-    hasMore && last
-      ? encodeCursor({
-          createdAt: last.createdAt.toISOString(),
-          id: last.id,
-        })
-      : null;
-
-  return { events, nextCursor };
 }

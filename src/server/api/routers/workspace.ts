@@ -2198,6 +2198,7 @@ export const workspaceRouter = createTRPCRouter({
 
       return getActivityFeed(ctx.db, {
         workspaceId: input.workspaceId,
+        viewerId: ctx.session.user.id,
         cursor: input.cursor,
         limit: input.limit ?? FEED_PAGE_SIZE,
         source: input.source,
@@ -2319,6 +2320,7 @@ export const workspaceRouter = createTRPCRouter({
 
       return getAggregatedActivityFeed(ctx.db, {
         workspaceIds: workspaces.map((w) => w.id),
+        viewerId: ctx.session.user.id,
         cursor: input.cursor,
         limit: input.limit ?? FEED_PAGE_SIZE,
         source: input.source,

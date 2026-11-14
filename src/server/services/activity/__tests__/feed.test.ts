@@ -10,6 +10,7 @@ import type { PrismaClient } from "@prisma/client";
 import { getActivityFeed, getAggregatedActivityFeed } from "../feed";
 
 const WORKSPACE_ID = "ws-1";
+const VIEWER_ID = "viewer-1";
 
 function channelRow() {
   return {
@@ -42,7 +43,7 @@ describe("getActivityFeed — channel summaries + source filter", () => {
       { id: "proj-1", slug: "release", name: "Release" },
     ] as never);
 
-    const { events } = await getActivityFeed(db, { workspaceId: WORKSPACE_ID });
+    const { events } = await getActivityFeed(db, { viewerId: VIEWER_ID, workspaceId: WORKSPACE_ID });
 
     expect(events).toHaveLength(1);
     const event = events[0]!;
@@ -61,7 +62,7 @@ describe("getActivityFeed — channel summaries + source filter", () => {
   it("filters to a provider's channel_summary rows when source is a provider", async () => {
     db.workspaceActivityEvent.findMany.mockResolvedValue([] as never);
 
-    await getActivityFeed(db, { workspaceId: WORKSPACE_ID, source: "whatsapp" });
+    await getActivityFeed(db, { viewerId: VIEWER_ID, workspaceId: WORKSPACE_ID, source: "whatsapp" });
 
     expect(db.workspaceActivityEvent.findMany).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -77,7 +78,7 @@ describe("getActivityFeed — channel summaries + source filter", () => {
   it("excludes channel summaries and hidden types when source is internal", async () => {
     db.workspaceActivityEvent.findMany.mockResolvedValue([] as never);
 
-    await getActivityFeed(db, { workspaceId: WORKSPACE_ID, source: "internal" });
+    await getActivityFeed(db, { viewerId: VIEWER_ID, workspaceId: WORKSPACE_ID, source: "internal" });
 
     expect(db.workspaceActivityEvent.findMany).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -92,7 +93,7 @@ describe("getActivityFeed — channel summaries + source filter", () => {
   it("excludes only hidden types for 'all' (default)", async () => {
     db.workspaceActivityEvent.findMany.mockResolvedValue([] as never);
 
-    await getActivityFeed(db, { workspaceId: WORKSPACE_ID, source: "all" });
+    await getActivityFeed(db, { viewerId: VIEWER_ID, workspaceId: WORKSPACE_ID, source: "all" });
 
     const call = db.workspaceActivityEvent.findMany.mock.calls[0]![0]!;
     expect(call.where).toMatchObject({
@@ -107,7 +108,7 @@ describe("getActivityFeed — channel summaries + source filter", () => {
   it("excludes GitHub rows from internal, not just channel summaries", async () => {
     db.workspaceActivityEvent.findMany.mockResolvedValue([] as never);
 
-    await getActivityFeed(db, { workspaceId: WORKSPACE_ID, source: "internal" });
+    await getActivityFeed(db, { viewerId: VIEWER_ID, workspaceId: WORKSPACE_ID, source: "internal" });
 
     expect(db.workspaceActivityEvent.findMany).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -122,7 +123,7 @@ describe("getActivityFeed — channel summaries + source filter", () => {
   it("selects only GitHub rows when source is github", async () => {
     db.workspaceActivityEvent.findMany.mockResolvedValue([] as never);
 
-    await getActivityFeed(db, { workspaceId: WORKSPACE_ID, source: "github" });
+    await getActivityFeed(db, { viewerId: VIEWER_ID, workspaceId: WORKSPACE_ID, source: "github" });
 
     expect(db.workspaceActivityEvent.findMany).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -159,7 +160,7 @@ describe("getActivityFeed — channel summaries + source filter", () => {
       },
     ] as never);
 
-    const { events } = await getActivityFeed(db, { workspaceId: WORKSPACE_ID });
+    const { events } = await getActivityFeed(db, { viewerId: VIEWER_ID, workspaceId: WORKSPACE_ID });
 
     expect(events[0]!.source).toBe("github");
     expect(events[0]!.channel).toBeNull();
@@ -189,14 +190,14 @@ describe("activity feeds — the \"Mine\" actor filter", () => {
   });
 
   it("narrows the workspace feed to the actor's own events", async () => {
-    await getActivityFeed(db, { workspaceId: WORKSPACE_ID, actorUserId: "user-1" });
+    await getActivityFeed(db, { viewerId: VIEWER_ID, workspaceId: WORKSPACE_ID, actorUserId: "user-1" });
 
     const call = db.workspaceActivityEvent.findMany.mock.calls[0]![0]!;
     expect(call.where).toMatchObject({ workspaceId: WORKSPACE_ID, userId: "user-1" });
   });
 
   it("narrows the cross-workspace feed to the actor's own events", async () => {
-    await getAggregatedActivityFeed(db, {
+    await getAggregatedActivityFeed(db, { viewerId: VIEWER_ID,
       workspaceIds: [WORKSPACE_ID, "ws-2"],
       actorUserId: "user-1",
     });
@@ -209,7 +210,7 @@ describe("activity feeds — the \"Mine\" actor filter", () => {
   });
 
   it("leaves the actor unfiltered without actorUserId", async () => {
-    await getActivityFeed(db, { workspaceId: WORKSPACE_ID });
+    await getActivityFeed(db, { viewerId: VIEWER_ID, workspaceId: WORKSPACE_ID });
 
     const call = db.workspaceActivityEvent.findMany.mock.calls[0]![0]!;
     expect(call.where).not.toHaveProperty("userId");
@@ -243,7 +244,7 @@ describe("getActivityFeed — OKR drawer deep-links (drawerParam)", () => {
 
   async function drawerParamOf(row: ReturnType<typeof okrRow>) {
     db.workspaceActivityEvent.findMany.mockResolvedValue([row] as never);
-    const { events } = await getActivityFeed(db, { workspaceId: WORKSPACE_ID });
+    const { events } = await getActivityFeed(db, { viewerId: VIEWER_ID, workspaceId: WORKSPACE_ID });
     return events[0]!.drawerParam;
   }
 
@@ -333,7 +334,7 @@ describe("agent-run rows", () => {
   it("names the action the run worked on and carries the run's summary", async () => {
     db.workspaceActivityEvent.findMany.mockResolvedValue([agentRunRow()] as never);
 
-    const { events } = await getActivityFeed(db, { workspaceId: WORKSPACE_ID });
+    const { events } = await getActivityFeed(db, { viewerId: VIEWER_ID, workspaceId: WORKSPACE_ID });
 
     const event = events[0]!;
     expect(event.entityRef).toBe("Fix sharing bug");
@@ -352,7 +353,7 @@ describe("agent-run rows", () => {
       }),
     ] as never);
 
-    const { events } = await getActivityFeed(db, { workspaceId: WORKSPACE_ID });
+    const { events } = await getActivityFeed(db, { viewerId: VIEWER_ID, workspaceId: WORKSPACE_ID });
 
     expect(events[0]!.hint).toEqual({
       template: "{actor}'s run failed on {entityRef}",
@@ -366,7 +367,7 @@ describe("agent-run rows", () => {
       agentRunRow({ metadata: { actionId: "action-1", status: "SUCCEEDED", summary: null } }),
     ] as never);
 
-    const { events } = await getActivityFeed(db, { workspaceId: WORKSPACE_ID });
+    const { events } = await getActivityFeed(db, { viewerId: VIEWER_ID, workspaceId: WORKSPACE_ID });
 
     expect(events[0]!.entityRef).toBe("run-a1b2");
     expect(events[0]!.hint.template).toBe("{actor} completed a run on {entityRef}");
@@ -377,8 +378,175 @@ describe("agent-run rows", () => {
       agentRunRow({ entityType: "action", action: "created", metadata: { title: "Write docs" } }),
     ] as never);
 
-    const { events } = await getAggregatedActivityFeed(db, { workspaceIds: [WORKSPACE_ID] });
+    const { events } = await getAggregatedActivityFeed(db, { viewerId: VIEWER_ID, workspaceIds: [WORKSPACE_ID] });
 
     expect(events[0]!.agentRun).toBeNull();
+  });
+});
+
+describe("page rows — read-time access filter", () => {
+  let db: DeepMockProxy<PrismaClient>;
+
+  beforeEach(() => {
+    db = mockDeep<PrismaClient>();
+    mockReset(db);
+  });
+
+  const AT = new Date("2026-11-14T10:00:00.000Z");
+  let seq = 0;
+  function row(entityType: string, entityId: string, title: string) {
+    seq += 1;
+    return {
+      id: `evt-${String(1000 - seq)}`,
+      // Newest first, one second apart, in the order the rows are built.
+      createdAt: new Date(AT.getTime() - seq * 1000),
+      entityType,
+      entityId,
+      action: entityType === "page" ? "updated" : "created",
+      metadata: { title },
+      user: { id: "user-1", name: "James", image: null, isAgent: false },
+    };
+  }
+  const pageRow = (pageId: string, title: string) => row("page", pageId, title);
+  const actionRow = (title: string) => row("action", `action-${title}`, title);
+
+  /** The viewer can open exactly these pages. */
+  function viewerCanOpen(...pageIds: string[]) {
+    db.knowledgePage.findMany.mockImplementation(((args: {
+      where: { AND: [{ id: { in: string[] } }, unknown] };
+    }) =>
+      Promise.resolve(
+        args.where.AND[0].id.in
+          .filter((id) => pageIds.includes(id))
+          .map((id) => ({ id })),
+      )) as never);
+  }
+
+  it("shows a page row to a viewer who can open the page and drops it for one who cannot", async () => {
+    const rows = [pageRow("page-open", "Pages home PRD"), pageRow("page-private", "Reorg plan")];
+    db.workspaceActivityEvent.findMany.mockResolvedValue(rows as never);
+    viewerCanOpen("page-open");
+
+    const { events } = await getActivityFeed(db, { viewerId: VIEWER_ID, workspaceId: WORKSPACE_ID });
+
+    expect(events.map((e) => e.entityRef)).toEqual(["Pages home PRD"]);
+  });
+
+  it("asks the page access resolver about the viewer, for the fetched page ids only", async () => {
+    db.workspaceActivityEvent.findMany.mockResolvedValue([
+      pageRow("page-a", "A"),
+      pageRow("page-a", "A"),
+      pageRow("page-b", "B"),
+    ] as never);
+    viewerCanOpen("page-a", "page-b");
+
+    await getAggregatedActivityFeed(db, { viewerId: VIEWER_ID, workspaceIds: [WORKSPACE_ID] });
+
+    expect(db.knowledgePage.findMany).toHaveBeenCalledTimes(1);
+    const where = db.knowledgePage.findMany.mock.calls[0]![0]!.where as {
+      AND: [{ id: { in: string[] } }, Record<string, unknown>];
+    };
+    expect(where.AND[0]).toEqual({ id: { in: ["page-a", "page-b"] } });
+    // The second clause is `buildKnowledgePageAccessWhere(viewerId)` — never a
+    // reimplementation — and it names the viewer.
+    expect(JSON.stringify(where.AND[1])).toContain(VIEWER_ID);
+  });
+
+  it("never drops a row that is not a page, and makes no page query when there are none", async () => {
+    db.workspaceActivityEvent.findMany.mockResolvedValue([
+      actionRow("Write docs"),
+      actionRow("Ship it"),
+    ] as never);
+
+    const { events } = await getActivityFeed(db, { viewerId: VIEWER_ID, workspaceId: WORKSPACE_ID });
+
+    expect(events.map((e) => e.entityRef)).toEqual(["Write docs", "Ship it"]);
+    expect(db.knowledgePage.findMany).not.toHaveBeenCalled();
+  });
+
+  it("drops the row for a page that has been deleted", async () => {
+    db.workspaceActivityEvent.findMany.mockResolvedValue([pageRow("page-gone", "Old notes")] as never);
+    viewerCanOpen(); // the access query finds no such page
+
+    const { events } = await getActivityFeed(db, { viewerId: VIEWER_ID, workspaceId: WORKSPACE_ID });
+
+    expect(events).toEqual([]);
+  });
+
+  it("advances the cursor past filtered rows, so the next page neither skips nor repeats", async () => {
+    // limit 2 → the reader fetches 3. The last row SHOWN is the action; the
+    // last row FETCHED on the page is the private page after it.
+    const fetched = [actionRow("Visible"), pageRow("page-private", "Hidden"), actionRow("Next page")];
+    db.workspaceActivityEvent.findMany.mockResolvedValue(fetched as never);
+    viewerCanOpen();
+
+    const { events, nextCursor } = await getActivityFeed(db, {
+      viewerId: VIEWER_ID,
+      workspaceId: WORKSPACE_ID,
+      limit: 2,
+    });
+
+    expect(events.map((e) => e.entityRef)).toEqual(["Visible"]);
+    const cursor = JSON.parse(Buffer.from(nextCursor!, "base64url").toString("utf8")) as {
+      id: string;
+    };
+    expect(cursor.id).toBe(fetched[1]!.id);
+  });
+
+  it("fetches again when a whole page is filtered out and older rows remain", async () => {
+    const hidden = [pageRow("page-private", "Hidden 1"), pageRow("page-private", "Hidden 2")];
+    const older = [actionRow("Older, visible")];
+    db.workspaceActivityEvent.findMany
+      // limit 2: two hidden rows plus one extra → more rows exist.
+      .mockResolvedValueOnce([...hidden, older[0]!] as never)
+      .mockResolvedValueOnce(older as never);
+    viewerCanOpen();
+
+    const { events, nextCursor } = await getActivityFeed(db, {
+      viewerId: VIEWER_ID,
+      workspaceId: WORKSPACE_ID,
+      limit: 2,
+    });
+
+    expect(events.map((e) => e.entityRef)).toEqual(["Older, visible"]);
+    expect(nextCursor).toBeNull();
+    expect(db.workspaceActivityEvent.findMany).toHaveBeenCalledTimes(2);
+    // The second fetch continues from the last row of the first one.
+    const secondWhere = db.workspaceActivityEvent.findMany.mock.calls[1]![0]!.where as {
+      OR: [unknown, { AND: [unknown, { id: { lt: string } }] }];
+    };
+    expect(secondWhere.OR[1].AND[1]).toEqual({ id: { lt: hidden[1]!.id } });
+  });
+
+  it("gives up after a few all-filtered fetches and returns the cursor to continue from", async () => {
+    // Every fetch is a full page of private pages with more behind it.
+    db.workspaceActivityEvent.findMany.mockImplementation((() =>
+      Promise.resolve([
+        pageRow("page-private", "Hidden"),
+        pageRow("page-private", "Hidden"),
+        pageRow("page-private", "Hidden"),
+      ])) as never);
+    viewerCanOpen();
+
+    const { events, nextCursor } = await getActivityFeed(db, {
+      viewerId: VIEWER_ID,
+      workspaceId: WORKSPACE_ID,
+      limit: 2,
+    });
+
+    expect(events).toEqual([]);
+    expect(nextCursor).not.toBeNull();
+    // The first fetch plus three more rounds.
+    expect(db.workspaceActivityEvent.findMany).toHaveBeenCalledTimes(4);
+  });
+
+  it("returns an empty final page without fetching again when nothing older remains", async () => {
+    db.workspaceActivityEvent.findMany.mockResolvedValue([pageRow("page-private", "Hidden")] as never);
+    viewerCanOpen();
+
+    const page = await getActivityFeed(db, { viewerId: VIEWER_ID, workspaceId: WORKSPACE_ID, limit: 2 });
+
+    expect(page).toEqual({ events: [], nextCursor: null });
+    expect(db.workspaceActivityEvent.findMany).toHaveBeenCalledTimes(1);
   });
 });
