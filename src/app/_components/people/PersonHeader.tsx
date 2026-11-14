@@ -3,7 +3,7 @@
 import { Avatar, Badge, Text, Title } from '@mantine/core';
 import { IconRobotFace } from '@tabler/icons-react';
 import Link from 'next/link';
-import { personHref } from '~/app/_components/home/activity/activityRow';
+import { personHref } from '~/lib/personHref';
 import type { RouterOutputs } from '~/trpc/react';
 
 type Person = RouterOutputs['person']['get'];

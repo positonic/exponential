@@ -20,6 +20,7 @@ import {
   type Icon as TablerIcon,
 } from '@tabler/icons-react';
 import Link from 'next/link';
+import { personHref } from '~/lib/personHref';
 import type { IconKind } from '~/server/services/activity/feedRenderHints';
 
 export const ICON_BY_KIND: Record<IconKind, TablerIcon> = {
@@ -206,11 +207,6 @@ function Sentence({
       })}
     </span>
   );
-}
-
-/** The Person page of a user (`/people/<userId>`). */
-export function personHref(userId: string): string {
-  return `/people/${encodeURIComponent(userId)}`;
 }
 
 export interface FeedRowEvent {

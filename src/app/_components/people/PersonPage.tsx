@@ -7,6 +7,7 @@ import {
   useRouter,
   useSearchParams,
 } from 'next/navigation';
+import { WeeklyWorkDigestPanel } from '~/app/_components/home/activity/WeeklyWorkDigestPanel';
 import { api } from '~/trpc/react';
 import { PersonFeed } from './PersonFeed';
 import { PersonHeader } from './PersonHeader';
@@ -74,6 +75,10 @@ export function PersonPage({ userId }: PersonPageProps) {
           workspaceId={workspaceId}
           onWorkspaceChange={(next) => setParam('workspace', next)}
         />
+
+        {/* Your own page only. The panel reads the signed-in user's digest and
+            takes no subject, so it cannot show anyone else's (ADR-0018). */}
+        {person.data.isSelf ? <WeeklyWorkDigestPanel /> : null}
 
         <PersonFeed
           userId={userId}

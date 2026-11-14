@@ -21,6 +21,7 @@ import {
   IconGitBranch,
   IconMicrophone,
   IconDatabase,
+  IconUserCircle,
 } from "@tabler/icons-react";
 import Link from "next/link";
 import { signOut } from "next-auth/react";
@@ -31,10 +32,12 @@ import { useBugReport } from "~/providers/BugReportProvider";
 import { useNavigationPreferences } from "~/hooks/useNavigationPreferences";
 import { useWorkspace } from "~/providers/WorkspaceProvider";
 import { getDarkTheme, setDarkTheme } from "~/lib/dark-theme";
+import { personHref } from "~/lib/personHref";
 
 interface UserMenuProps {
   session: {
     user: {
+      id?: string | null;
       name?: string | null;
       email?: string | null;
       image?: string | null;
@@ -107,6 +110,18 @@ export function UserMenu({ session, onClose }: UserMenuProps) {
                 </Menu.Label>
                 <Menu.Divider className="border-border-primary" />
               </>
+            )}
+
+            {user.id && (
+              <Menu.Item
+                leftSection={<IconUserCircle size={16} />}
+                component={Link}
+                href={personHref(user.id)}
+                onClick={onClose}
+                className="text-text-primary hover:bg-surface-hover"
+              >
+                Your page
+              </Menu.Item>
             )}
 
             <Menu.Item
