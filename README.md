@@ -111,8 +111,10 @@ needs filling in. Then:
 2. **Sign in again** with a code from the same logs (the template sets
    `AUTH_LOG_SIGN_IN_CODES=true`). Anyone who can read the logs can sign in as
    the admin, so before inviting anyone add SMTP (`SMTP_HOST`, `SMTP_PORT`,
-   `SMTP_USER`, `SMTP_PASSWORD`, `EMAIL_FROM`), Postmark (`AUTH_POSTMARK_KEY`)
-   or a Google or Discord OAuth app to the **app** service.
+   `SMTP_USER`, `SMTP_PASSWORD`, `EMAIL_FROM`) or Postmark (`AUTH_POSTMARK_KEY`)
+   to the **app** service, which stops the logging. If you use a Google or
+   Discord OAuth app instead, also set `AUTH_LOG_SIGN_IN_CODES=false`: OAuth
+   alone doesn't stop codes going to the logs.
 3. **Optional:** add `OPENAI_API_KEY` or `ANTHROPIC_API_KEY` to the **app**
    service to turn on the AI features. The Assistant (Mastra) isn't in the
    template yet.

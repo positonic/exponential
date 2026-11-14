@@ -14,7 +14,7 @@ Exponential is open source and can run on your own infrastructure. Everything in
 
 [![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/deploy/exponential)
 
-The [Railway template](https://railway.com/deploy/exponential) runs your own installation in one click: Postgres with pgvector, the app and the scheduler, with every secret generated for you. When the deploy finishes, open the **app** service's logs, find the block that starts `This install has no admin yet`, and redeem the setup token at the `/setup` link it gives. You become the instance admin and sign-up turns invite-only. Until you add email (SMTP or Postmark) or an OAuth provider, your sign-in codes are written to the same logs, so keep them to yourself.
+The [Railway template](https://railway.com/deploy/exponential) runs your own installation in one click: Postgres with pgvector, the app and the scheduler, with every secret generated for you. When the deploy finishes, open the **app** service's logs, find the block that starts `This install has no admin yet`, and redeem the setup token at the `/setup` link it gives. You become the instance admin and sign-up turns invite-only. Until you add email (SMTP or Postmark), your sign-in codes are written to the same logs, so keep them to yourself. If you add only an OAuth provider instead, also set `AUTH_LOG_SIGN_IN_CODES=false`: OAuth alone doesn't stop codes going to the logs.
 
 ## Where to find it
 
