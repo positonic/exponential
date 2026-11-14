@@ -44,6 +44,11 @@ export interface RenderedMessage {
   html: string;
   text: string;
   markdown: string;
+  /**
+   * Provider identities to ping (from `RenderContext.mentions`). The renderer decides
+   * who — a decision pings its deciders when published, not on every status change.
+   */
+  mentions?: readonly string[];
 }
 
 export interface RenderContext {
@@ -83,10 +88,14 @@ export type OutboundDestination =
 
 export interface RoomPoster {
   provider: string;
+  /**
+   * Deliver one message. `txnId` is deterministic per (post, attempt), so a provider
+   * that deduplicates on it (Matrix) turns a retried send into the same event.
+   */
   send(
     destination: { link: ChannelLink; workspaceId: string },
     message: RenderedMessage,
-    opts: { txnId: string; mentions: readonly string[] },
+    opts: { txnId: string },
   ): Promise<{ eventId: string }>;
   /** userId → identity on this provider, for the users the producer wants to mention. */
   lookupMentions?(db: PrismaClient, userIds: readonly string[]): Promise<Map<string, string>>;
