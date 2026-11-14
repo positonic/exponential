@@ -7,6 +7,7 @@ import {
   collectDefinitions,
   findRawValues,
   findScopedShapeTokens,
+  findThemeShadowLiterals,
   findUndefinedVars,
   isHandRolledSurface,
   isTokenRadius,
@@ -238,6 +239,71 @@ describe("findRawValues", () => {
       "arbitrary-tailwind@4",
       "numeric-mantine-radius@5",
     ]);
+  });
+});
+
+describe("findThemeShadowLiterals", () => {
+  const config = (body: string[]) =>
+    ["export default { theme: { extend: {", ...body, "} } };"].join("\n");
+
+  it("passes a theme whose shadows are all tokens", () => {
+    const text = config([
+      "  boxShadow: {",
+      "    none: 'none',",
+      "    sm: 'var(--shadow-sm)',",
+      "    '2xl': 'var(--shadow-xl)',",
+      "    ring: '0 0 0 3px var(--color-brand-glow)',",
+      "  },",
+    ]);
+    expect(findThemeShadowLiterals("tailwind.config.ts", text)).toEqual([]);
+  });
+
+  it("reports a boxShadow or dropShadow entry painted with a colour literal", () => {
+    const text = config([
+      "  boxShadow: {",
+      "    sm: 'var(--shadow-sm)',",
+      "    card: '0 4px 6px rgba(0, 0, 0, 0.1)',",
+      "    'white': \"0 1px 2px #0003\",",
+      "  },",
+      "  dropShadow: {",
+      "    glow: ['0 0 8px var(--color-brand-glow)', '0 0 2px hsl(0 0% 0% / 0.4)'],",
+      "  },",
+    ]);
+    const out = findThemeShadowLiterals("tailwind.config.ts", text);
+    expect(out.map((f) => [f.kind, f.line, f.detail.split(" ")[0]])).toEqual([
+      ["raw-shadow", 4, "boxShadow"],
+      ["raw-shadow", 5, "boxShadow"],
+      ["raw-shadow", 8, "dropShadow"],
+    ]);
+  });
+
+  it("still pairs quotes correctly after a quoted key", () => {
+    const text = config([
+      "  boxShadow: {",
+      "    '2xl': 'var(--shadow-xl)',",
+      "    overlay: 'var(--shadow-overlay)',",
+      "    card: '0 4px 6px rgba(0, 0, 0, 0.1)',",
+      "  },",
+    ]);
+    expect(findThemeShadowLiterals("tailwind.config.ts", text).map((f) => f.line)).toEqual([5]);
+  });
+
+  it("ignores colour literals outside the shadow maps, in keys and in comments", () => {
+    const text = config([
+      "  // boxShadow: { old: '0 1px 2px rgba(0,0,0,.1)' },",
+      "  colors: { ink: 'rgb(var(--ink-rgb) / <alpha-value>)' },",
+      "  boxShadow: {",
+      "    /* card: '0 4px 6px rgba(0,0,0,.1)', */",
+      "    'black': 'var(--shadow-lg)',",
+      "  },",
+    ]);
+    expect(findThemeShadowLiterals("tailwind.config.ts", text)).toEqual([]);
+  });
+
+  it("fails the ratchet, because the config is not in the baseline", () => {
+    const text = config(["  boxShadow: { card: '0 4px 6px rgba(0,0,0,.1)' },"]);
+    const report = buildReport(findThemeShadowLiterals("tailwind.config.ts", text), {});
+    expect(report.regressions).toEqual([{ file: "tailwind.config.ts", count: 1, allowed: 0 }]);
   });
 });
 

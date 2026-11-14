@@ -30,7 +30,9 @@
  *    per file in scripts/design-tokens-baseline.json; a file may never have
  *    MORE raw values than its baseline, and a file not in the baseline must
  *    have none. When you clear debt, run with --update-baseline so the
- *    ceiling comes down with you.
+ *    ceiling comes down with you. The `boxShadow` / `dropShadow` maps of
+ *    tailwind.config.ts are read the same way: a theme shadow painted with a
+ *    colour literal is a raw shadow, and the config has no baseline.
  *
  * 3. Arbitrary Tailwind values (hard fail). `rounded-[...]` and `shadow-[...]`
  *    bypass the scale entirely. These are also caught by ESLint
@@ -369,6 +371,52 @@ export function findRawValues(file: string, text: string): Finding[] {
   return out;
 }
 
+// Tailwind theme keys whose values are shadows: `shadow-*` reads `boxShadow`,
+// `drop-shadow-*` reads `dropShadow`.
+const THEME_SHADOW_MAP = /\b(boxShadow|dropShadow)\s*:\s*\{/g;
+
+/**
+ * Shadows a Tailwind theme paints with a colour literal:
+ * `boxShadow: { card: '0 1px 2px rgba(0,0,0,.1)' }`. `shadow-card` is then a
+ * utility that looks like a token and is not one. findRawValues cannot see
+ * it (the entry's key is `card`, not `boxShadow`), and the pre-commit colour
+ * grep only matches hex. Reported as `raw-shadow`, so it goes through the
+ * same per-file ratchet as a raw shadow in a stylesheet: the config is not
+ * in the baseline, so it may have none.
+ */
+export function findThemeShadowLiterals(file: string, text: string): Finding[] {
+  const out: Finding[] = [];
+  const clean = stripComments(text);
+  for (const m of clean.matchAll(THEME_SHADOW_MAP)) {
+    const open = (m.index ?? 0) + m[0].length;
+    let depth = 1;
+    let i = open;
+    while (i < clean.length && depth > 0) {
+      const ch = clean[i];
+      if (ch === "{") depth++;
+      else if (ch === "}") depth--;
+      i++;
+    }
+    const block = clean.slice(open, i - 1);
+    // Every string literal is consumed in order, keys included, and a key
+    // (`'2xl': …`) is skipped afterwards. Rejecting keys inside the pattern
+    // would restart the match on the key's closing quote and pair every
+    // later quote with the wrong partner.
+    for (const v of block.matchAll(/(["'`])((?:(?!\1)[^\\]|\\.)*)\1/g)) {
+      const value = v[2]!;
+      if (/^\s*:/.test(block.slice((v.index ?? 0) + v[0].length))) continue;
+      if (isTokenShadow(value)) continue;
+      out.push({
+        file,
+        line: lineOf(text, open + (v.index ?? 0)),
+        kind: "raw-shadow",
+        detail: `${m[1]} theme value painted with a colour literal (${value.trim().slice(0, 40)}) — declare a --shadow-* token in globals.css and reference it`,
+      });
+    }
+  }
+  return out;
+}
+
 const RATCHETED: ReadonlySet<Finding["kind"]> = new Set(["raw-radius", "raw-shadow", "raw-surface"]);
 
 export interface Report {
@@ -423,17 +471,20 @@ export function run(opts: { updateBaseline: boolean }): number {
   const findings: Finding[] = [];
   for (const [file, text] of sources) {
     findings.push(...findUndefinedVars(file, text, defs));
-    // A config file is read only for the variables it references. Skipping
-    // the rest is deliberate, and it exempts the file from no colour rule:
-    // - findRawValues is shape-only and keys off what src/ writes: className
-    //   strings, `borderRadius:` / `boxShadow:` style keys, CSS declarations.
-    //   A Tailwind theme has none of those, so all it reports here is the
-    //   `rounded-[10px]` example in the config's own comment.
+    // A config file gets two checks: the variables it references (above) and
+    // the shadows its theme declares. The src/ checks below are skipped on
+    // purpose, and that exempts the file from no colour rule:
+    // - findRawValues keys off what src/ writes: className strings,
+    //   `borderRadius:` / `boxShadow:` style keys, CSS declarations. A
+    //   Tailwind theme has none of those (its shadows are `sm: '…'` entries
+    //   in a map), so all findRawValues reports here is the `rounded-[10px]`
+    //   example in the config's own comment.
     // - A hex literal in the config is still rejected by the colour grep in
     //   .husky/pre-commit, which reads every staged .ts file.
-    // Known gap, covered by neither: a raw rgba() shadow written into the
-    // theme's `boxShadow` map. Every entry there is a var(--shadow-*) today.
-    if (ROOT_CONFIG_FILES.includes(file)) continue;
+    if (ROOT_CONFIG_FILES.includes(file)) {
+      findings.push(...findThemeShadowLiterals(file, text));
+      continue;
+    }
     if (file.endsWith(".css")) findings.push(...findScopedShapeTokens(file, text));
     findings.push(...findRawValues(file, text));
   }
