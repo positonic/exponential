@@ -8,6 +8,11 @@ import {
 } from "@tabler/icons-react";
 import { SOCIAL_PROFILES } from "~/lib/brand";
 import { Panel } from "~/app/_components/ui";
+import { CTAButton } from "./shared/CTAButton";
+
+// The published Railway template: Postgres, the app and the scheduler in
+// the visitor's own Railway account.
+const RAILWAY_DEPLOY_URL = "https://railway.com/deploy/exponential";
 
 interface SelfHostSectionProps {
   id?: string;
@@ -48,7 +53,17 @@ export function SelfHostSection({ id }: SelfHostSectionProps) {
             Self-host the whole thing
           </h2>
           <p className="text-lg text-text-secondary max-w-2xl mx-auto">
-            The code is AGPL-3.0, and it runs on a server you control.
+            The code is AGPL-3.0. Run it on Railway or on any server you control.
+          </p>
+        </div>
+
+        <div className="text-center mb-10">
+          <CTAButton href={RAILWAY_DEPLOY_URL} variant="primary" size="large">
+            Deploy on Railway
+          </CTAButton>
+          <p className="text-text-muted text-sm mt-4">
+            One click, in your own Railway account. Or use Docker Compose on
+            any host:
           </p>
         </div>
 
