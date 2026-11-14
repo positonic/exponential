@@ -37,6 +37,7 @@ import {
   explainMigrationFailure,
   formatSetupTokenBanner,
   preflightEnv,
+  summarizeMigrateOutput,
   type PgvectorRow,
 } from "./preflight";
 
@@ -61,7 +62,12 @@ export function applySelfHostDefaults(env: Record<string, string | undefined>): 
  * goes straight to ours; with `capture`, it is also kept so a failure can be
  * explained.
  */
-function run(bin: string, args: string[], capture?: string[]): Promise<number> {
+function run(
+  bin: string,
+  args: string[],
+  capture?: string[],
+  { echo = true }: { echo?: boolean } = {},
+): Promise<number> {
   const binDir = path.join(process.cwd(), "node_modules", ".bin");
   const child = spawn(bin, args, {
     stdio: capture ? ["inherit", "pipe", "pipe"] : "inherit",
@@ -69,11 +75,11 @@ function run(bin: string, args: string[], capture?: string[]): Promise<number> {
   });
   if (capture) {
     child.stdout?.on("data", (chunk: Buffer) => {
-      process.stdout.write(chunk);
+      if (echo) process.stdout.write(chunk);
       capture.push(chunk.toString());
     });
     child.stderr?.on("data", (chunk: Buffer) => {
-      process.stderr.write(chunk);
+      if (echo) process.stderr.write(chunk);
       capture.push(chunk.toString());
     });
   }
@@ -132,13 +138,19 @@ async function preflightPgvector(): Promise<void> {
 async function migrate(): Promise<void> {
   console.log("[selfhost] Applying database migrations (prisma migrate deploy)…");
   const output: string[] = [];
-  const code = await run("prisma", ["migrate", "deploy"], output);
+  // Captured, not echoed: a fresh database prints over a thousand lines (see
+  // summarizeMigrateOutput). A failure prints everything, since that is when
+  // the detail matters.
+  const code = await run("prisma", ["migrate", "deploy"], output, { echo: false });
+  const text = output.join("");
   if (code !== 0) {
+    process.stderr.write(text);
     throw new StartupError(
-      explainMigrationFailure(output.join("")) ??
+      explainMigrationFailure(text) ??
         `prisma migrate deploy failed (exit ${code}); see the Prisma output above.`,
     );
   }
+  for (const line of summarizeMigrateOutput(text)) console.log(line);
 }
 
 /** Arbitrary, fixed: serialises reference-data writes across concurrent starts. */

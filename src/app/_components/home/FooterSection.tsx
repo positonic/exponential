@@ -17,6 +17,8 @@ const footerLinks = {
     { label: "How It Works", href: "/#how-it-works" },
     { label: "Pricing", href: "/#pricing" },
     { label: "Claude integration", href: "/features/integrations/claude" },
+    // The docs page carries the Deploy on Railway button.
+    { label: "Self-host", href: "/docs/self-hosting" },
   ],
   company: [
     { label: "Learn", href: "/learn" },

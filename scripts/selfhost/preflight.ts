@@ -107,6 +107,33 @@ export function checkPublicUrl(env: SignInEnv): string | null {
   return null;
 }
 
+/**
+ * Condense a successful `prisma migrate deploy` for the boot log. On a fresh
+ * database it lists every migration three or four times (found, applying,
+ * applied tree): over a thousand lines in about a second, which is more than
+ * a platform log will take (Railway drops lines past 500 a second). Keep
+ * Prisma's own summary lines, drop the per-migration ones, and count what was
+ * applied. A failed run is printed in full instead (see start.ts).
+ */
+export function summarizeMigrateOutput(output: string): string[] {
+  let applied = 0;
+  const kept: string[] = [];
+  for (const raw of output.split(/\r?\n/)) {
+    const line = raw.trimEnd();
+    if (line.startsWith("Applying migration `")) {
+      applied++;
+      continue;
+    }
+    // The migration directory trees: "migrations/", "  └─ 2026…/", "    └─ migration.sql".
+    if (/^\s*(└─|migrations\/$)/.test(line)) continue;
+    if (line === "" && (kept.length === 0 || kept[kept.length - 1] === "")) continue;
+    kept.push(line);
+  }
+  while (kept[kept.length - 1] === "") kept.pop();
+  if (applied > 0) kept.push(`[selfhost] Applied ${applied} migration${applied === 1 ? "" : "s"}.`);
+  return kept;
+}
+
 export interface EnvPreflight {
   /** Set when startup must stop. */
   error: string | null;
