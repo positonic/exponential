@@ -12,6 +12,7 @@ import {
   formatSetupTokenBanner,
   preflightEnv,
   PGVECTOR_MISSING_MESSAGE,
+  summarizeMigrateOutput,
 } from "../selfhost/preflight";
 
 describe("checkPgvector", () => {
@@ -62,6 +63,53 @@ describe("explainMigrationFailure", () => {
 
   it("leaves unrelated failures alone", () => {
     expect(explainMigrationFailure("P1001: Can't reach database server")).toBeNull();
+  });
+});
+
+describe("summarizeMigrateOutput", () => {
+  // The shape `prisma migrate deploy` prints on a fresh database (from a Railway boot log).
+  const FRESH = [
+    "Prisma schema loaded from prisma/schema.prisma",
+    'Datasource "db": PostgreSQL database "exponential", schema "public" at "postgres.railway.internal:5432"',
+    "",
+    "3 migrations found in prisma/migrations",
+    "",
+    "Applying migration `20260109100139_add_action_scheduling_fields`",
+    "Applying migration `20260110145134_make_life_domain_optional`",
+    "Applying migration `20260111153309_make_verification_token_userid_optional`",
+    "",
+    "The following migration(s) have been applied:",
+    "",
+    "migrations/",
+    "  └─ 20260109100139_add_action_scheduling_fields/",
+    "    └─ migration.sql",
+    "  └─ 20260110145134_make_life_domain_optional/",
+    "    └─ migration.sql",
+    "  └─ 20260111153309_make_verification_token_userid_optional/",
+    "    └─ migration.sql",
+    "      ",
+    "All migrations have been successfully applied.",
+    "",
+  ].join("\n");
+
+  it("drops the per-migration lines and counts what was applied", () => {
+    const lines = summarizeMigrateOutput(FRESH);
+    expect(lines.some((line) => line.includes("Applying migration"))).toBe(false);
+    expect(lines.some((line) => line.includes("└─"))).toBe(false);
+    expect(lines).toContain("3 migrations found in prisma/migrations");
+    expect(lines).toContain("All migrations have been successfully applied.");
+    expect(lines.at(-1)).toBe("[selfhost] Applied 3 migrations.");
+  });
+
+  it("stays short however many migrations there are", () => {
+    const many = Array.from({ length: 300 }, (_, i) => `Applying migration \`m${i}\``).join("\n");
+    const lines = summarizeMigrateOutput(many);
+    expect(lines).toEqual(["[selfhost] Applied 300 migrations."]);
+  });
+
+  it("passes an up-to-date database through with no count", () => {
+    const lines = summarizeMigrateOutput("3 migrations found in prisma/migrations\n\nNo pending migrations to apply.\n");
+    expect(lines).toEqual(["3 migrations found in prisma/migrations", "", "No pending migrations to apply."]);
   });
 });
 
