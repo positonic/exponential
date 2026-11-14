@@ -1,0 +1,167 @@
+# Exponential self-host stack for any Docker host (a VPS or a laptop).
+#
+#   docker compose up --build                       # Postgres, app, scheduler
+#   docker compose --profile assistant up --build   # ...plus Mastra (the Assistant)
+#
+# Then open http://localhost:3000 and sign in: with no email transport set,
+# each sign-in code is written to the app's log (`docker compose logs app`).
+# See the README's "Docker Compose" section for the details.
+#
+# No variable is required. Secrets are generated on first start by
+# `secrets-init` and kept in the `secrets` volume; LLM keys are optional and
+# each turns on its AI features. Put settings in a `.env` file next to this
+# one (Compose reads it) or export them in your shell. The ones read here:
+#
+#   APP_PORT                 host port for the app (default 3000)
+#   NEXTAUTH_URL             the URL people use (default http://localhost:$APP_PORT)
+#   OPENAI_API_KEY           optional: the app's AI features (and Mastra's)
+#   ANTHROPIC_API_KEY        optional: Claude features; Mastra needs it
+#   AUTH_LOG_SIGN_IN_CODES   default true; ignored once SMTP or Postmark is set.
+#                            SECURITY: anyone who can read the app's logs can
+#                            sign in as any user. Single-user installs only;
+#                            set up email or OAuth and set it to false otherwise
+#                            (README, "Docker Compose").
+#   SMTP_*, EMAIL_FROM, AUTH_POSTMARK_KEY, GOOGLE_*, AUTH_DISCORD_*: other ways in
+#   POSTGRES_PASSWORD        default "exponential"; letters and digits only
+#                            (it goes into a URL). Postgres is not published
+#                            on the host. Set it before the first start: the
+#                            database keeps the password it was created with.
+#   MASTRA_BUILD_CONTEXT     where Mastra builds from (default positonic/mastra main)
+#
+# Images build locally from this checkout (the app from ./Dockerfile, the
+# scheduler from docker/scheduler.Dockerfile) and from positonic/mastra's
+# docker/Dockerfile. Building the app needs a Docker host with at least 10 GB
+# of memory. To run published images instead, see the README.
+
+name: exponential
+
+x-with-secrets: &with-secrets
+  # Sources the generated secrets, then runs the service's command.
+  entrypoint: ["/bin/sh", "/selfhost/with-secrets.sh"]
+  restart: unless-stopped
+
+x-after-secrets-and-db: &after-secrets-and-db
+  secrets-init:
+    condition: service_completed_successfully
+  postgres:
+    condition: service_healthy
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: exponential
+      POSTGRES_DB: exponential
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-exponential}
+    volumes:
+      - postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U exponential -d exponential"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  # One-shot: writes AUTH_SECRET, DATABASE_ENCRYPTION_KEY and CRON_SECRET to
+  # the `secrets` volume on first run, and never overwrites them.
+  secrets-init:
+    image: alpine:3.20
+    command: ["/bin/sh", "/selfhost/secrets-init.sh"]
+    volumes:
+      - ./docker/compose:/selfhost:ro
+      - secrets:/selfhost-secrets
+    restart: "no"
+
+  app:
+    <<: *with-secrets
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: ["npm", "run", "start:selfhost"]
+    ports:
+      - "${APP_PORT:-3000}:3000"
+    environment:
+      DATABASE_URL: postgresql://exponential:${POSTGRES_PASSWORD:-exponential}@postgres:5432/exponential
+      NEXTAUTH_URL: ${NEXTAUTH_URL:-http://localhost:${APP_PORT:-3000}}
+      AUTH_LOG_SIGN_IN_CODES: ${AUTH_LOG_SIGN_IN_CODES:-true}
+      # with-secrets.sh sets MASTRA_API_URL=http://mastra:4111 when the
+      # assistant profile is on; otherwise the Assistant stays off.
+      SELFHOST_MASTRA_HOST: mastra
+      # Optional, passed through only when set.
+      OPENAI_API_KEY:
+      ANTHROPIC_API_KEY:
+      SMTP_HOST:
+      SMTP_PORT:
+      SMTP_USER:
+      SMTP_PASSWORD:
+      SMTP_SECURE:
+      EMAIL_FROM:
+      AUTH_POSTMARK_KEY:
+      AUTH_POSTMARK_FROM:
+      GOOGLE_CLIENT_ID:
+      GOOGLE_CLIENT_SECRET:
+      AUTH_DISCORD_ID:
+      AUTH_DISCORD_SECRET:
+    volumes:
+      - ./docker/compose:/selfhost:ro
+      - secrets:/selfhost-secrets:ro
+    depends_on:
+      <<: *after-secrets-and-db
+      # Only when the assistant profile is on; ignored otherwise.
+      mastra:
+        condition: service_started
+        required: false
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://localhost:3000/api/health').then((r) => process.exit(r.ok ? 0 : 1), () => process.exit(1))"
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      # First start applies every migration before serving.
+      start_period: 300s
+
+  # The HTTP clock: calls the app's cron routes on vercel.json's schedule.
+  scheduler:
+    <<: *with-secrets
+    build:
+      context: .
+      dockerfile: docker/scheduler.Dockerfile
+    command: ["node_modules/.bin/tsx", "scripts/selfhost/scheduler.ts"]
+    environment:
+      SCHEDULER_TARGET_URL: http://app:3000
+    volumes:
+      - ./docker/compose:/selfhost:ro
+      - secrets:/selfhost-secrets:ro
+    depends_on:
+      <<: *after-secrets-and-db
+      app:
+        condition: service_healthy
+
+  # The Assistant (agent runs and chat). Opt-in: needs ANTHROPIC_API_KEY.
+  mastra:
+    <<: *with-secrets
+    profiles: ["assistant"]
+    build:
+      context: ${MASTRA_BUILD_CONTEXT:-https://github.com/positonic/mastra.git#main}
+      dockerfile: docker/Dockerfile
+    command: ["node", ".mastra/output/index.mjs"]
+    environment:
+      # Same database; Mastra keeps its tables in schema `mastra`.
+      DATABASE_URL: postgresql://exponential:${POSTGRES_PASSWORD:-exponential}@postgres:5432/exponential
+      # Mastra tools call back into the app here.
+      TODO_APP_BASE_URL: http://app:3000
+      PORT: "4111"
+      OPENAI_API_KEY:
+      ANTHROPIC_API_KEY:
+    volumes:
+      - ./docker/compose:/selfhost:ro
+      - secrets:/selfhost-secrets:ro
+    depends_on:
+      <<: *after-secrets-and-db
+
+volumes:
+  postgres:
+  secrets:

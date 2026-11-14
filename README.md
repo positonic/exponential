@@ -104,6 +104,96 @@ npm run start:selfhost      # checks env and pgvector, applies migrations, serve
 npm run scheduler:selfhost  # in a second process: runs the scheduled jobs (reads the same .env)
 ```
 
+#### Docker Compose
+
+The whole stack on any Docker host (a VPS or a laptop), from a checkout of
+this repo. Nothing needs setting first:
+
+```bash
+docker compose up -d --build                      # Postgres, the app and the scheduler
+docker compose logs app | grep "Sign-in code"     # your sign-in code, after you ask for one
+```
+
+Open <http://localhost:3000>, enter your email, and read the sign-in code from
+the app's log.
+
+> **Security: sign-in codes go to the log by default.** With no SMTP, Postmark
+> or OAuth configured, Compose sets `AUTH_LOG_SIGN_IN_CODES=true` so the first
+> person can get in without an email account. Anyone who can read the app's
+> container logs (`docker compose logs`, a shared Docker host, or a log
+> shipper that forwards container output) can then sign in as **any** user who
+> asks for a code. Use it only on a single-user install whose logs you alone
+> can read. For anything else, configure SMTP, Postmark or an OAuth provider
+> and set `AUTH_LOG_SIGN_IN_CODES=false` (codes are ignored anyway once an
+> email transport is set), and keep the install off the public internet until
+> you have.
+
+What starts:
+
+- **`postgres`**: `pgvector/pgvector:pg16` with its data in the `postgres`
+  volume. Not published on the host.
+- **`secrets-init`**: a one-shot job that generates `AUTH_SECRET`,
+  `DATABASE_ENCRYPTION_KEY` and `CRON_SECRET` into the `secrets` volume on the
+  first start and never overwrites them, so `docker compose down` / `up` keeps
+  everyone signed in. **Back up both volumes**: losing `secrets` signs everyone
+  out and makes stored integration credentials unreadable. `docker compose
+  down -v` deletes them.
+- **`app`**: built from `Dockerfile`; applies migrations, then serves on
+  `APP_PORT` (default 3000).
+- **`scheduler`**: built from `docker/scheduler.Dockerfile`; runs the
+  scheduled jobs against the app.
+
+Settings go in a `.env` file next to `docker-compose.yml` (Compose reads it)
+or in your shell. None is required:
+
+| Variable | Default | What it does |
+|---|---|---|
+| `APP_PORT` | `3000` | The host port the app is published on. |
+| `NEXTAUTH_URL` | `http://localhost:$APP_PORT` | The URL people use. Set it when the install is reached by another name. |
+| `OPENAI_API_KEY`, `ANTHROPIC_API_KEY` | unset | Turn on the AI features (see the table below). |
+| `AUTH_LOG_SIGN_IN_CODES` | `true` | Sign-in codes go to the app's log. Ignored once SMTP or Postmark is set. **Anyone who can read the log can sign in as any user**; see the security note above. |
+| `SMTP_*`, `EMAIL_FROM`, `AUTH_POSTMARK_KEY`, `GOOGLE_CLIENT_*`, `AUTH_DISCORD_*` | unset | Other ways in, as in the table below. |
+| `POSTGRES_PASSWORD` | `exponential` | Letters and digits only. Set it before the first start: the database keeps the password it was created with. |
+| `MASTRA_BUILD_CONTEXT` | positonic/mastra `main` | Where the Assistant builds from. |
+
+**The Assistant is opt-in.** Mastra (chat, Assign to Assistant) needs an
+Anthropic key, so it sits behind the `assistant` profile:
+
+```bash
+ANTHROPIC_API_KEY=… OPENAI_API_KEY=… docker compose --profile assistant up -d --build
+```
+
+With the profile on, the app finds the `mastra` service and points
+`MASTRA_API_URL` at it; without it, the Assistant stays off. Mastra builds
+from [positonic/mastra](https://github.com/positonic/mastra)'s
+`docker/Dockerfile` and shares the database (schema `mastra`).
+
+**Memory.** Building the app image needs a Docker host with at least 10 GB of
+memory (see below). On a smaller server, build elsewhere and run the images.
+
+**Prebuilt images.** Compose builds every image from source. If you have
+images in a registry, point Compose at them with a
+`docker-compose.override.yml` next to `docker-compose.yml`, which Compose
+merges in automatically:
+
+```yaml
+services:
+  app:
+    image: registry.example.com/exponential-app:latest
+    build: !reset null
+  scheduler:
+    image: registry.example.com/exponential-scheduler:latest
+    build: !reset null
+```
+
+TLS, a reverse proxy, backups and upgrades are up to you. To update, pull the
+repo and run `docker compose up -d --build`: the app applies new migrations
+when it starts.
+
+`.github/workflows/selfhost-smoke.yml` boots this stack nightly with no
+settings at all, signs in and checks the scheduler, and opens an issue when it
+fails.
+
 #### Container images
 
 Two images, both built from the repo root. Neither bakes in any
