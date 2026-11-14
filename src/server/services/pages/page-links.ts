@@ -14,6 +14,7 @@ import type { JSONContent } from "@tiptap/core";
 
 import { collectPageLinkIds } from "~/lib/pages/public-doc";
 import { syncPageDatabases } from "~/server/services/databases/sync";
+import { buildKnowledgePageAccessWhere } from "~/server/services/access";
 
 type Db = PrismaClient | Prisma.TransactionClient;
 
@@ -82,4 +83,53 @@ export async function writePageBodyIfVersion(
     await args.afterWrite?.(tx);
     return true;
   });
+}
+
+/** How many linking pages one reverse-link scan returns. The scan runs on every
+ * page open (it is the breadcrumb), so it is bounded; a caller that reports a
+ * count says when the bound was hit instead of presenting it as the answer. */
+export const LINKER_SCAN_LIMIT = 20;
+
+/**
+ * The reverse-link scan: the pages in `page`'s workspace whose body links to it
+ * with a `pageLink` node, newest-edited first, limited to the ones `userId` can
+ * view. The one definition of "links here": the breadcrumb parent is its first
+ * element and the delete-impact count is its length.
+ *
+ * It reads the `PageLink` index rather than the bodies. The index is derived
+ * from {@link collectPageLinkIds} on every body write, so a page that merely
+ * mentions the id in prose, or pastes the page's URL as an ordinary link, is
+ * never a linker: only `pageLink` nodes become rows. View access is part of
+ * the same query ({@link buildKnowledgePageAccessWhere} mirrors the per-page
+ * resolver), so a linker the caller cannot see is never returned or counted.
+ *
+ * `capped` is true when there were more than `limit` linkers.
+ */
+export async function findLinkingPages(
+  db: Db,
+  userId: string,
+  page: { id: string; workspaceId: string },
+  limit: number = LINKER_SCAN_LIMIT,
+): Promise<{
+  pages: { id: string; title: string; isPublic: boolean }[];
+  capped: boolean;
+}> {
+  // One row past the limit, only to tell "exactly 20" from "more than 20".
+  const rows = await db.knowledgePage.findMany({
+    where: {
+      AND: [
+        {
+          workspaceId: page.workspaceId,
+          id: { not: page.id },
+          linksFrom: { some: { toPageId: page.id } },
+        },
+        buildKnowledgePageAccessWhere(userId),
+      ],
+    },
+    orderBy: { updatedAt: "desc" },
+    take: limit + 1,
+    select: { id: true, title: true, isPublic: true },
+  });
+  const capped = rows.length > limit;
+  return { pages: capped ? rows.slice(0, limit) : rows, capped };
 }

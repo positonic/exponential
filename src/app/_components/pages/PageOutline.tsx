@@ -60,6 +60,7 @@ export function PageOutline({ editor }: { editor: Editor | null }) {
       aria-label="Page outline"
       className="group fixed right-5 top-40 z-10 hidden xl:block"
       data-testid="page-outline"
+      data-print="hide"
     >
       <div className="flex flex-col items-end gap-2 py-1 group-hover:invisible group-focus-within:invisible">
         {headings.map((h) => (

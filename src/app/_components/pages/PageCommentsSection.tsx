@@ -34,7 +34,9 @@ export function PageCommentsSection({ pageId }: { pageId: string }) {
   );
 
   return (
-    <div className="mt-16">
+    // Activity is a working surface, not part of the page: printing a page
+    // should give you the page.
+    <div className="mt-16" data-print="hide">
       <CollapsibleSection
         title="Activity"
         action={<ActivityFilterMenu value={activityFilter} onChange={setActivityFilter} />}

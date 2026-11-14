@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
 import {
   ActionIcon,
   Anchor,
@@ -9,7 +8,6 @@ import {
   CopyButton,
   Divider,
   Group,
-  Menu,
   Popover,
   Stack,
   Switch,
@@ -21,77 +19,42 @@ import { notifications } from "@mantine/notifications";
 import {
   IconCheck,
   IconCopy,
-  IconDots,
   IconExternalLink,
-  IconFileExport,
-  IconHistory,
-  IconLink,
-  IconMarkdown,
   IconUsers,
-  IconViewportNarrow,
-  IconViewportWide,
   IconWorld,
 } from "@tabler/icons-react";
 import { api } from "~/trpc/react";
 import { buildPublicPagePath } from "~/lib/pages/public-url";
-import {
-  buildMarkdownExport,
-  markdownFilename,
-} from "~/lib/pages/markdown-export";
 import { PageShareList } from "~/app/_components/pages/PageShareList";
 
 interface PageShareMenuProps {
   pageId: string;
   workspaceId: string;
-  workspaceSlug: string;
   isPublic: boolean;
   publicId: string | null;
   publicSlug: string | null;
   publicSeoIndexed: boolean;
   canEdit: boolean;
-  /** Page title — the H1 of the export and the download's filename. */
-  title: string;
-  /**
-   * Current Markdown projection of the body, read from the live editor so an
-   * export reflects edits the debounced autosave hasn't written yet. Returns
-   * null before the editor has mounted.
-   */
-  getMarkdown: () => string | null;
-  /** Reader-side column preference, toggled from the actions menu (Notion
-   * keeps "Full width" under ⋯ too, off the page chrome). */
-  fullWidth?: boolean;
-  onToggleFullWidth?: () => void;
-  /** Opens the page history panel (ADR-0074). */
-  onOpenHistory?: () => void;
 }
 
 /**
- * The "Share" popover + page actions menu on the Page editor. The popover
- * leads with the one share list ({@link PageShareList}: inherited audience,
- * people it is shared with, Add people, the restrict switch); publishing to
- * the web (ADR-0038) comes last, for editors only. Publishing is gated server-side on edit access;
- * this component is the consent surface — it says plainly that the page
- * becomes public.
+ * The "Share" popover on the Page editor. It leads with the one share list
+ * ({@link PageShareList}: inherited audience, people it is shared with, Add
+ * people, the restrict switch); publishing to the web (ADR-0038) comes last,
+ * for editors only. Publishing is gated server-side on edit access; this
+ * component is the consent surface — it says plainly that the page becomes
+ * public. The per-page verbs (copy link, export, duplicate, delete…) live in
+ * the separate `PageActionsMenu` beside it.
  */
 export function PageShareMenu({
   pageId,
   workspaceId,
-  workspaceSlug,
   isPublic,
   publicId,
   publicSlug,
   publicSeoIndexed,
   canEdit,
-  title,
-  getMarkdown,
-  fullWidth,
-  onToggleFullWidth,
-  onOpenHistory,
 }: PageShareMenuProps) {
-  // The page's own URL for "Copy link" — read on the client, after mount.
-  const [pageUrl, setPageUrl] = useState("");
-  useEffect(() => setPageUrl(window.location.href), []);
-  const router = useRouter();
   const utils = api.useUtils();
   const [slugDraft, setSlugDraft] = useState(publicSlug ?? "");
 
@@ -133,63 +96,12 @@ export function PageShareMenu({
   const sharing = api.page.sharing.useQuery({ id: pageId });
   const publishLocked =
     !!sharing.data?.isInviteOnly && !sharing.data.canManage;
-  // Whether this page has sub-pages — gates the "with sub-pages" duplicate.
-  const children = api.page.children.useQuery({ id: pageId });
-  const hasSubpages = (children.data?.length ?? 0) > 0;
-  const duplicate = api.page.duplicate.useMutation({
-    onSuccess: (copy) => {
-      void utils.page.list.invalidate();
-      void utils.page.tree.invalidate();
-      router.push(`/w/${workspaceSlug}/pages/${copy.id}`);
-    },
-    onError: (e) => onError(e, "Could not duplicate page"),
-  });
-
   const origin = typeof window !== "undefined" ? window.location.origin : "";
   const publicPath =
     publicId != null
       ? buildPublicPagePath(publicSlug ?? "untitled", publicId)
       : null;
   const publicUrl = publicPath ? `${origin}${publicPath}` : null;
-
-  /** Title-as-H1 + the live body projection, or null if the editor isn't up. */
-  const markdownDocument = () => {
-    const body = getMarkdown();
-    return body == null ? null : buildMarkdownExport(title, body);
-  };
-
-  const copyMarkdown = async () => {
-    const markdown = markdownDocument();
-    if (markdown == null) return;
-    try {
-      await navigator.clipboard.writeText(markdown);
-      notifications.show({
-        color: "teal",
-        title: "Copied as Markdown",
-        message: "Paste into Notion, Obsidian, or any Markdown editor.",
-      });
-    } catch {
-      // Denied permission, or a non-secure origin.
-      notifications.show({
-        color: "red",
-        title: "Could not copy",
-        message: "Your browser blocked clipboard access.",
-      });
-    }
-  };
-
-  const exportMarkdown = () => {
-    const markdown = markdownDocument();
-    if (markdown == null) return;
-    const url = URL.createObjectURL(
-      new Blob([markdown], { type: "text/markdown;charset=utf-8" }),
-    );
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = markdownFilename(title);
-    link.click();
-    URL.revokeObjectURL(url);
-  };
 
   const commitSlug = () => {
     const next = slugDraft.trim();
@@ -358,107 +270,6 @@ export function PageShareMenu({
           </Stack>
         </Popover.Dropdown>
       </Popover>
-
-      <CopyButton value={pageUrl}>
-        {({ copied, copy }) => (
-          <Tooltip label={copied ? "Copied" : "Copy link"}>
-            <ActionIcon
-              variant="subtle"
-              color="gray"
-              aria-label="Copy link"
-              onClick={copy}
-              disabled={!pageUrl}
-            >
-              {copied ? <IconCheck size={18} /> : <IconLink size={18} />}
-            </ActionIcon>
-          </Tooltip>
-        )}
-      </CopyButton>
-
-      <Menu position="bottom-end" shadow="md">
-        <Menu.Target>
-          <ActionIcon variant="subtle" color="gray" aria-label="Page actions">
-            <IconDots size={18} />
-          </ActionIcon>
-        </Menu.Target>
-        <Menu.Dropdown>
-          {onToggleFullWidth ? (
-            <>
-              <Menu.Item
-                leftSection={
-                  fullWidth ? (
-                    <IconViewportNarrow size={14} />
-                  ) : (
-                    <IconViewportWide size={14} />
-                  )
-                }
-                rightSection={
-                  <Switch
-                    size="xs"
-                    checked={!!fullWidth}
-                    readOnly
-                    tabIndex={-1}
-                    aria-hidden
-                    // Decorative: every click lands on the menu item once,
-                    // instead of the switch's label + input each firing.
-                    className="pointer-events-none"
-                  />
-                }
-                closeMenuOnClick={false}
-                onClick={onToggleFullWidth}
-                aria-pressed={!!fullWidth}
-              >
-                Full width
-              </Menu.Item>
-              <Menu.Divider />
-            </>
-          ) : null}
-          <Menu.Item
-            leftSection={<IconCopy size={14} />}
-            disabled={duplicate.isPending}
-            onClick={() => duplicate.mutate({ id: pageId })}
-          >
-            Duplicate
-          </Menu.Item>
-          {hasSubpages ? (
-            <Menu.Item
-              leftSection={<IconCopy size={14} />}
-              disabled={duplicate.isPending}
-              onClick={() => duplicate.mutate({ id: pageId, withSubpages: true })}
-            >
-              Duplicate with sub-pages
-            </Menu.Item>
-          ) : null}
-          <Menu.Divider />
-          {onOpenHistory ? (
-            <>
-              <Menu.Item
-                leftSection={<IconHistory size={14} />}
-                onClick={onOpenHistory}
-                data-testid="page-history-open"
-              >
-                History
-              </Menu.Item>
-              <Menu.Divider />
-            </>
-          ) : null}
-          {/* Plain copy (Cmd-C) puts text on the clipboard and the formatted
-              slice on `text/html`; these two are the explicit Markdown route,
-              for a Markdown-source target. */}
-          <Menu.Item
-            leftSection={<IconMarkdown size={14} />}
-            onClick={() => void copyMarkdown()}
-          >
-            Copy as Markdown
-          </Menu.Item>
-          <Menu.Item
-            leftSection={<IconFileExport size={14} />}
-            onClick={exportMarkdown}
-          >
-            Export as Markdown
-          </Menu.Item>
-        </Menu.Dropdown>
-      </Menu>
     </Group>
   );
 }

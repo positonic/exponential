@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { notifications } from '@mantine/notifications';
 import { IconFolder } from '@tabler/icons-react';
@@ -21,8 +21,9 @@ interface PageProjectPickerProps {
 
 /**
  * Moving a page to another project (or out of one). Shared by the picker under
- * the title and the Share popover's "Change…" — both change who can see the
- * page, so both refresh the popover's audience.
+ * the title, the Share popover's "Change…" and the Page actions menu's "Move
+ * to project…" — all change who can see the page, so all refresh the
+ * popover's audience.
  */
 export function usePageProjectPlacement(pageId: string, workspaceId: string) {
   const utils = api.useUtils();
@@ -35,6 +36,8 @@ export function usePageProjectPlacement(pageId: string, workspaceId: string) {
     (userRole === 'owner' || userRole === 'admin' || userRole === 'member');
   // Candidates load lazily on first open — most page views never re-place.
   const [wantProjects, setWantProjects] = useState(false);
+  // Stable, so a dialog can call it from an effect.
+  const loadOptions = useCallback(() => setWantProjects(true), []);
   const { data: assignable = [], isLoading } = api.project.getAssignable.useQuery(
     undefined,
     { enabled: wantProjects },
@@ -65,10 +68,14 @@ export function usePageProjectPlacement(pageId: string, workspaceId: string) {
     options,
     isLoading,
     canDetach,
-    loadOptions: () => setWantProjects(true),
-    move: (projectId: string | null, currentProjectId: string | null) => {
+    loadOptions,
+    move: (
+      projectId: string | null,
+      currentProjectId: string | null,
+      opts?: { onSuccess?: () => void },
+    ) => {
       if (projectId === currentProjectId) return;
-      setProject.mutate({ id: pageId, projectId });
+      setProject.mutate({ id: pageId, projectId }, { onSuccess: opts?.onSuccess });
     },
     isPending: setProject.isPending,
   };

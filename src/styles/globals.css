@@ -2206,3 +2206,79 @@ body {
 .knowledge-page .prd-document .ProseMirror > :first-child {
   margin-top: 0;
 }
+
+/* ==========================================================================
+   Print: "Export ▸ Print / Save as PDF" on a Page
+   ==========================================================================
+   The browser's print dialog is the whole PDF export: no server render, no
+   second layout to keep in sync. What it needs is the reading column alone,
+   so this strips the app chrome and lets the column use the sheet.
+
+   Two ways in, deliberately: `[data-print="hide"]` is the explicit opt-out a
+   component sets on itself (the workspace topbar, the page bar, the outline,
+   Activity, Zoe), and the short selector list below covers the sidebar and
+   the floating layers that live in portals outside any of those subtrees.
+   Anything unmarked prints. */
+@media print {
+  [data-print="hide"],
+  .app-sidebar,
+  .sb-toggle,
+  .mantine-Menu-dropdown,
+  .mantine-Popover-dropdown,
+  .mantine-Modal-root,
+  .mantine-Notifications-root,
+  .mantine-Tooltip-tooltip {
+    display: none !important;
+  }
+
+  /* Paper is light whatever the app's scheme is, so pull the tokens the
+     reading column reads back to ink on paper. Keywords and color-mix rather
+     than the light palette's literals: one place to be wrong, not two. */
+  [data-mantine-color-scheme="dark"] {
+    --color-bg-primary: white;
+    --color-bg-secondary: white;
+    --color-bg-tertiary: white;
+    --color-bg-elevated: white;
+    --color-surface-primary: white;
+    --color-surface-secondary: white;
+    --color-surface-tertiary: white;
+    --color-text-primary: black;
+    --color-text-secondary: color-mix(in srgb, black 65%, white);
+    --color-text-muted: color-mix(in srgb, black 55%, white);
+    --color-border-primary: color-mix(in srgb, black 25%, white);
+    --color-border-secondary: color-mix(in srgb, black 15%, white);
+  }
+
+  html,
+  body {
+    background: white;
+    height: auto;
+  }
+
+  /* The shell reserves a gutter for the (now hidden) sidebar. Only that goes:
+     <main>'s own padding is cancelled by the workspace wrapper's negative
+     bleed margin, so zeroing it too would drag the column off the sheet.
+     No transition: on screen the gutter animates (transition-all), which
+     would leave it mid-slide in the print snapshot. */
+  .sidebar-offset {
+    transition: none !important;
+    margin-left: 0 !important;
+    width: 100% !important;
+    max-width: none !important;
+  }
+
+  /* On screen the reading column is centred and capped (max-w-3xl) under a
+     band of air; the sheet has its own margins, so use the full text block
+     and start at the top. */
+  [data-print="column"] {
+    max-width: none !important;
+    width: 100% !important;
+    padding-top: 0 !important;
+  }
+
+  /* Links keep their text but lose the on-screen colour, which prints grey. */
+  a {
+    color: inherit !important;
+    text-decoration: none !important;
+  }
+}

@@ -11,6 +11,7 @@ import type { JSONContent } from '@tiptap/core';
 import { api } from '~/trpc/react';
 import { PageDocument } from '~/app/_components/pages/PageDocument';
 import { PageShareMenu } from '~/app/_components/pages/PageShareMenu';
+import { PageActionsMenu } from '~/app/_components/pages/PageActionsMenu';
 import { PageSubpages } from '~/app/_components/pages/PageSubpages';
 import { RowPropertiesHeader } from '~/app/_components/databases/RowPropertiesHeader';
 import { DetachedDatabases } from '~/app/_components/databases/DetachedDatabases';
@@ -45,9 +46,20 @@ function PageTitle({
   const [title, setTitle] = useState(initialTitle);
   const utils = api.useUtils();
   const updateTitle = api.page.update.useMutation({
-    onSuccess: () => {
-      // The breadcrumb and "Edited" stamp read from the page query.
-      void utils.page.get.invalidate({ id: pageId });
+    onSuccess: (updated, vars) => {
+      // The breadcrumb, the "Edited" stamp, the Delete dialog's title gate and
+      // the export filename all read the cached page. Patch it rather than
+      // invalidate it: a refetch would swap `bodyDoc`/`docVersion` under the
+      // open editor.
+      utils.page.get.setData({ id: pageId }, (old) =>
+        old
+          ? {
+              ...old,
+              title: vars.title ?? old.title,
+              updatedAt: 'updatedAt' in updated ? updated.updatedAt : old.updatedAt,
+            }
+          : old,
+      );
       void utils.page.list.invalidate();
       // Favourite titles are resolved live from the page, so a rename should
       // show up in the sidebar immediately.
@@ -143,7 +155,7 @@ function PageEditorContent({
   // State (not only the ref) so the outline re-renders once the editor exists.
   const [editorHandle, setEditorHandle] = useState<RichDocEditorHandle | null>(null);
 
-  // Markdown for the "Copy/Export as Markdown" actions. Read off the live
+  // Markdown for the "Copy markdown" / "Export ▸ Markdown" actions. Read off the live
   // editor rather than `page.body` so an export includes edits the debounced
   // autosave hasn't written yet.
   const currentMarkdown = () => {
@@ -218,6 +230,8 @@ function PageEditorContent({
       <header
         className="sticky top-16 z-20 flex h-11 shrink-0 items-center justify-between gap-4 bg-background-primary px-4 sm:top-0"
         data-testid="page-topbar"
+        // Chrome, not content: Print / Save as PDF drops the whole bar.
+        data-print="hide"
       >
         <nav aria-label="Breadcrumb" className="flex min-w-0 items-center gap-1.5 text-sm">
           <Link
@@ -256,13 +270,21 @@ function PageEditorContent({
           <PageShareMenu
             pageId={page.id}
             workspaceId={page.workspaceId}
-            workspaceSlug={workspaceSlug}
             isPublic={page.isPublic}
             publicId={page.publicId}
             publicSlug={page.publicSlug}
             publicSeoIndexed={page.publicSeoIndexed}
             canEdit={page.canEdit}
-            title={page.title}
+          />
+          <PageActionsMenu
+            pageId={page.id}
+            pageTitle={page.title}
+            workspaceId={page.workspaceId}
+            workspaceSlug={workspaceSlug}
+            projectId={page.projectId}
+            includeInSearch={page.includeInSearch}
+            canEdit={page.canEdit}
+            isRow={!!page.database}
             getMarkdown={currentMarkdown}
             fullWidth={fullWidth}
             // Value form, not the updater form: Mantine's setter writes to
@@ -282,8 +304,10 @@ function PageEditorContent({
       </header>
 
       {/* The reading column: generous air above the title (Notion leaves the
-          cover/icon band empty), the title and body on one left edge. */}
-      <div className={`${widthClass} px-6 pb-24 pt-20`}>
+          cover/icon band empty), the title and body on one left edge.
+          `data-print="column"` lets the print stylesheet widen exactly this
+          element without guessing at Tailwind classes. */}
+      <div className={`${widthClass} px-6 pb-24 pt-20`} data-print="column">
         {page.ceremonyOccurrence ? (
           <Link
             href={`/w/${workspaceSlug}/ceremonies/${page.ceremonyOccurrence.ceremonyId}/${page.ceremonyOccurrence.id}`}
@@ -333,6 +357,7 @@ function PageEditorContent({
                 className="rounded px-1 py-0.5 text-xs text-text-muted hover:bg-surface-hover hover:text-text-primary"
                 onClick={() => setDetailsOpen(true)}
                 data-testid="page-move-workspace"
+                data-print="hide"
               >
                 Move…
               </button>
@@ -343,6 +368,7 @@ function PageEditorContent({
                 className="rounded px-1 py-0.5 text-xs text-text-muted hover:bg-surface-hover hover:text-text-primary"
                 onClick={() => setDetailsOpen(true)}
                 data-testid="page-add-provenance"
+                data-print="hide"
               >
                 Add source / as-of…
               </button>

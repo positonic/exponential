@@ -28,6 +28,7 @@ import { reportHandledErrorServer } from "~/server/utils/reportHandledErrorServe
 import { uploadToBlob } from "~/lib/blob";
 import { getEmbeddingTriggerService } from "~/server/services/embedding/EmbeddingTriggerService";
 import {
+  findLinkingPages,
   syncPageLinks,
   writePageBodyIfVersion,
 } from "~/server/services/pages/page-links";
@@ -945,12 +946,12 @@ export const pageRouter = createTRPCRouter({
   /**
    * The "parent" of a page for breadcrumbs: a page whose body links to this
    * one via a `pageLink` node. Sub-pages are soft — there is no stored parent
-   * pointer (ADR-0033/0038) — so this is a reverse lookup over the `PageLink`
-   * index: same-workspace pages linking this id, gated on the caller's view
-   * access in the query (buildKnowledgePageAccessWhere mirrors
-   * getKnowledgePageAccess). A page can have several linkers; the
-   * newest-edited viewable one wins, matching `tree`. Returns null when the
-   * page is top-level or has no viewable linker.
+   * pointer (ADR-0033/0038) — so this is the first element of the shared
+   * reverse-link scan ({@link findLinkingPages}): same-workspace pages linking
+   * this id through the `PageLink` index, gated on the caller's view access in
+   * the query. A page can have several linkers; the newest-edited viewable one
+   * wins, matching `tree`. Returns null when the page is top-level or has no
+   * viewable linker.
    */
   parentCrumb: protectedProcedure
     .input(z.object({ id: z.string() }))
@@ -959,20 +960,62 @@ export const pageRouter = createTRPCRouter({
       const page = await loadPageForAccess(ctx.db, input.id);
       await ensurePageAccess(ctx.db, userId, page, "view");
 
-      return ctx.db.knowledgePage.findFirst({
-        where: {
-          AND: [
-            {
-              workspaceId: page.workspaceId,
-              id: { not: input.id },
-              linksFrom: { some: { toPageId: input.id } },
-            },
-            buildKnowledgePageAccessWhere(userId),
-          ],
-        },
-        orderBy: { updatedAt: "desc" },
-        select: { id: true, title: true },
-      });
+      const { pages } = await findLinkingPages(ctx.db, userId, page, 1);
+      const parent = pages[0];
+      return parent ? { id: parent.id, title: parent.title } : null;
+    }),
+
+  /**
+   * What a hard delete of this page would break, for the type-the-title
+   * confirmation on the Page actions menu. Three facts, each recoverable only
+   * by not deleting: pages whose bodies link here (their links go dead),
+   * sub-pages that lose their only parent and become top-level, and a public
+   * URL that stops resolving. Counts only — the dialog states the scale.
+   *
+   * Edit access, like `delete` itself: only someone who can delete needs the
+   * facts. Both counts are the caller's view of the link graph (both queries
+   * carry the view filter), and the linker count is bounded by the shared
+   * scan — `linkedFromCapped` says the bound was hit, so the dialog can say
+   * "more than 20" rather than present a floor as the answer.
+   */
+  deleteImpact: protectedProcedure
+    .input(z.object({ id: z.string() }))
+    .query(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+      const page = await loadPageForAccess(ctx.db, input.id);
+      await ensurePageAccess(ctx.db, userId, page, "edit");
+
+      const [linkers, self, subpageCount] = await Promise.all([
+        findLinkingPages(ctx.db, userId, page),
+        ctx.db.knowledgePage.findUniqueOrThrow({
+          where: { id: input.id },
+          select: { isPublic: true },
+        }),
+        // A sub-page becomes top-level only if this page is its sole linker;
+        // one linked from elsewhere too keeps a parent in the tree.
+        ctx.db.knowledgePage.count({
+          where: {
+            AND: [
+              {
+                workspaceId: page.workspaceId,
+                id: { not: input.id },
+                linksTo: {
+                  some: { fromPageId: input.id },
+                  none: { fromPageId: { not: input.id } },
+                },
+              },
+              buildKnowledgePageAccessWhere(userId),
+            ],
+          },
+        }),
+      ]);
+
+      return {
+        linkedFromCount: linkers.pages.length,
+        linkedFromCapped: linkers.capped,
+        subpageCount,
+        isPublic: self.isPublic,
+      };
     }),
 
   /**
