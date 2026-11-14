@@ -160,6 +160,20 @@ const HINTS: Record<string, FeedRenderHint> = {
     iconKind: "updated",
   },
 
+  // Epics. The name rides in metadata, so a deleted epic's row still names it.
+  [key("epic", "created")]: {
+    template: "{actor} created epic {entityRef}",
+    iconKind: "created",
+  },
+  [key("epic", "updated")]: {
+    template: "{actor} updated epic {entityRef}",
+    iconKind: "updated",
+  },
+  [key("epic", "deleted")]: {
+    template: "{actor} deleted epic {entityRef}",
+    iconKind: "deleted",
+  },
+
   // Projects — completing a project is a milestone, so it gets the emphasized
   // "milestone" icon kind (trophy + filled chip) to stand out from task churn.
   [key("project", "created")]: {

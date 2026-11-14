@@ -65,6 +65,7 @@ export type ActivityEntityType =
   | "github_pull_request"
   | "github_pull_request_review"
   | "decision"
+  | "epic"
   | "ceremony_occurrence"
   // Pages can be private, so every feed reader checks page access when it is
   // read (see pageActivity.ts). Write them through `recordPageActivity`.

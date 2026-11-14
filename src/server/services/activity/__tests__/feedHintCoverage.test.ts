@@ -58,6 +58,12 @@ const COMPUTED_SITES: Record<string, Array<[entityType: string, action: string]>
     ["page", "created"],
     ["page", "updated"],
   ],
+  // `recordEpicActivity` takes the action from the mutation that called it.
+  "server/api/routers/epic.ts": [
+    ["epic", "created"],
+    ["epic", "updated"],
+    ["epic", "deleted"],
+  ],
   // Records whatever `toGitHubFeedEvent` built (githubFeedEvent.ts).
   "server/services/GitHubActivityService.ts": [
     ["github_pull_request", "created"],
