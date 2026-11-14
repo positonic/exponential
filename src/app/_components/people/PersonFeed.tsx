@@ -111,7 +111,12 @@ export function PersonFeed({
       : known.providers;
   const hasInternal = known.hasInternal || source === 'internal';
 
-  const hasMore = data?.nextCursor != null;
+  // Asking for the next page changes the query key, so `data` is undefined
+  // until it arrives. The rows already loaded stay on screen (`accumulated`);
+  // keep the count and the button there too, so the footer does not flip to
+  // "that's all of it" for the length of every fetch.
+  const isLoadingMore = cursor !== null && data === undefined;
+  const hasMore = isLoadingMore || data?.nextCursor != null;
   const isEmpty = !isLoading && display.length === 0;
   const days = groupByDay(display);
 
@@ -121,7 +126,7 @@ export function PersonFeed({
         <h2 className="wsa-card__title">
           <IconClipboardList size={14} stroke={1.8} />
           Activity
-          {data ? (
+          {data || isLoadingMore ? (
             <span className="wsa-card__count">
               {display.length}
               {hasMore ? '+' : ''}
@@ -171,7 +176,7 @@ export function PersonFeed({
               <Button
                 variant="default"
                 size="sm"
-                loading={isLoading}
+                loading={isLoadingMore}
                 onClick={() => {
                   if (data?.nextCursor) {
                     setAccumulated(display);

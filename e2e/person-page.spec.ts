@@ -72,6 +72,24 @@ test.describe("Person page", () => {
     expect(new URL(page.url()).searchParams.has("workspace")).toBe(false);
   });
 
+  test("a source filter in the URL always leaves a way back to All", async ({ page }) => {
+    // Every row under ?source=internal is internal, so no provider chip can be
+    // derived from them. The control must still be there.
+    await page.goto(`/people/${fixture.colleagueUserId}?source=internal`);
+    const feed = page.getByRole("region", { name: `${fixture.colleagueName}'s activity` });
+    await expect(
+      feed.locator(".wsa-feed__row", { hasText: fixture.colleagueActivityTitles[0]! }),
+    ).toBeVisible({ timeout: FIRST_PAINT_TIMEOUT });
+
+    const sources = page.getByRole("tablist", { name: "Filter by source" });
+    await expect(sources.getByRole("tab", { name: "Exponential" })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+    await sources.getByRole("tab", { name: "All", exact: true }).click();
+    await expect.poll(() => new URL(page.url()).searchParams.has("source")).toBe(false);
+  });
+
   test("'Your page' in the user menu opens your own Person page", async ({ page }) => {
     await page.goto(`/w/${fixture.workspaceSlug}/home`);
 
