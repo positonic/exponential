@@ -23,6 +23,7 @@ import {
 import { CSS } from "@dnd-kit/utilities";
 import { api } from "~/trpc/react";
 import {
+  Anchor,
   Container,
   Title,
   Text,
@@ -51,6 +52,7 @@ import { notifications } from "@mantine/notifications";
 import {
   parseNavLayout,
   DEFAULT_NAV_LAYOUT,
+  MENU_PICKER_HREF,
   NAV_ITEM_CONFIG,
   type NavSection,
   type NavItem,
@@ -464,6 +466,9 @@ export default function NavigationSettingsPage(): React.ReactElement {
             </Text>
             <Text c="dimmed" mt="xs" size="sm">
               This is your default layout. To arrange one workspace differently, right-click its sidebar and choose Customize sidebar.
+            </Text>
+            <Text c="dimmed" mt="xs" size="sm">
+              Only want to choose what shows? <Anchor component={Link} href={MENU_PICKER_HREF} size="sm">Set up your menu</Anchor> explains each item and switches it on or off in every workspace.
             </Text>
           </div>
           <Button

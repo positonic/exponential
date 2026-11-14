@@ -96,12 +96,24 @@ describe('NavLinks — sections', () => {
 
   it('shows a heading only for sections with more than one item', () => {
     render(<NavLinks />);
-    // Plan (Goals, Decisions) and Tools (Agents, Meetings, Knowledge) fold.
+    // Plan (Goals, Decisions) and Work (Projects, Pages) fold.
     expect(screen.getByRole('button', { name: 'Plan' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Tools' })).toBeInTheDocument();
-    // People holds only CRM, so the label would cost more than it tells.
+    expect(screen.getByRole('button', { name: 'Work' })).toBeInTheDocument();
+    // Tools shows only Meetings by default, so the label would cost more than it tells.
+    expect(screen.queryByRole('button', { name: 'Tools' })).not.toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Meetings' })).toBeInTheDocument();
+  });
+
+  it('shows the short default menu, leaving the rest out', () => {
+    render(<NavLinks />);
+    for (const name of ['Goals', 'Decisions', 'Projects', 'Pages', 'Meetings']) {
+      expect(screen.getByRole('link', { name })).toBeInTheDocument();
+    }
+    for (const name of ['Actions', 'Shipped', 'CRM', 'Agents', 'Knowledge']) {
+      expect(screen.queryByRole('link', { name })).not.toBeInTheDocument();
+    }
+    // People holds only CRM, which is off, so the section is not drawn at all.
     expect(screen.queryByRole('button', { name: 'People' })).not.toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'CRM' })).toBeInTheDocument();
   });
 
   it('does not write the layout back while preferences are still loading', () => {
@@ -155,7 +167,7 @@ describe('NavLinks — sections', () => {
     expect(screen.getByRole('button', { name: 'Plan' })).toHaveAttribute('aria-expanded', 'false');
     expect(screen.queryByRole('link', { name: 'Decisions' })).not.toBeInTheDocument();
     // Other sections still render from the defaults.
-    expect(screen.getByRole('link', { name: 'Actions' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Projects' })).toBeInTheDocument();
   });
 
   it('in the rail shows every icon, ignoring headings and folds', () => {
@@ -256,5 +268,78 @@ describe('NavLinks — workspace layout', () => {
     render(<NavLinks />);
     expect(screen.queryByRole('link', { name: 'Goals' })).not.toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Decisions' })).toBeInTheDocument();
+  });
+});
+
+describe('NavLinks — More', () => {
+  beforeEach(() => {
+    mockUseWorkspace.mockReturnValue({ workspaceSlug: 'test', workspaceId: 'ws1', userRole: 'member' });
+    mockGetPreferences.mockReturnValue({ data: { navLayout: null }, isLoading: false });
+    mockGetWorkspaceLayout.mockReturnValue({ data: { navLayout: null }, isLoading: false });
+  });
+
+  afterEach(() => {
+    cleanup();
+  });
+
+  it('keeps every page that is not in the menu one click away', async () => {
+    render(<NavLinks />);
+    fireEvent.click(screen.getByRole('button', { name: 'More' }));
+
+    // The plugin-gated pages (Metrics) are not offered: this workspace has no product plugin.
+    for (const [name, href] of [
+      ['Actions', '/w/test/actions'],
+      ['Shipped', '/w/test/product-timeline'],
+      ['CRM', '/w/test/crm'],
+      ['Agents', '/w/test/agent'],
+      ['Knowledge', '/w/test/knowledge-base'],
+    ] as const) {
+      expect(await screen.findByRole('menuitem', { name })).toHaveAttribute('href', href);
+    }
+    expect(screen.queryByRole('menuitem', { name: 'Metrics' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('menuitem', { name: 'Goals' })).not.toBeInTheDocument();
+  });
+
+  it('leads back to the menu picker', async () => {
+    render(<NavLinks />);
+    fireEvent.click(screen.getByRole('button', { name: 'More' }));
+    expect(
+      await screen.findByRole('menuitem', { name: "Choose what's in my menu" }),
+    ).toHaveAttribute('href', '/welcome/menu');
+  });
+
+  it('offers the customiser without a right-click, when the shell can open it', async () => {
+    const onCustomize = vi.fn();
+    render(<NavLinks onCustomize={onCustomize} />);
+    fireEvent.click(screen.getByRole('button', { name: 'More' }));
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Rearrange my menu' }));
+    expect(onCustomize).toHaveBeenCalledTimes(1);
+  });
+
+  it('leaves the customiser out where the shell cannot open it', async () => {
+    render(<NavLinks />);
+    fireEvent.click(screen.getByRole('button', { name: 'More' }));
+    await screen.findByRole('menuitem', { name: "Choose what's in my menu" });
+    expect(screen.queryByRole('menuitem', { name: 'Rearrange my menu' })).not.toBeInTheDocument();
+  });
+
+  it('lists an item hidden by its whole section being hidden', async () => {
+    mockGetWorkspaceLayout.mockReturnValue({
+      isLoading: false,
+      data: {
+        navLayout: [
+          { id: 'align', name: 'Plan', hidden: true, items: [{ id: 'goals', hidden: false }, { id: 'decisions', hidden: false }] },
+        ],
+      },
+    });
+    render(<NavLinks />);
+    fireEvent.click(screen.getByRole('button', { name: 'More' }));
+    expect(await screen.findByRole('menuitem', { name: 'Goals' })).toBeInTheDocument();
+  });
+
+  it('is not shown to a guest, who has no menu to change', () => {
+    mockUseWorkspace.mockReturnValue({ workspaceSlug: 'test', workspaceId: 'ws1', userRole: 'guest' });
+    render(<NavLinks />);
+    expect(screen.queryByRole('button', { name: 'More' })).not.toBeInTheDocument();
   });
 });

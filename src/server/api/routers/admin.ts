@@ -238,6 +238,7 @@ export const adminRouter = createTRPCRouter({
         }
         const state = parseSetupState(user.welcomeSetupState);
         const hasProgress =
+          state.useCase !== null ||
           state.goalId !== null ||
           state.actionId !== null ||
           state.planCreated ||

@@ -11,17 +11,35 @@
   align-items: center;
   gap: 14px;
 }
+/* On a phone there is no spare corner: floated over the page it lands on top
+   of the heading, so it takes its own line above it instead. */
+@media (max-width: 639px) {
+  .topBar {
+    position: static;
+    justify-content: flex-end;
+    flex-wrap: wrap;
+    margin-bottom: 4px;
+  }
+}
+/* The way out of the welcome flow. It has to be findable and hittable by
+   everyone, so it is real text at a readable contrast with room around it,
+   not a 12px muted afterthought. */
 .exploreLink {
   border: 0;
   background: none;
-  padding: 0;
-  color: var(--color-text-muted);
-  font-size: 12px;
+  padding: 8px 6px;
+  color: var(--color-text-secondary);
+  font-size: 13px;
   cursor: pointer;
 }
 .exploreLink:hover {
-  color: var(--color-text-secondary);
+  color: var(--color-text-primary);
   text-decoration: underline;
+}
+.exploreLink:focus-visible,
+.doneCta:focus-visible {
+  outline: 2px solid var(--color-border-focus);
+  outline-offset: 2px;
 }
 
 /* ===== View toggle (Chat / Checklist) ===== */
@@ -836,6 +854,7 @@
   display: inline-flex;
   align-items: center;
   gap: 8px;
+  min-height: 44px;
   padding: 10px 18px;
   border-radius: 6px;
   border: 0;
@@ -843,6 +862,7 @@
   color: var(--color-text-inverse);
   font-size: 13.5px;
   font-weight: 500;
+  text-decoration: none;
   cursor: pointer;
 }
 .doneCta:hover {

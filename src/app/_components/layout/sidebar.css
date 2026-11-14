@@ -303,6 +303,13 @@ html[data-titlebar="overlay"] {
   transition: background 120ms ease, color 120ms ease;
 }
 
+/* A nav row that is a <button> (the "More" menu), reset to look like a link row. */
+.sb-nav-item--button {
+  border: 0;
+  font-family: inherit;
+  text-align: left;
+}
+
 .sb-nav-item:hover {
   background: var(--sb-wash);
   color: var(--sb-text);

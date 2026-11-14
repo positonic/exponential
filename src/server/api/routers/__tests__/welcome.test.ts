@@ -29,7 +29,13 @@ vi.mock("~/server/auth", () => ({
   signOut: vi.fn(),
 }));
 
-import { resolveInvitedContext, resolveWorkspaceId } from "../welcome";
+import { createCallerFactory } from "~/server/api/trpc";
+import {
+  parseSetupState,
+  resolveInvitedContext,
+  resolveWorkspaceId,
+  welcomeRouter,
+} from "../welcome";
 
 const db = mockDeep<PrismaClient>();
 const USER = "user-1";
@@ -226,5 +232,45 @@ describe("resolveInvitedContext", () => {
     await expect(resolveInvitedContext(db, USER, null)).resolves.toBeNull();
     await expect(resolveInvitedContext(db, USER, undefined)).resolves.toBeNull();
     expect(db.workspaceInvitation.findFirst).not.toHaveBeenCalled();
+  });
+});
+
+describe("the menu picker's answer", () => {
+  const caller = () =>
+    createCallerFactory(welcomeRouter)({
+      db: db as unknown as PrismaClient,
+      session: {
+        user: { id: USER, email: "u@test.com", name: "U", image: null, isAdmin: false },
+        expires: "2099-01-01",
+      },
+      headers: new Headers(),
+    } as never);
+
+  it("is unanswered for a state saved before the picker existed", () => {
+    expect(parseSetupState({ goal: "Ship it", goalId: 4 }).useCase).toBeNull();
+    expect(parseSetupState(null).useCase).toBeNull();
+  });
+
+  it("is recorded without disturbing the rest of the setup state", async () => {
+    db.user.findUnique.mockResolvedValue({
+      welcomeSetupState: { goal: "Ship it", goalId: 4, calendar: "skipped" },
+    } as never);
+    db.user.update.mockResolvedValue({} as never);
+
+    const state = await caller().setUseCase({ useCase: "personal" });
+
+    expect(state).toMatchObject({ useCase: "personal", goal: "Ship it", goalId: 4, calendar: "skipped" });
+    expect(db.user.update.mock.calls[0]?.[0]).toMatchObject({
+      where: { id: USER },
+      data: { welcomeSetupState: { useCase: "personal", goalId: 4 } },
+    });
+  });
+
+  it("accepts 'unsure' for someone who carried on without choosing, and nothing else", async () => {
+    db.user.findUnique.mockResolvedValue({ welcomeSetupState: null } as never);
+    db.user.update.mockResolvedValue({} as never);
+
+    await expect(caller().setUseCase({ useCase: "unsure" })).resolves.toMatchObject({ useCase: "unsure" });
+    await expect(caller().setUseCase({ useCase: "enterprise" as never })).rejects.toThrow();
   });
 });
