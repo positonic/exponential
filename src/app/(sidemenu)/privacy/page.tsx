@@ -190,7 +190,7 @@ export default function PrivacyPolicy() {
             <li>
               <strong>Account Deletion:</strong> You can request complete deletion of your account and all associated data
               by contacting us at{' '}
-              <a href="mailto:privacy@exponential.im" className="text-brand-primary hover:underline">
+              <a href="mailto:privacy@exponential.im" className="text-link hover:underline">
                 privacy@exponential.im
               </a>. We will process deletion requests within 30 days.
             </li>
@@ -215,7 +215,7 @@ export default function PrivacyPolicy() {
                 href="https://myaccount.google.com/permissions"
                 target="_blank"
                 rel="noopener noreferrer"
-                className="text-brand-primary hover:underline"
+                className="text-link hover:underline"
               >
                 Google Account permissions page
               </a>
@@ -263,7 +263,7 @@ export default function PrivacyPolicy() {
             href="https://developers.google.com/terms/api-services-user-data-policy"
             target="_blank"
             rel="noopener noreferrer"
-            className="text-brand-primary hover:underline"
+            className="text-link hover:underline"
           >
             Google API Services User Data Policy
           </a>
@@ -395,7 +395,7 @@ export default function PrivacyPolicy() {
         </ul>
         <p className="text-text-secondary mt-4">
           To exercise any of these rights, please contact us at{' '}
-          <a href="mailto:privacy@exponential.im" className="text-brand-primary hover:underline">
+          <a href="mailto:privacy@exponential.im" className="text-link hover:underline">
             privacy@exponential.im
           </a>.
         </p>
@@ -407,7 +407,7 @@ export default function PrivacyPolicy() {
           If you have any questions or concerns regarding this Privacy Policy, please contact us at{' '}
           <a
             href="mailto:privacy@exponential.im"
-            className="text-brand-primary hover:underline"
+            className="text-link hover:underline"
           >
             privacy@exponential.im
           </a>

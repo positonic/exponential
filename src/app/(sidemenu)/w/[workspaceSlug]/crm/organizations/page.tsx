@@ -314,7 +314,7 @@ export default function OrganizationsPage() {
                           href={org.websiteUrl}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="text-text-secondary hover:text-brand-primary text-sm"
+                          className="text-text-secondary hover:text-link text-sm"
                         >
                           {getHostnameFromUrl(org.websiteUrl)}
                         </a>

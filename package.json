@@ -51,6 +51,8 @@
     "dev:seed-perf": "tsx scripts/seed-perf-fixture.ts",
     "docs:check": "tsx scripts/check-docs.ts",
     "tokens:check": "tsx scripts/check-design-tokens.ts",
+    "scheduler:selfhost": "tsx scripts/selfhost/scheduler.ts",
+    "start:selfhost": "tsx scripts/selfhost/start.ts",
     "docs:last-updated": "tsx scripts/docs-last-updated.ts",
     "docs:cli": "tsx scripts/generate-cli-docs.ts",
     "docs:whats-new": "tsx scripts/generate-whats-new.ts",

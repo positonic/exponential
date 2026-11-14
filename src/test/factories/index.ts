@@ -1,6 +1,6 @@
 import { Factory } from "fishery";
 import { randomUUID, createHash } from "crypto";
-import type { PrismaClient, $Enums } from "@prisma/client";
+import type { Prisma, PrismaClient, $Enums } from "@prisma/client";
 
 // Use randomUUID to avoid collisions when test files run in parallel
 const uid = () => randomUUID().slice(0, 8);
@@ -446,6 +446,40 @@ export async function createCycle(
       status: "PLANNED",
       startDate: overrides.startDate,
       endDate: overrides.endDate,
+    },
+  });
+}
+
+// ── Knowledge page ───────────────────────────────────────────────────
+
+/** A Page (ADR-0033); pass `databaseId` + `properties` for a Row (ADR-0078). */
+export async function createKnowledgePage(
+  db: PrismaClient,
+  overrides: {
+    createdById: string;
+    workspaceId: string;
+    projectId?: string | null;
+    title?: string;
+    body?: string | null;
+    includeInSearch?: boolean;
+    isInviteOnly?: boolean;
+    databaseId?: string | null;
+    properties?: Record<string, unknown> | null;
+  },
+) {
+  return db.knowledgePage.create({
+    data: {
+      createdById: overrides.createdById,
+      workspaceId: overrides.workspaceId,
+      projectId: overrides.projectId ?? null,
+      title: overrides.title ?? `Test Page ${uid()}`,
+      body: overrides.body === undefined ? "hello world" : overrides.body,
+      includeInSearch: overrides.includeInSearch ?? true,
+      isInviteOnly: overrides.isInviteOnly ?? false,
+      databaseId: overrides.databaseId ?? null,
+      properties: overrides.properties === undefined || overrides.properties === null
+        ? undefined
+        : (overrides.properties as Prisma.InputJsonValue),
     },
   });
 }

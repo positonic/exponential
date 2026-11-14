@@ -1,4 +1,5 @@
 import { Container } from "@mantine/core";
+import Image from "next/image";
 import { CTAButton } from "./shared/CTAButton";
 import { PRODUCT_NAME } from "~/lib/brand";
 
@@ -8,58 +9,59 @@ interface HeroSectionProps {
 
 export function HeroSection({ id }: HeroSectionProps) {
   return (
-    <section
-      id={id}
-      className="bg-hero-gradient min-h-[75vh] flex items-center relative overflow-hidden"
-    >
+    <section id={id} className="bg-hero-gradient relative overflow-hidden">
       {/* Subtle radial gradient overlay */}
       <div
         className="absolute inset-0 pointer-events-none"
         style={{
           background:
-            "radial-gradient(circle at 50% 30%, var(--color-accent-periwinkle) 0%, transparent 50%)",
-          opacity: 0.15,
+            "radial-gradient(circle at 50% 20%, var(--color-accent-periwinkle) 0%, transparent 50%)",
+          opacity: 0.12,
         }}
       />
 
-      <Container size="lg" className="relative z-10 py-16 md:py-24">
+      <Container size="lg" className="relative z-10 pt-10 md:pt-14">
         <div className="text-center max-w-4xl mx-auto">
-          {/* Badge */}
-          <div className="mb-6 md:mb-8 animate-fade-in">
-            <span className="inline-flex items-center px-5 py-2.5 rounded-full bg-gradient-to-r from-accent-indigo/10 to-accent-periwinkle/10 border border-accent-indigo/20 text-white text-sm font-semibold backdrop-blur-sm">
-              🤖 The OS for AI-native organizations
-            </span>
-          </div>
-
-          {/* Headline */}
-          <h1 className="text-4xl md:text-5xl lg:text-[3.5rem] font-bold text-text-primary mb-6 leading-[1.15] font-inter">
-            Where humans and AI{" "}
-            <span className="bg-gradient-to-r from-accent-indigo to-accent-periwinkle bg-clip-text text-transparent">
-              build together.
-            </span>
-          </h1>
-
-          {/* Subheadline */}
-          <p className="text-lg md:text-xl text-text-secondary max-w-2xl mx-auto mb-8 md:mb-10 leading-relaxed">
-            {PRODUCT_NAME} is the coordination layer for AI-first organizations.
-            Goals cascade into projects. AI handles execution. Your team stays
-            aligned.
+          <p className="text-accent-indigo uppercase tracking-wider text-xs md:text-sm font-semibold mb-5">
+            Open source · Cloud or self-hosted · AGPL-3.0
           </p>
 
-          {/* CTA Buttons */}
+          <h1 className="text-4xl md:text-5xl lg:text-[3.5rem] font-bold text-text-primary mb-6 leading-[1.15] font-inter">
+            The operating workspace for your organization, its people and its
+            AI agents
+          </h1>
+
+          <p className="text-lg md:text-xl text-text-secondary max-w-2xl mx-auto mb-8 md:mb-10 leading-relaxed">
+            Goals, projects, meetings and decisions in one place. Every agent
+            has its own identity, scoped access and a record of what it did.
+          </p>
+
           <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
             <CTAButton href="/signin" variant="primary" size="large">
-              Get Started Free
+              Get started free
             </CTAButton>
             <CTAButton
-              href="#how-it-works"
+              href="#self-host"
               variant="secondary"
               size="large"
               showArrow={false}
             >
-              See how it works
+              Self-host it
             </CTAButton>
           </div>
+        </div>
+
+        {/* The product, in the first screen */}
+        <div className="mt-12 md:mt-16 rounded-t-xl border border-b-0 border-border-primary overflow-hidden shadow-xl">
+          <Image
+            src="/product-shots/exponential-home.jpg"
+            alt={`A ${PRODUCT_NAME} workspace home: objectives, active projects and review rituals`}
+            width={3412}
+            height={1978}
+            sizes="(min-width: 1200px) 1140px, 100vw"
+            priority
+            className="w-full h-auto block"
+          />
         </div>
       </Container>
     </section>

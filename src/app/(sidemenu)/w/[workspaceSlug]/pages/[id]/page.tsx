@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
-import { Skeleton, Text, TextInput } from '@mantine/core';
+import { Skeleton, Text, Textarea } from '@mantine/core';
 import { useLocalStorage } from '@mantine/hooks';
 import { IconCalendarEvent } from '@tabler/icons-react';
 import { format, formatDistanceToNow } from 'date-fns';
@@ -12,6 +12,9 @@ import { api } from '~/trpc/react';
 import { PageDocument } from '~/app/_components/pages/PageDocument';
 import { PageShareMenu } from '~/app/_components/pages/PageShareMenu';
 import { PageSubpages } from '~/app/_components/pages/PageSubpages';
+import { RowPropertiesHeader } from '~/app/_components/databases/RowPropertiesHeader';
+import { DetachedDatabases } from '~/app/_components/databases/DetachedDatabases';
+import { rowValues } from '~/lib/databases/display';
 import { PageCommentsSection } from '~/app/_components/pages/PageCommentsSection';
 import { PageProjectPicker } from '~/app/_components/pages/PageProjectPicker';
 import { PageDetailsModal } from '~/app/_components/pages/PageDetailsModal';
@@ -72,10 +75,14 @@ function PageTitle({
     );
   }
 
+  // A textarea, not an input, so a long title wraps onto new lines like the
+  // read-only heading does instead of being clipped by the reading column.
+  // Titles are still single-line: Enter commits and pasted newlines become
+  // spaces.
   return (
-    <TextInput
+    <Textarea
       value={title}
-      onChange={(e) => setTitle(e.currentTarget.value)}
+      onChange={(e) => setTitle(e.currentTarget.value.replace(/\r?\n/g, ' '))}
       onBlur={commit}
       onKeyDown={(e) => {
         if (e.key === 'Enter') {
@@ -83,9 +90,14 @@ function PageTitle({
           e.currentTarget.blur();
         }
       }}
+      autosize
+      minRows={1}
       variant="unstyled"
       placeholder="Untitled"
       aria-label="Page title"
+      // `minHeight` lives on a class, not in `styles.input`: react-textarea-autosize
+      // throws in development when it is passed as an inline style.
+      classNames={{ input: 'min-h-0' }}
       styles={{
         input: {
           fontSize: TITLE_FONT_SIZE,
@@ -93,8 +105,9 @@ function PageTitle({
           lineHeight: 1.2,
           letterSpacing: '-0.01em',
           height: 'auto',
-          minHeight: 0,
           padding: 0,
+          resize: 'none',
+          overflow: 'hidden',
         },
       }}
     />
@@ -213,6 +226,20 @@ function PageEditorContent({
           >
             Pages
           </Link>
+          {page.database ? (
+            <>
+              <span className="text-text-muted">/</span>
+              <Link
+                href={`/w/${workspaceSlug}/pages/${page.database.pageId}`}
+                className="truncate text-text-muted transition-colors hover:text-text-primary"
+                data-testid="page-database-crumb"
+              >
+                {page.database.pageTitle || 'Untitled'}
+              </Link>
+              <span className="text-text-muted">/</span>
+              <span className="shrink-0 text-text-muted">{page.database.name}</span>
+            </>
+          ) : null}
           <span className="text-text-muted">/</span>
           <span className="truncate text-text-primary">{page.title || 'Untitled'}</span>
         </nav>
@@ -243,7 +270,13 @@ function PageEditorContent({
             // updaters, which would persist the toggle a second time and
             // land back on the old value.
             onToggleFullWidth={() => setFullWidth(!fullWidth)}
-            onOpenHistory={() => setHistoryOpen(true)}
+            onOpenHistory={() => {
+              // Land pending autosaves first, so the history (and the version
+              // a restore pins) includes the edits on screen.
+              void (editorHandleRef.current?.flushSave() ?? Promise.resolve()).finally(() =>
+                setHistoryOpen(true),
+              );
+            }}
           />
         </div>
       </header>
@@ -270,7 +303,23 @@ function PageEditorContent({
         <UpdateReviewBanner pageId={page.id} />
         <div className="group mb-6">
           <PageTitle pageId={page.id} initialTitle={page.title} editable={page.canEdit} />
-          <div className={`mt-2 flex min-h-6 items-center gap-2 ${metaRowClass}`}>
+          {page.database ? (
+            <RowPropertiesHeader
+              row={{
+                id: page.id,
+                title: page.title,
+                values: rowValues(page.properties),
+                relations: page.database.relations,
+                createdById: page.createdById,
+                createdAt: page.createdAt,
+                updatedAt: page.updatedAt,
+              }}
+              database={page.database}
+              workspaceId={page.workspaceId}
+              editable={page.canEdit}
+            />
+          ) : null}
+          <div className={`mt-2 flex min-h-6 items-center gap-2 ${metaRowClass}`} hidden={!!page.database}>
             <PageProjectPicker
               pageId={page.id}
               workspaceId={page.workspaceId}
@@ -369,6 +418,9 @@ function PageEditorContent({
           editable={page.canEdit}
           onDetach={page.canEdit ? detachChild : undefined}
         />
+        {!page.database ? (
+          <DetachedDatabases pageId={page.id} editable={page.canEdit} editorHandle={editorHandle} />
+        ) : null}
         <PageCommentsSection pageId={page.id} />
       </div>
       <PageOutline editor={editorHandle?.editor ?? null} />

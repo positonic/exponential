@@ -35,6 +35,10 @@
       "schedule": "*/15 * * * *"
     },
     {
+      "path": "/api/cron/summarize-youtube-resources",
+      "schedule": "*/15 * * * *"
+    },
+    {
       "path": "/api/cron/run-scheduled-automations",
       "schedule": "0 * * * *"
     },
@@ -77,6 +81,14 @@
     {
       "path": "/api/cron/agent-runs",
       "schedule": "* * * * *"
+    },
+    {
+      "path": "/api/cron/purge-detached-databases",
+      "schedule": "40 3 * * *"
+    },
+    {
+      "path": "/api/cron/reindex-pages",
+      "schedule": "*/10 * * * *"
     }
   ]
 }

@@ -17,14 +17,14 @@ import {
   Text,
   Title,
 } from "@mantine/core";
-import { IconArrowLeft, IconCalendarPlus, IconSettings } from "@tabler/icons-react";
+import { IconArrowLeft, IconCalendarPlus, IconPencil } from "@tabler/icons-react";
 import { notifications } from "@mantine/notifications";
 import type { CeremonyOccurrenceStatus } from "@prisma/client";
 import { api } from "~/trpc/react";
 import { useWorkspace } from "~/providers/WorkspaceProvider";
 import { MarkdownRenderer } from "~/app/_components/shared/MarkdownRenderer";
 import { describeCadence } from "~/lib/ceremonies/cadence";
-import { CEREMONY_KIND_LABELS } from "~/app/_components/ceremonies/CeremonyEditorModal";
+import { CEREMONY_KIND_LABELS, CeremonyEditorDrawer } from "~/app/_components/ceremonies/CeremonyEditorDrawer";
 import { CeremonyIconTile } from "~/app/_components/ceremonies/CeremonyIcon";
 import { OccurrenceDateModal } from "~/app/_components/ceremonies/OccurrenceDateModal";
 
@@ -83,9 +83,12 @@ export default function CeremonyPage() {
     { enabled: !!workspaceId },
   );
 
-  // The one definition setting edited in place here: the rest live in the
-  // editor under Settings → Ceremonies. Whether the caller may flip it comes
-  // from the server (`ceremony.get` → `canEdit`), the same bar `update` enforces.
+  // The full definition opens in the editor drawer (Edit, top right).
+  const [editorOpened, setEditorOpened] = useState(false);
+
+  // The one definition setting also edited in place here. Whether the caller
+  // may flip it, or open the editor, comes from the server (`ceremony.get` →
+  // `canEdit`), the same bar `update` enforces.
   const updateAutoExtract = api.ceremony.update.useMutation({
     onSuccess: async (res) => {
       await utils.ceremony.get.invalidate();
@@ -223,16 +226,28 @@ export default function CeremonyPage() {
               {describeCadence(ceremony.cadenceRule)} · {ceremony.timezone} · {ceremony.durationMinutes} min
             </Text>
           </div>
-          <Button
-            component={Link}
-            href={`/w/${workspace.slug}/settings/ceremonies`}
-            variant="default"
-            size="sm"
-            leftSection={<IconSettings size={14} />}
-          >
-            Edit in settings
-          </Button>
+          {/* One-offs have no cadence, and `ceremony.update` rejects the
+              cadence fields the editor always sends, so they get no editor. */}
+          {ceremony.canEdit && !ceremony.isOneOff && workspaceId && (
+            <Button
+              variant="default"
+              size="sm"
+              leftSection={<IconPencil size={14} />}
+              onClick={() => setEditorOpened(true)}
+              data-testid="edit-ceremony"
+            >
+              Edit
+            </Button>
+          )}
         </Group>
+        {workspaceId && (
+          <CeremonyEditorDrawer
+            opened={editorOpened}
+            onClose={() => setEditorOpened(false)}
+            workspaceId={workspaceId}
+            ceremonyId={ceremony.id}
+          />
+        )}
 
         <Paper withBorder radius="md" p="lg">
           <Stack gap="md">

@@ -10,7 +10,7 @@
 const DEFAULT_PRODUCT_NAME = 'Exponential';
 const DEFAULT_PRODUCT_SHORT_NAME = 'Exponential';
 const DEFAULT_PRODUCT_TAGLINE =
-  'The coordination layer for AI-first organizations. Goals cascade into projects. AI handles execution. Your team stays aligned.';
+  'An open-source operating workspace for organizations, where people and AI agents work from the same goals, projects and decisions.';
 
 export const PRODUCT_NAME: string =
   process.env.NEXT_PUBLIC_PRODUCT_NAME ?? DEFAULT_PRODUCT_NAME;
@@ -24,7 +24,7 @@ export const PRODUCT_TAGLINE: string =
 /**
  * Homepage title and description for search results. Written around phrases
  * people search for ("open-source project management", "AI agents") rather
- * than the "AI-native organization" category the hero copy uses.
+ * than the wording of the hero.
  */
 export const PRODUCT_SEO_TITLE = `Open-Source Project Management for Humans & AI Agents | ${PRODUCT_NAME}`;
 

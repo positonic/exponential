@@ -2,27 +2,34 @@ import crypto from "crypto";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 
-import { MICROSOFT_LOGIN_ENABLED } from "~/server/auth/config";
+import { resolveSignInMethods } from "~/server/auth/signInMethods";
 import { createTRPCRouter, publicProcedure } from "~/server/api/trpc";
 import { DEFAULT_EXPIRY, generateJWT } from "~/server/utils/jwt";
 import { verifyAuthCode, verifyPkce } from "~/server/utils/native-auth";
 
 export const authRouter = createTRPCRouter({
   /**
-   * Which sign-in providers are actually configured (env vars present). The
-   * signin/invite UIs use this to avoid showing buttons that would bounce back
-   * with "provider not found" because their credentials aren't set for this
-   * deployment.
+   * Which ways in this install offers, for the invite page (and any other
+   * client that needs them). Reads the same resolver as `authConfig.providers`
+   * and `/signin`, so a button is shown exactly when its provider is
+   * registered.
    *
-   * Keep in sync with `src/server/auth/config.ts` — any provider that's
-   * conditionally registered there must be gated here too.
+   * `postmark` predates `email` and means "delivered over Postmark"; `email`
+   * means a Sign-in code can be delivered at all (Postmark, SMTP or, opt-in,
+   * the server log). Keep the shape additive: `scripts/smoketest.sh` and the
+   * preview smoke probe this procedure.
    */
-  getConfiguredProviders: publicProcedure.query(() => ({
-    google: !!process.env.GOOGLE_CLIENT_ID,
-    microsoft: MICROSOFT_LOGIN_ENABLED && !!process.env.MICROSOFT_ENTRA_ID_CLIENT_ID,
-    discord: !!process.env.AUTH_DISCORD_ID,
-    postmark: !!(process.env.AUTH_POSTMARK_KEY ?? process.env.POSTMARK_SERVER_TOKEN),
-  })),
+  getConfiguredProviders: publicProcedure.query(() => {
+    const methods = resolveSignInMethods(process.env);
+    return {
+      google: methods.google,
+      microsoft: methods.microsoft,
+      discord: methods.discord,
+      notion: methods.notion,
+      postmark: methods.emailDelivery === "postmark",
+      email: methods.emailDelivery !== null,
+    };
+  }),
 
   /**
    * Native sign-in code exchange (ADR 0005, `exponential-ios`). The app sends

@@ -2,7 +2,7 @@ import { z } from "zod";
 
 import { TRPCError } from "@trpc/server";
 import type { PrismaClient } from "@prisma/client";
-import { createTRPCRouter } from "~/server/api/trpc";
+import { createTRPCRouter, isAgentActorToken } from "~/server/api/trpc";
 import { apiKeyMiddleware } from "~/server/api/middleware/apiKeyAuth";
 import { TimeEntryService } from "~/server/services/timeEntry/TimeEntryService";
 import {
@@ -64,9 +64,10 @@ async function assertOwnerCanViewAction(
 }
 
 /**
- * Confirmation is a human act (ADR-0061). Keyed on the principal like
- * `humanOnlyProcedure`: the token-type check is the fast path, the `isAgent`
- * read catches a shadow user reaching here through any other token.
+ * Confirmation is a human act (ADR-0061). The same two checks as
+ * `humanOnlyProcedure` (ADR-0070): any agent-acting token is refused —
+ * including Zoe's, which carry the person as session user — and the
+ * `isAgent` read catches a shadow user reaching here through any other token.
  */
 async function assertHumanPrincipal(
   db: PrismaClient,
@@ -75,9 +76,9 @@ async function assertHumanPrincipal(
 ): Promise<void> {
   const forbidden = new TRPCError({
     code: "FORBIDDEN",
-    message: "Confirming a day is not available to external agents",
+    message: "Only a person can do this, signed in as themselves — agents (including Zoe) cannot",
   });
-  if (tokenType === "agent-key") throw forbidden;
+  if (isAgentActorToken(tokenType)) throw forbidden;
   const principal = await db.user.findUnique({
     where: { id: userId },
     select: { isAgent: true },

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { AiNotConfiguredError, requireAi } from "~/server/services/ai/requireAi";
 import type { Prisma, PrismaClient } from "@prisma/client";
 import {
   createTRPCRouter,
@@ -2003,11 +2004,7 @@ export const transcriptionRouter = createTRPCRouter({
             message: "This meeting has no transcript to summarize",
           });
         case "not-configured":
-          throw new TRPCError({
-            code: "PRECONDITION_FAILED",
-            message:
-              "Server summarization is not configured (missing OPENAI_API_KEY).",
-          });
+          throw new AiNotConfiguredError("summaries", "Meeting summaries");
         case "failed":
           throw new TRPCError({
             code: "INTERNAL_SERVER_ERROR",
@@ -2305,6 +2302,7 @@ export const transcriptionRouter = createTRPCRouter({
         "edit",
       );
 
+      requireAi("openai", "Feature ideation");
       const result = await FeatureIdeationService.generateDraftFeatures(
         input.transcriptionId,
         ctx.session.user.id,

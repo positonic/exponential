@@ -1,4 +1,5 @@
 import OpenAI from "openai";
+import { requireAi } from "~/server/services/ai/requireAi";
 import { z } from "zod";
 import type { WorkBundle } from "./gather";
 
@@ -40,6 +41,7 @@ const DigestPayloadSchema = z.object({
 
 let _defaultOpenAI: OpenAI | undefined;
 function getDefaultOpenAI(): OpenAI {
+  requireAi("openai", "The weekly work digest");
   return (_defaultOpenAI ??= new OpenAI({
     apiKey: process.env.OPENAI_API_KEY,
     timeout: 30_000,

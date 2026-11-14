@@ -1,17 +1,18 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import {
   ActionIcon,
+  Avatar,
   Badge,
   Group,
   Menu,
-  Select,
   Skeleton,
   Stack,
   Text,
+  Textarea,
   Tooltip,
 } from "@mantine/core";
 import { DateInput } from "@mantine/dates";
@@ -34,15 +35,18 @@ import { api } from "~/trpc/react";
 import { useWorkspace } from "~/providers/WorkspaceProvider";
 import {
   PropertiesSidebar,
-  PropertyRow,
   PropertyDivider,
+  PropertyRow,
+  SearchableSelect,
 } from "~/app/_components/PropertiesSidebar";
 import { PriorityIcon } from "~/app/_components/product/PriorityIcon";
 import { CollapsibleSection } from "~/app/_components/product/CollapsibleSection";
-import { MarkdownRenderer } from "~/app/_components/shared/MarkdownRenderer";
+import { EpicDescriptionEditor } from "~/app/_components/product/EpicDescriptionEditor";
 import { TagSelector } from "~/app/_components/TagSelector";
+import { PersonPicker } from "~/app/_components/shared/PersonPicker";
 import { EPIC_PRIORITY_OPTIONS, EPIC_STATUS_OPTIONS } from "~/types/epic";
 import type { EpicPriority, EpicStatus } from "~/types/epic";
+import { useProductDetailTitle } from "../../ProductDetailTitle";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -91,6 +95,7 @@ export default function EpicDetailPage() {
     { id: epicId },
     { enabled: !!epicId },
   );
+  useProductDetailTitle(epic?.name);
 
   const { data: products } = api.product.product.list.useQuery(
     { workspaceId: workspaceId ?? "" },
@@ -119,6 +124,35 @@ export default function EpicDetailPage() {
       });
     },
   });
+
+  // Local draft of the title. A refetch (e.g. after a sidebar edit) must not
+  // clobber an edit in progress, so server data only seeds it while the field
+  // is not focused.
+  const [titleValue, setTitleValue] = useState("");
+  const [editingTitle, setEditingTitle] = useState(false);
+  useEffect(() => {
+    if (epic && !editingTitle) setTitleValue(epic.name);
+  }, [epic, editingTitle]);
+
+  const commitTitle = () => {
+    setEditingTitle(false);
+    if (!epic) return;
+    const trimmed = titleValue.trim();
+    if (!trimmed) {
+      setTitleValue(epic.name);
+      return;
+    }
+    if (trimmed === epic.name) return;
+    // Patch the cache first: leaving edit mode re-seeds the field from it, and
+    // the old name would flash back until the invalidation refetch lands.
+    utils.epic.getById.setData({ id: epicId }, (old) =>
+      old ? { ...old, name: trimmed } : old,
+    );
+    updateEpic.mutate(
+      { id: epicId, name: trimmed },
+      { onError: () => void utils.epic.getById.invalidate({ id: epicId }) },
+    );
+  };
 
   const deleteEpic = api.epic.delete.useMutation({
     onSuccess: async () => {
@@ -233,9 +267,32 @@ export default function EpicDetailPage() {
             </Group>
 
             <Group justify="space-between" align="flex-start">
-              <Text size="xl" fw={700} className="text-text-primary flex-1">
-                {epic.name}
-              </Text>
+              <Textarea
+                aria-label="Epic title"
+                value={titleValue}
+                onChange={(e) => setTitleValue(e.currentTarget.value)}
+                onFocus={() => setEditingTitle(true)}
+                autosize
+                minRows={1}
+                maxRows={3}
+                variant="unstyled"
+                classNames={{ input: "text-text-primary font-bold text-xl p-0 leading-tight resize-none" }}
+                styles={{ root: { flex: 1 }, input: { fontWeight: 700, fontSize: "1.25rem" } }}
+                onBlur={commitTitle}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault();
+                    e.currentTarget.blur();
+                  } else if (e.key === "Escape") {
+                    setTitleValue(epic.name);
+                    setEditingTitle(false);
+                    // Blur after the reset lands, so commitTitle sees the
+                    // reverted value and saves nothing.
+                    const el = e.currentTarget;
+                    requestAnimationFrame(() => el.blur());
+                  }
+                }}
+              />
               <Menu position="bottom-end" withinPortal>
                 <Menu.Target>
                   <ActionIcon variant="subtle" className="text-text-muted">
@@ -278,12 +335,13 @@ export default function EpicDetailPage() {
             </Group>
           </div>
 
-          {/* Description */}
-          {epic.description && (
-            <CollapsibleSection title="Description">
-              <MarkdownRenderer content={epic.description} variant="prose" />
-            </CollapsibleSection>
-          )}
+          {/* Description — keyed on the epic: the editor loads its content
+              once per mount. */}
+          <EpicDescriptionEditor
+            key={epicId}
+            epicId={epicId}
+            description={epic.description ?? null}
+          />
 
           {/* Tickets */}
           <CollapsibleSection
@@ -358,6 +416,20 @@ export default function EpicDetailPage() {
                           </Badge>
                         )}
                       <PriorityIcon priority={ticket.priority ?? 4} size={14} />
+                      {ticket.assignee ? (
+                        <Tooltip label={ticket.assignee.name ?? "Assigned"}>
+                          <Avatar
+                            src={ticket.assignee.image}
+                            size={18}
+                            radius="xl"
+                            className="shrink-0"
+                          >
+                            {(ticket.assignee.name ?? "?")[0]?.toUpperCase()}
+                          </Avatar>
+                        </Tooltip>
+                      ) : (
+                        <span className="w-[18px] shrink-0" aria-hidden />
+                      )}
                     </Link>
                   ))}
                 </div>
@@ -403,7 +475,7 @@ export default function EpicDetailPage() {
       {/* Properties sidebar */}
       <PropertiesSidebar>
         <PropertyRow icon={<IconCircleDot size={14} />} label="Status">
-          <Select
+          <SearchableSelect
             value={epic.status}
             onChange={(val) =>
               val && updateEpic.mutate({ id: epicId, status: val as EpicStatus })
@@ -420,7 +492,7 @@ export default function EpicDetailPage() {
         </PropertyRow>
 
         <PropertyRow icon={<IconBox size={14} />} label="Product">
-          <Select
+          <SearchableSelect
             value={epic.product?.id ?? null}
             onChange={(val) =>
               val && updateEpic.mutate({ id: epicId, productId: val })
@@ -429,7 +501,6 @@ export default function EpicDetailPage() {
             placeholder="Select a product"
             size="xs"
             variant="unstyled"
-            searchable
             nothingFoundMessage="No products in this workspace"
             comboboxProps={{ withinPortal: true }}
             classNames={{
@@ -440,7 +511,7 @@ export default function EpicDetailPage() {
         </PropertyRow>
 
         <PropertyRow icon={<IconFlag size={14} />} label="Priority">
-          <Select
+          <SearchableSelect
             value={epic.priority}
             onChange={(val) =>
               val &&
@@ -469,10 +540,30 @@ export default function EpicDetailPage() {
           />
         </PropertyRow>
 
+        {/* Owner: hand-over only. The roster is the epic's own workspace —
+            membership is checked against it, not the one in the address bar —
+            and the picker cannot clear, because an epic always has an owner. */}
         <PropertyRow icon={<IconUser size={14} />} label="Owner">
-          <Text size="xs" className="text-text-primary">
-            {epic.owner.name ?? epic.owner.email ?? "—"}
-          </Text>
+          <PersonPicker
+            trigger="field"
+            showFieldLabel={false}
+            label="Owner"
+            workspaceId={epic.workspace.id}
+            value={epic.ownerId}
+            selectedUser={epic.owner}
+            clearable={false}
+            onChange={(id) => {
+              if (id && id !== epic.ownerId) {
+                updateEpic.mutate({ id: epicId, ownerId: id });
+              }
+            }}
+            fieldProps={{
+              size: "xs",
+              variant: "unstyled",
+              classNames: { input: "text-text-primary text-xs font-medium cursor-pointer" },
+              styles: { input: { height: 24, minHeight: 24 } },
+            }}
+          />
         </PropertyRow>
 
         <PropertyDivider />

@@ -4,7 +4,7 @@
  * agent's text as summary when finish-run was never called, FAILED on a
  * Mastra error, and a second dispatcher is a no-op. Mocked Prisma + fetch.
  */
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { mockDeep, mockReset, type DeepMockProxy } from "vitest-mock-extended";
 import type { PrismaClient } from "@prisma/client";
 
@@ -21,7 +21,7 @@ vi.hoisted(() => {
   process.env.SKIP_ENV_VALIDATION ??= "true";
 });
 
-const { dispatchQueuedRuns, countToolCalls, buildPersonaMessage, buildActionBrief, LOCAL_RUNNER_CLOSING } = await import("../dispatch");
+const { dispatchQueuedRuns, triggerDispatch, countToolCalls, buildPersonaMessage, buildActionBrief, LOCAL_RUNNER_CLOSING } = await import("../dispatch");
 const { assembleScopeInstructions } = await import("~/server/services/ai/scopeInstructions");
 
 const db: DeepMockProxy<PrismaClient> = mockDeep<PrismaClient>();
@@ -347,5 +347,38 @@ describe("finish after a cancel", () => {
     await dispatchQueuedRuns(db, new Date());
 
     expect(db.agentRun.updateMany.mock.calls[1]?.[0]).toMatchObject({ data: { status: "SUCCEEDED", summary: null } });
+  });
+});
+
+describe("triggerDispatch — where the CRON_SECRET goes", () => {
+  beforeEach(() => {
+    fetchMock.mockReset();
+    fetchMock.mockResolvedValue({ ok: true });
+    for (const name of ["NEXT_PUBLIC_APP_URL", "VERCEL", "NEXTAUTH_URL", "RAILWAY_PUBLIC_DOMAIN", "PORT"]) {
+      vi.stubEnv(name, undefined);
+    }
+    vi.stubEnv("CRON_SECRET", "cron-secret");
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it("kicks its own localhost off Vercel, never exponential.im", async () => {
+    await triggerDispatch("run-9");
+
+    expect(String(fetchMock.mock.calls[0]?.[0])).toBe(
+      "http://localhost:3000/api/internal/agent-runs/dispatch?runId=run-9",
+    );
+  });
+
+  it("kicks exponential.im on Vercel (production unchanged)", async () => {
+    vi.stubEnv("VERCEL", "1");
+
+    await triggerDispatch("run-9");
+
+    expect(String(fetchMock.mock.calls[0]?.[0])).toBe(
+      "https://www.exponential.im/api/internal/agent-runs/dispatch?runId=run-9",
+    );
   });
 });

@@ -83,3 +83,17 @@ describe("acceptPendingInvitationsForUser", () => {
     });
   });
 });
+
+describe("matching invitations to the address", () => {
+  it("matches workspace and team invitations case-insensitively, as invite-only sign-up does", async () => {
+    db.workspaceInvitation.findMany.mockResolvedValue([] as never);
+
+    await acceptPendingInvitationsForUser(db, USER, EMAIL);
+
+    // Auth.js lowercases the sign-in address; an invitation keeps the case
+    // the inviter typed ("Invitee@Example.com").
+    for (const call of [db.workspaceInvitation.findMany.mock.calls[0]![0], db.teamInvitation.findMany.mock.calls[0]![0]]) {
+      expect(call?.where?.email).toEqual({ equals: EMAIL, mode: "insensitive" });
+    }
+  });
+});

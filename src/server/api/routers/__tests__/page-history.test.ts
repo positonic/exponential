@@ -82,6 +82,7 @@ vi.mock("~/server/db", () => {
 });
 
 import { createMockCaller } from "~/test/trpc-helpers";
+import { presentRevisionAuthor } from "~/server/api/routers/page";
 
 const OWNER = "user-owner";
 const PAGE_ID = "page-1";
@@ -125,6 +126,9 @@ function revisionRows() {
       bodyDoc: { type: "doc" },
       kind: "editor",
       note: null,
+      source: "Board deck",
+      asOf: new Date("2026-09-30T00:00:00Z"),
+      bodyBytes: Buffer.byteLength(BODY),
       createdAt: T1,
       updatedAt: T1,
       author: { id: OWNER, name: "Owner", image: null },
@@ -138,6 +142,9 @@ function revisionRows() {
       bodyDoc: null,
       kind: "create",
       note: "First draft",
+      source: null,
+      asOf: null,
+      bodyBytes: Buffer.byteLength("# Strategy\n\nIntro."),
       createdAt: T0,
       updatedAt: T0,
       author: { id: OWNER, name: "Owner", image: null },
@@ -231,14 +238,19 @@ describe("page history", () => {
   it("history lists revisions newest-first with sizes but without bodies", async () => {
     const caller = createMockCaller({ userId: OWNER, db });
     const result = await caller.page.history({ id: PAGE_ID });
+    // The stored size is read; the body never leaves Postgres.
+    const select = (db.knowledgePageRevision.findMany.mock.calls[0]![0] as { select: Record<string, boolean> }).select;
+    expect(select.bodyBytes).toBe(true);
+    expect(select.body).toBeUndefined();
     expect(result.nextCursor).toBeNull();
     expect(result.revisions.map((r) => r.id)).toEqual(["rev-2", "rev-1"]);
-    expect(result.revisions[0]).not.toHaveProperty("body");
     expect(result.revisions[0]).toMatchObject({
       docVersion: 3,
       kind: "editor",
       bodyBytes: Buffer.byteLength(BODY),
       author: { id: OWNER, name: "Owner" },
+      authorHidden: false,
+      source: "Board deck",
     });
     expect(result.revisions[1]).toMatchObject({ note: "First draft", kind: "create" });
   });
@@ -265,6 +277,22 @@ describe("page history", () => {
     await expect(caller.page.revision({ id: PAGE_ID, revisionId: "rev-1" })).rejects.toMatchObject({
       code: "NOT_FOUND",
     });
+  });
+
+  it("names authors only to workspace members (the audience rule)", () => {
+    const author = { id: OWNER, name: "Owner", image: null };
+    expect(presentRevisionAuthor(author, true)).toEqual({ author, authorHidden: false });
+    expect(presentRevisionAuthor(author, false)).toEqual({ author: null, authorHidden: true });
+    // A baseline row has no author to hide.
+    expect(presentRevisionAuthor(null, false)).toEqual({ author: null, authorHidden: false });
+  });
+
+  it("diff flags a provenance change between revisions", async () => {
+    const caller = createMockCaller({ userId: OWNER, db });
+    const diff = await caller.page.diff({ id: PAGE_ID, revisionId: "rev-2" });
+    expect(diff.provenanceChanged).toBe(true);
+    expect(diff.from).toMatchObject({ source: null, asOf: null });
+    expect(diff.to).toMatchObject({ source: "Board deck" });
   });
 
   it("diff defaults to 'what this revision changed' against the one before it", async () => {
@@ -301,12 +329,19 @@ describe("page history", () => {
     const caller = createMockCaller({ userId: OWNER, db });
     const result = await caller.page.restore({ id: PAGE_ID, revisionId: "rev-1", note: "Back to the draft" });
     expect(result).toEqual({ id: PAGE_ID, docVersion: 4, revisionId: "rev-new" });
+    // Without a base version it pins the version it just read.
+    expect(db.knowledgePage.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: PAGE_ID, docVersion: 3 } }),
+    );
     expect(db.knowledgePage.updateMany).toHaveBeenCalledWith(
       expect.objectContaining({
         where: { id: PAGE_ID, docVersion: 3 },
         data: expect.objectContaining({
           title: "Strategy draft",
           body: "# Strategy\n\nIntro.",
+          // The whole snapshot comes back, provenance included.
+          source: null,
+          asOf: null,
           docVersion: { increment: 1 },
         }),
       }),
@@ -317,6 +352,17 @@ describe("page history", () => {
       }),
     );
     expect(triggerPageEmbedding).toHaveBeenCalledWith(PAGE_ID);
+  });
+
+  it("restore pins the version the caller saw, so a newer save is a CONFLICT", async () => {
+    db.knowledgePage.updateMany.mockResolvedValue({ count: 0 } as never);
+    const caller = createMockCaller({ userId: OWNER, db });
+    await expect(
+      caller.page.restore({ id: PAGE_ID, revisionId: "rev-1", baseVersion: 2 }),
+    ).rejects.toMatchObject({ code: "CONFLICT" });
+    expect(db.knowledgePage.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: PAGE_ID, docVersion: 2 } }),
+    );
   });
 
   it("restore reports CONFLICT when the page moved on underneath it", async () => {
@@ -349,6 +395,22 @@ describe("writes record revisions", () => {
     );
   });
 
+  it("a rename from the CLI or an agent is its own 'markdown' revision, never folded", async () => {
+    const cli = createMockCaller({ userId: OWNER, db, tokenType: "api-token" });
+    await cli.page.update({ id: PAGE_ID, title: "Renamed by CLI" });
+    expect(db.knowledgePageRevision.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ kind: "markdown" }) }),
+    );
+    // A non-editor kind never looks for a session to fold into.
+    expect(db.knowledgePageRevision.findFirst).not.toHaveBeenCalled();
+  });
+
+  it("re-sending the stored title or provenance records nothing", async () => {
+    const caller = createMockCaller({ userId: OWNER, db, tokenType: "agent-context" });
+    await caller.page.update({ id: PAGE_ID, title: "Strategy", source: null, asOf: null });
+    expect(db.knowledgePageRevision.create).not.toHaveBeenCalled();
+  });
+
   it("a rename records an 'editor' revision; a search toggle alone records nothing", async () => {
     const caller = createMockCaller({ userId: OWNER, db });
     await caller.page.update({ id: PAGE_ID, title: "Renamed" });
@@ -360,6 +422,14 @@ describe("writes record revisions", () => {
     db.knowledgePageRevision.create.mockClear();
     await caller.page.update({ id: PAGE_ID, includeInSearch: false });
     expect(db.knowledgePageRevision.create).not.toHaveBeenCalled();
+  });
+
+  it("a provenance-only change records an 'editor' revision", async () => {
+    const caller = createMockCaller({ userId: OWNER, db });
+    await caller.page.update({ id: PAGE_ID, asOf: new Date("2026-10-01T00:00:00Z") });
+    expect(db.knowledgePageRevision.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ kind: "editor" }) }),
+    );
   });
 
   it("source and asOf are written with the page and an empty source clears it", async () => {
@@ -529,6 +599,7 @@ describe("page.search", () => {
     knowledgeSearch.mockReset();
     installPage(db);
     db.workspace.findUnique.mockResolvedValue({ slug: "acme" } as never);
+    db.knowledgePage.findFirst.mockResolvedValue({ id: PAGE_ID } as never);
   });
 
   it("returns semantic hits first, deduplicated per page, then substring matches", async () => {
@@ -580,11 +651,22 @@ describe("page.search", () => {
     expect(result.results[0]).toMatchObject({ id: "p-c", matchedBy: "text" });
   });
 
-  it("returns nothing for a workspace the caller is not a member of", async () => {
-    db.workspaceUser.findUnique.mockResolvedValue(null);
+  it("returns nothing, without an embedding call, to someone who can view no page there", async () => {
+    db.knowledgePage.findFirst.mockResolvedValue(null);
     const caller = createMockCaller({ userId: OWNER, db });
     const result = await caller.page.search({ workspaceId: "ws-other", query: "focus" });
     expect(result.results).toEqual([]);
     expect(knowledgeSearch).not.toHaveBeenCalled();
+  });
+
+  it("searches for a project-only collaborator who is not a workspace member", async () => {
+    db.workspaceUser.findUnique.mockResolvedValue(null);
+    knowledgeSearch.mockResolvedValue([
+      { sourceType: "page", sourceId: "p-a", sourceTitle: "Plan", content: "focus", similarity: 0.6 },
+    ]);
+    db.knowledgePage.findMany.mockResolvedValue([] as never);
+    const caller = createMockCaller({ userId: OWNER, db });
+    const result = await caller.page.search({ workspaceId: WORKSPACE_ID, query: "focus" });
+    expect(result.results.map((r) => r.id)).toEqual(["p-a"]);
   });
 });

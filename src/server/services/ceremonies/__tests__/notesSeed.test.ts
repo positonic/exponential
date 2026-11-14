@@ -1,4 +1,8 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
+
+// Page history (ADR-0074) has its own tests; here it only has to be called.
+const recordPageRevision = vi.hoisted(() => vi.fn());
+vi.mock("~/server/services/pages/revisions", () => ({ recordPageRevision }));
 import type { PrismaClient } from "@prisma/client";
 import { mockDeep } from "vitest-mock-extended";
 import type { JSONContent } from "@tiptap/core";
@@ -11,26 +15,10 @@ vi.mock("~/server/services/embedding/EmbeddingTriggerService", () => ({
 
 import {
   appendMeetingSummaryToNotes,
-  buildNotesSeed,
-  buildNotesSeedMarkdown,
   demoteHeadings,
-  ensureSeededOccurrenceNotesPage,
-  seedNotesPageIfUntouched,
+  ensureEmptyOccurrenceNotesPage,
   summaryToMarkdown,
 } from "../notesSeed";
-import type { AgendaSnapshot } from "../agenda/types";
-
-const agenda: AgendaSnapshot = {
-  version: 1,
-  generatedAt: "2026-09-08T06:00:00.000Z",
-  sections: [
-    { key: "blockers", type: "blockers", title: "Blockers", items: [] },
-    { key: "carried", type: "carried_over", title: "Carried over", items: [] },
-    { key: "okr", type: "okr_review", title: "Key results at risk", items: [] },
-  ],
-  narrative: "The meeting needs to get through one key result at risk.\n\n## Blockers\nNothing to raise.\n\n## Key results at risk\n- Linked work renders (never checked in)",
-};
-
 /** A deep Prisma mock whose interactive `$transaction` runs on the same mock. */
 function mockDb() {
   const db = mockDeep<PrismaClient>();
@@ -48,107 +36,35 @@ const headingsOf = (doc: JSONContent) =>
 
 beforeEach(() => triggerPageEmbedding.mockClear());
 
-describe("buildNotesSeed", () => {
-  it("writes one heading per section in order, then the narrative under Draft agenda with its headings demoted", () => {
-    const md = buildNotesSeedMarkdown(agenda);
-    expect(md).toBe(
-      [
-        "## Blockers",
-        "## Carried over",
-        "## Key results at risk",
-        "## Draft agenda",
-        "The meeting needs to get through one key result at risk.\n\n### Blockers\nNothing to raise.\n\n### Key results at risk\n- Linked work renders (never checked in)",
-      ].join("\n\n"),
-    );
-    const seed = buildNotesSeed(agenda);
-    expect(headingsOf(seed.bodyDoc)).toEqual([
-      [2, "Blockers"],
-      [2, "Carried over"],
-      [2, "Key results at risk"],
-      [2, "Draft agenda"],
-      [3, "Blockers"],
-      [3, "Key results at risk"],
-    ]);
-  });
-
-  it("keeps the Markdown projection in step with the doc (round-trips through the codec)", () => {
-    const seed = buildNotesSeed(agenda);
-    expect(docToMarkdown(seed.bodyDoc)).toBe(seed.body);
-    expect(markdownToDoc(seed.body)).toEqual(seed.bodyDoc);
-  });
-
-  it("omits Draft agenda when there is no narrative", () => {
-    const md = buildNotesSeedMarkdown({ ...agenda, narrative: null });
-    expect(md).toBe("## Blockers\n\n## Carried over\n\n## Key results at risk");
-  });
-
+describe("demoteHeadings", () => {
   it("demotes headings only at line starts", () => {
     expect(demoteHeadings("# A\ntext with # inside\n#### D")).toBe("## A\ntext with # inside\n##### D");
   });
 });
 
-describe("seedNotesPageIfUntouched", () => {
-  const seed = buildNotesSeed(agenda);
-
-  it("seeds an empty page with a compare-and-set on docVersion 0", async () => {
-    const db = mockDb();
-    db.knowledgePage.findUnique.mockResolvedValue({ docVersion: 0, body: null, bodyDoc: null } as never);
-    db.knowledgePage.updateMany.mockResolvedValue({ count: 1 });
-    expect(await seedNotesPageIfUntouched(db, "page-1", seed)).toBe(true);
-    expect(db.knowledgePage.updateMany).toHaveBeenCalledWith({
-      where: { id: "page-1", docVersion: 0 },
-      data: { bodyDoc: seed.bodyDoc, body: seed.body, docVersion: { increment: 1 } },
-    });
-    expect(triggerPageEmbedding).toHaveBeenCalledWith("page-1");
-  });
-
-  it("treats the editor's empty doc as untouched, but never touches a saved or written page", async () => {
-    const db = mockDb();
-    db.knowledgePage.updateMany.mockResolvedValue({ count: 1 });
-    db.knowledgePage.findUnique.mockResolvedValueOnce({ docVersion: 0, body: "", bodyDoc: { type: "doc", content: [{ type: "paragraph" }] } } as never);
-    expect(await seedNotesPageIfUntouched(db, "page-1", seed)).toBe(true);
-
-    db.knowledgePage.findUnique.mockResolvedValueOnce({ docVersion: 3, body: "", bodyDoc: null } as never);
-    expect(await seedNotesPageIfUntouched(db, "page-1", seed)).toBe(false);
-    db.knowledgePage.findUnique.mockResolvedValueOnce({ docVersion: 0, body: "My own notes", bodyDoc: null } as never);
-    expect(await seedNotesPageIfUntouched(db, "page-1", seed)).toBe(false);
-    db.knowledgePage.findUnique.mockResolvedValueOnce({ docVersion: 0, body: null, bodyDoc: markdownToDoc("typed") } as never);
-    expect(await seedNotesPageIfUntouched(db, "page-1", seed)).toBe(false);
-    expect(db.knowledgePage.updateMany).toHaveBeenCalledTimes(1);
-  });
-
-  it("yields to a save that lands between the read and the write", async () => {
-    const db = mockDb();
-    db.knowledgePage.findUnique.mockResolvedValue({ docVersion: 0, body: null, bodyDoc: null } as never);
-    db.knowledgePage.updateMany.mockResolvedValue({ count: 0 });
-    expect(await seedNotesPageIfUntouched(db, "page-1", seed)).toBe(false);
-    expect(triggerPageEmbedding).not.toHaveBeenCalled();
-  });
-});
-
-describe("ensureSeededOccurrenceNotesPage", () => {
-  it("creates the page with the seed on first generation and indexes it", async () => {
+describe("ensureEmptyOccurrenceNotesPage", () => {
+  it("creates the page empty: no section headings, no copy of the narrative", async () => {
     const db = mockDb();
     db.ceremonyOccurrence.findUnique.mockResolvedValue({ notesPageId: null } as never);
     db.knowledgePage.create.mockResolvedValue({ id: "page-1" } as never);
     db.ceremonyOccurrence.updateMany.mockResolvedValue({ count: 1 });
-    const res = await ensureSeededOccurrenceNotesPage(db, occurrence, ceremony, agenda);
-    expect(res).toEqual({ pageId: "page-1", created: true, seeded: true });
-    const seed = buildNotesSeed(agenda);
-    expect(db.knowledgePage.create).toHaveBeenCalledWith(
-      expect.objectContaining({ data: expect.objectContaining({ bodyDoc: seed.bodyDoc, body: seed.body }) }),
-    );
-    expect(triggerPageEmbedding).toHaveBeenCalledWith("page-1");
+    const res = await ensureEmptyOccurrenceNotesPage(db, occurrence, ceremony);
+    expect(res).toEqual({ pageId: "page-1", created: true });
+    const data = db.knowledgePage.create.mock.calls[0]![0]!.data as Record<string, unknown>;
+    expect(data).not.toHaveProperty("body");
+    expect(data).not.toHaveProperty("bodyDoc");
+    expect(triggerPageEmbedding).not.toHaveBeenCalled();
   });
 
-  it("on regeneration leaves an edited page alone (seed once only)", async () => {
+  it("leaves an existing page alone, written in or not", async () => {
     const db = mockDb();
     db.ceremonyOccurrence.findUnique.mockResolvedValue({ notesPageId: "page-1" } as never);
-    db.knowledgePage.findUnique.mockResolvedValue({ docVersion: 4, body: "Edited by hand", bodyDoc: markdownToDoc("Edited by hand") } as never);
-    const res = await ensureSeededOccurrenceNotesPage(db, occurrence, ceremony, { ...agenda, narrative: "Regenerated pre-read" });
-    expect(res).toEqual({ pageId: "page-1", created: false, seeded: false });
+    db.knowledgePage.findUnique.mockResolvedValue({ id: "page-1", docVersion: 0, body: "", bodyDoc: null } as never);
+    const res = await ensureEmptyOccurrenceNotesPage(db, occurrence, ceremony);
+    expect(res).toEqual({ pageId: "page-1", created: false });
     expect(db.knowledgePage.create).not.toHaveBeenCalled();
     expect(db.knowledgePage.updateMany).not.toHaveBeenCalled();
+    expect(db.knowledgePage.update).not.toHaveBeenCalled();
   });
 });
 

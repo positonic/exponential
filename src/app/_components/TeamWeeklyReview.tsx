@@ -296,7 +296,7 @@ export function TeamWeeklyReview({ projectId }: TeamWeeklyReviewProps) {
         <Text size="sm" className="text-text-secondary mt-3">
           <Link 
             href="/productivity-methods/team-weekly-planning" 
-            className="text-brand-primary hover:text-brand-primary-hover underline"
+            className="text-link hover:text-link-hover underline"
           >
             Learn more about the Team Weekly Planning methodology →
           </Link>

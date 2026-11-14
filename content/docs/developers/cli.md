@@ -4,7 +4,7 @@ description: Every command of the exponential command-line tool, generated from 
 section: developers
 order: 3
 icon: IconTerminal2
-updated: 2026-09-28
+updated: 2026-11-09
 ---
 
 The `exponential` command-line tool gives you, your scripts and your agents the same objects the app has: actions, projects, goals and OKRs, meetings, decisions, products, tickets, features, epics, pages, CRM contacts, deals and time entries. Every command prints readable output in a terminal and JSON when piped or given `--json`, so it works as well inside an agent's shell as in yours.
@@ -111,7 +111,7 @@ exponential auth logout [options]
 
 ### `auth whoami`
 
-Show current authentication status
+Show who the stored token signs in as: the account's name and id, whether it is an [external agent](/docs/developers/external-agents) (and who owns it), the API URL and the number of workspaces it can see. Run this first when a command returns `FORBIDDEN` — the account it names is the one to grant access to.
 
 ```bash
 exponential auth whoami [options]

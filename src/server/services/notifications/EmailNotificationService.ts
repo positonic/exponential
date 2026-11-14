@@ -329,6 +329,7 @@ export async function sendPageMentionNotifications(
         projectId: true,
         workspaceId: true,
         isInviteOnly: true,
+        databaseId: true,
         workspace: { select: { id: true, slug: true, name: true } },
       },
     });

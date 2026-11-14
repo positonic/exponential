@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { tool } from "@langchain/core/tools";
 import { OpenAIEmbeddings } from "@langchain/openai";
+import { requireAi } from "~/server/services/ai/requireAi";
 
 const videoSearchSchema = z.object({
   query: z.string(),
@@ -18,6 +19,7 @@ export const createVideoSearchTool = (ctx: any) => tool(
     const userId = ctx.session.user.id;
     console.log(`[SECURITY] Video search executed by user ${userId} for query: "${input.query}"`);
 
+    requireAi("openai", "Video search");
     const embeddings = new OpenAIEmbeddings({
       openAIApiKey: process.env.OPENAI_API_KEY,
     });

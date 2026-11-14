@@ -220,3 +220,42 @@ test("Review extracted draft decisions: confirm publishes to the log, reject kee
   await expect(decisionRows.filter({ hasText: resolve })).toHaveCount(0);
   await attachScreenshot(page, "decision-log-after-confirm");
 });
+
+test("Decision graph: clicking a decision opens it in the peek drawer, in both views", async ({ page }) => {
+  const graphUrl = fixture.decisionsUrl.replace(/\/decisions$/, "/decisions/graph");
+  const peekKey = `decision-${fixture.decisionId}`;
+  const drawer = page.getByRole("dialog", { name: /Decision details/ });
+
+  // Timeline (default view): a plain click on a card peeks instead of navigating.
+  await page.goto(graphUrl);
+  await expect(page.getByRole("heading", { name: "Decision graph" })).toBeVisible({
+    timeout: FIRST_PAINT_TIMEOUT,
+  });
+  const card = page.locator(`a.dtl__card[data-kind="decision"]`, { hasText: fixture.decisionLabel });
+  await expect(card).toBeVisible({ timeout: FIRST_PAINT_TIMEOUT });
+  await card.click();
+  await expect(drawer).toBeVisible();
+  await expect(page).toHaveURL(new RegExp(`/decisions/graph\\?peek=${peekKey}$`));
+  await expect(drawer.getByText(fixture.decisionLabel).first()).toBeVisible();
+  await expect(drawer.getByRole("link", { name: "Open full page" })).toHaveAttribute(
+    "href",
+    `${fixture.decisionsUrl}/d/${fixture.decisionId}`,
+  );
+  // The graph stays mounted under the drawer, and the card is marked as peeked.
+  await expect(card).toHaveAttribute("data-peeked", "");
+  await attachScreenshot(page, "decision-graph-timeline-peek");
+
+  await drawer.getByRole("button", { name: "Close peek" }).click();
+  await expect(drawer).toBeHidden();
+  await expect(page).not.toHaveURL(/peek=/);
+
+  // Network view: a node click peeks the same way.
+  await page.goto(`${graphUrl}?view=network`);
+  const node = page.locator(".react-flow__node", { hasText: fixture.decisionLabel });
+  await expect(node).toBeVisible({ timeout: FIRST_PAINT_TIMEOUT });
+  await node.click();
+  await expect(drawer).toBeVisible();
+  await expect(page).toHaveURL(new RegExp(`[?&]peek=${peekKey}$`));
+  await expect(page).toHaveURL(/view=network/);
+  await attachScreenshot(page, "decision-graph-network-peek");
+});

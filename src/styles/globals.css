@@ -81,7 +81,7 @@
        Mantine is already painting the body with, so referencing it is a
        no-op rather than a second font. */
     --font-sans: var(--mantine-font-family);
-    --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+    --font-mono: var(--font-jetbrains-mono, "JetBrains Mono"), ui-monospace, "SF Mono", Menlo, monospace;
 
     /* Brand colors */
     --color-brand-primary: #1F5DE0;
@@ -92,6 +92,13 @@
     --color-brand-warning: #fab005;
     --color-brand-error: #fa5252;
     --color-brand-info: #339af0;
+
+    /* Links. Inline text links are NOT the brand fill: a mid-blue that
+       works as a button background sinks to ~3:1 on a dark surface. Light
+       keeps the brand blue; the dark block below lifts it two tuple stops. */
+    --color-link-rgb: 31 93 224;        /* #1F5DE0 - single source; edit this */
+    --color-link: rgb(var(--color-link-rgb));
+    --color-link-hover: #1A4EC4;
 
     /* Command palette / workspace nav tokens */
     --brand-400: #4E89FF;
@@ -321,6 +328,12 @@
     --color-brand-error: #ff6b6b;
     --color-brand-info: #4dabf7;
 
+    /* Links - DARK themes (navy + slate). Brand tuple stops 3 and 2:
+       7.2:1 on slate, 7.9:1 on navy. */
+    --color-link-rgb: 123 167 255;      /* #7BA7FF - single source; edit this */
+    --color-link: rgb(var(--color-link-rgb));
+    --color-link-hover: #A8C5FF;
+
     /* Command palette / workspace nav tokens */
     --brand-400: #4E89FF;
     --brand-500: #1F5DE0;
@@ -492,6 +505,9 @@
    INLINE style and made it impossible for any text utility to override. */
 body {
   --mantine-color-text: var(--color-text-primary);
+  /* Mantine's <Anchor> reads this; keep it on the same link token as the
+     Tailwind `text-link` utility and the Markdown renderer. */
+  --mantine-color-anchor: var(--color-link);
 }
 
 /* --- Semantic text utilities on Mantine components --- */
@@ -926,10 +942,11 @@ body {
 .chat-html-content h2 { font-size: 1.125rem; }
 .chat-html-content h3 { font-size: 1rem; }
 .chat-html-content a {
-  color: var(--color-brand-primary);
+  color: var(--color-link);
   text-decoration: none;
 }
 .chat-html-content a:hover {
+  color: var(--color-link-hover);
   text-decoration: underline;
 }
 .chat-html-content blockquote {
@@ -1072,7 +1089,7 @@ body {
 
   /* Type: the auth surface deliberately paints Inter. Radius comes from the
      global shape tokens on :root. */
-  --font-sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-sans: var(--font-inter, "Inter"), -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 }
 
 /* ==========================================================================
@@ -1414,6 +1431,26 @@ body {
   --sb-active-hover: rgba(0, 0, 0, 0.08);
 }
 
+/* Slate dark-theme sidebar. The base tokens are navy; under Slate the nav
+   goes neutral gray to match the #1a1b1e content area. Like Notion's and
+   Claude desktop's sidebars it sits one step lighter than the page, so the
+   divider reads without a strong hairline. The accent goes gray too, tied
+   to the dark secondary text (#c1c2c5, ≈9:1 on the surface) so it tracks
+   any re-tune; the Create button, focus rings and rail count dots carry no
+   blue. Text and washes are inherited from the base dark tokens. */
+[data-mantine-color-scheme="dark"][data-dark-theme="slate"] .app-sidebar {
+  --sb-accent: var(--color-text-secondary);
+  --sb-accent-10: color-mix(in srgb, var(--sb-accent) 10%, transparent);
+  --sb-accent-12: color-mix(in srgb, var(--sb-accent) 12%, transparent);
+  --sb-accent-18: color-mix(in srgb, var(--sb-accent) 18%, transparent);
+  --sb-accent-30: color-mix(in srgb, var(--sb-accent) 30%, transparent);
+  --sb-accent-55: color-mix(in srgb, var(--sb-accent) 55%, transparent);
+
+  --sb-bg: #202124;
+  /* 0.50 lands at ≈4.4:1 on the lighter gray; 0.54 restores 4.5:1+. */
+  --sb-label: rgba(234, 236, 239, 0.54);
+}
+
 /* ==========================================================================
    Coaching home surface (workspace home, homeLayout === 'coaching') -
    scoped design tokens. Consumed by
@@ -1482,9 +1519,9 @@ body {
   --ch-cta-glow: 0 10px 22px -10px var(--ch-brand-shadow);
 
   /* Type */
-  --ch-font-sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  --ch-font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
-  --ch-font-display: "Fraunces", "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", serif;
+  --ch-font-sans: var(--font-inter, "Inter"), -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --ch-font-mono: var(--font-jetbrains-mono, "JetBrains Mono"), ui-monospace, "SF Mono", Menlo, monospace;
+  --ch-font-display: var(--font-fraunces, "Fraunces"), var(--font-inter, "Inter"), -apple-system, BlinkMacSystemFont, "Segoe UI", serif;
 
 }
 
@@ -1562,6 +1599,32 @@ body {
 }
 .prd-document img.prd-image {
   margin: 0.5rem 0;
+}
+
+/* YouTube embeds (youtube-node.ts): a 16:9 player. In the editor the wrapper
+   gets a thin frame so there is something outside the iframe to click, which
+   selects the block for dragging or deleting. */
+.prd-document .prd-youtube {
+  margin: 0.75rem 0;
+  max-width: 100%;
+}
+.prd-document .prd-youtube iframe {
+  display: block;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  border: 0;
+  border-radius: var(--radius-md);
+  background-color: var(--color-bg-secondary);
+}
+.prd-document .ProseMirror .prd-youtube {
+  padding: 0.25rem;
+  border: 1px solid var(--color-border-primary);
+  border-radius: var(--radius-lg);
+  cursor: grab;
+}
+.prd-document .ProseMirror .prd-youtube.ProseMirror-selectednode {
+  border-color: var(--color-brand-primary);
+  box-shadow: 0 0 0 1px var(--color-brand-primary);
 }
 
 /* PRD body lists - visible markers + Linear-style spacing.

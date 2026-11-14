@@ -13,10 +13,13 @@ import {
 
 const db: DeepMockProxy<PrismaClient> = mockDeep<PrismaClient>();
 const NOW = new Date("2026-10-27T12:00:00Z");
+const AS_OF = new Date("2026-09-30T00:00:00Z");
 const PAGE = {
   title: "Strategy",
   body: "# Strategy\n\nv2",
   bodyDoc: { type: "doc", content: [] },
+  source: "Board deck",
+  asOf: AS_OF,
   docVersion: 7,
 };
 
@@ -57,6 +60,8 @@ describe("recordPageRevision", () => {
           title: "Strategy",
           body: PAGE.body,
           bodyDoc: PAGE.bodyDoc,
+          source: "Board deck",
+          asOf: AS_OF,
           kind: "markdown",
           note: "Rewrote the goals",
           authorId: "zoe",
@@ -84,6 +89,8 @@ describe("recordPageRevision", () => {
         docVersion: 7,
         title: "Strategy",
         body: PAGE.body,
+        source: "Board deck",
+        asOf: AS_OF,
         updatedAt: NOW,
       }),
     });
@@ -154,6 +161,20 @@ describe("diffRevisionBodies", () => {
     expect(diff.unified).toBe("");
     expect(diff.stats).toEqual({ added: 0, removed: 0 });
     expect(diff.titleChanged).toBe(true);
+  });
+
+  it("flags a provenance change even when the text is identical", () => {
+    const diff = diffRevisionBodies(
+      { label: "a", title: "T", body: "same", source: "deck", asOf: new Date("2025-09-30") },
+      { label: "b", title: "T", body: "same", source: "deck", asOf: new Date("2026-09-30") },
+    );
+    expect(diff.unified).toBe("");
+    expect(diff.provenanceChanged).toBe(true);
+    const same = diffRevisionBodies(
+      { label: "a", title: "T", body: "x", source: null, asOf: null },
+      { label: "b", title: "T", body: "x" },
+    );
+    expect(same.provenanceChanged).toBe(false);
   });
 
   it("treats a null body as empty", () => {

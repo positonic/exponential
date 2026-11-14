@@ -6,9 +6,17 @@ import { IconAffiliate, IconArrowLeft, IconChevronDown, IconTimeline } from "@ta
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { api } from "~/trpc/react";
-import { buildDecisionGraph, type GraphEdgeType } from "~/lib/decision-graph";
+import {
+  buildDecisionGraph,
+  type DecisionGraph,
+  type GraphEdgeType,
+  type GraphNode,
+} from "~/lib/decision-graph";
+import type { PeekKey } from "~/lib/decision-log";
 import { DecisionGraphCanvas } from "~/app/_components/decisions/DecisionGraphCanvas";
 import { DecisionTimeline } from "~/app/_components/decisions/DecisionTimeline";
+import { DecisionPeekDrawer, DecisionPeekProvider, usePeekOpen } from "./DecisionPeek";
+import { adrStatusBadge, decisionStatusBadge, type PeekPreview } from "./DetailPreview";
 import "./decisions-index.css";
 import "./decision-timeline.css";
 
@@ -25,8 +33,10 @@ import "./decision-timeline.css";
  * - Network: the React Flow cluster view, one column per lane.
  *
  * The view is picked from a dropdown and kept in the URL (`?view=`) so a
- * link opens the same picture. Click a card or node to open the decision.
- * Read-only, like the whole Decision Log.
+ * link opens the same picture. Click a card or node to open the decision in
+ * the Decision Log's peek drawer (?peek=, same as the log); a modified click
+ * on a timeline card still opens the full page. Read-only, like the whole
+ * Decision Log.
  *
  * With `productId` (+ `includeWorkspaceWide`) the graph is scoped the same way
  * the index's product filter scopes the table. `heightClassName` sizes the
@@ -84,7 +94,33 @@ interface DecisionGraphViewProps {
   includeWorkspaceWide?: boolean;
 }
 
-export function DecisionGraphView({
+function peekKeyFor(node: GraphNode): PeekKey {
+  return node.kind === "adr" ? `adr-${node.id}` : `decision-${node.id}`;
+}
+
+/** The network canvas, opening a clicked node in the peek drawer. */
+function PeekingGraphCanvas({ graph }: { graph: DecisionGraph }) {
+  const router = useRouter();
+  const openPeek = usePeekOpen();
+  return (
+    <DecisionGraphCanvas
+      graph={graph}
+      onNodeClick={(node) =>
+        openPeek ? openPeek(peekKeyFor(node)) : router.push(node.href)
+      }
+    />
+  );
+}
+
+export function DecisionGraphView(props: DecisionGraphViewProps) {
+  return (
+    <DecisionPeekProvider workspaceId={props.workspaceId}>
+      <DecisionGraphViewInner {...props} />
+    </DecisionPeekProvider>
+  );
+}
+
+function DecisionGraphViewInner({
   workspaceId,
   workspaceSlug,
   backHref,
@@ -93,7 +129,6 @@ export function DecisionGraphView({
   productId,
   includeWorkspaceWide,
 }: DecisionGraphViewProps) {
-  const router = useRouter();
   const searchParams = useSearchParams();
   const view = parseView(searchParams?.get("view") ?? null);
 
@@ -130,6 +165,32 @@ export function DecisionGraphView({
         : null,
     [adrGraph, decisions, workspaceSlug],
   );
+
+  // Prev/next in the drawer walk the lanes in order, then each lane by
+  // number — the network view's column order.
+  const visibleKeys = useMemo<PeekKey[]>(() => {
+    if (!graph) return [];
+    return graph.lanes.flatMap((lane) =>
+      graph.nodes
+        .filter((n) => n.laneKey === lane.key)
+        .sort((a, b) => a.order - b.order)
+        .map(peekKeyFor),
+    );
+  }, [graph]);
+
+  // What the drawer paints before the detail query lands.
+  const peekPreviews = useMemo(() => {
+    const previews = new Map<string, PeekPreview>();
+    for (const node of graph?.nodes ?? []) {
+      previews.set(peekKeyFor(node), {
+        label: node.label,
+        title: node.title,
+        badge:
+          node.kind === "adr" ? adrStatusBadge(node.status) : decisionStatusBadge(node.status),
+      });
+    }
+    return previews;
+  }, [graph]);
 
   const backLink = (
     <Anchor
@@ -229,9 +290,16 @@ export function DecisionGraphView({
         {view === "timeline" ? (
           <DecisionTimeline graph={graph} />
         ) : (
-          <DecisionGraphCanvas graph={graph} onNodeClick={(node) => router.push(node.href)} />
+          <PeekingGraphCanvas graph={graph} />
         )}
       </div>
+
+      <DecisionPeekDrawer
+        workspaceId={workspaceId}
+        workspaceSlug={workspaceSlug}
+        visibleKeys={visibleKeys}
+        previews={peekPreviews}
+      />
     </div>
   );
 }
