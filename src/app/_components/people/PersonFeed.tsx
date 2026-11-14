@@ -117,7 +117,9 @@ export function PersonFeed({
   // "that's all of it" for the length of every fetch.
   const isLoadingMore = cursor !== null && data === undefined;
   const hasMore = isLoadingMore || data?.nextCursor != null;
-  const isEmpty = !isLoading && display.length === 0;
+  // An empty page with a cursor is not the end: nothing in that stretch is
+  // visible to the viewer (private page activity) and older rows remain.
+  const isEmpty = !isLoading && display.length === 0 && !hasMore;
   const days = groupByDay(display);
 
   return (
@@ -171,6 +173,11 @@ export function PersonFeed({
             </section>
           ))}
 
+          {display.length === 0 && !isLoadingMore ? (
+            <p className="wsa-feed__empty">
+              Nothing to show from this stretch. Older activity may follow.
+            </p>
+          ) : null}
           {hasMore ? (
             <div className="wsa-feed__footer">
               <Button
