@@ -10,6 +10,9 @@ Productivity OS that turns meeting transcripts into projects, actions, and decis
 An Exponential installation that operates without an Exponential-controlled account or control plane. Its operator controls compute, primary data, object storage, credentials and encryption keys, identity, backups and exports, and update timing; it may use external processors explicitly configured by the operator.
 _Avoid_: Self-hosted, BYOC, customer cloud, or air-gapped as synonyms — those terms do not by themselves describe this control boundary.
 
+**AI capability**:
+Which AI an installation has, resolved from its environment at runtime: an **OpenAI** key, an **Anthropic** key, and the **Assistant** (a Mastra service at `MASTRA_API_URL`), plus what they combine into (meeting summaries need either key; voice needs OpenAI and the Assistant). All are optional (decided 2026-11-11, smoky.anvil): with none, the installation is a plain project and task tool — every AI surface is hidden or says which variable turns it on, AI procedures answer a typed "not configured" error, and AI jobs log one line and skip. In production an unset `MASTRA_API_URL` means no Assistant, never localhost. One resolver (`src/server/services/ai/capabilities.ts`) answers it for the server gates, the public `ai.getCapabilities` query and the self-host preflight.
+
 ### Meetings
 
 **Meeting**:

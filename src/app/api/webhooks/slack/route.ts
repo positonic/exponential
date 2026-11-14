@@ -1,4 +1,5 @@
 import { type NextRequest, NextResponse } from 'next/server';
+import { aiNotConfiguredMessage, isAiConfigured, isAiNotConfiguredError } from "~/server/services/ai/requireAi";
 import { createHmac, randomBytes } from 'crypto';
 import { db } from '~/server/db';
 import { ActionProcessorFactory } from '~/server/services/processors/ActionProcessorFactory';
@@ -1156,6 +1157,10 @@ IMPORTANT: Keep responses under 3000 characters due to Slack message limits.${pr
     const errorMsg = error instanceof Error ? error.message : String(error);
     const errorStack = error instanceof Error ? error.stack : undefined;
     console.error(`❌ [Zoe] Error after ${totalTime}ms: ${errorMsg}`, { error: errorMsg, stack: errorStack });
+
+    if (isAiNotConfiguredError(error) || !isAiConfigured("assistant")) {
+      return aiNotConfiguredMessage("assistant", "The Assistant");
+    }
 
     if (error instanceof Error) {
       if (error.message.toLowerCase().includes('timeout')) {

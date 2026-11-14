@@ -7,6 +7,7 @@ import {
   startOfISOWeek,
 } from "date-fns";
 import OpenAI from "openai";
+import { requireAi } from "~/server/services/ai/requireAi";
 import { z } from "zod";
 import { getAiInteractionLogger } from "~/server/services/AiInteractionLogger";
 import { describeEntityRef } from "./feedRenderHints";
@@ -16,6 +17,7 @@ import { getWorkspaceHomeStats } from "./workspaceHomeStats";
 // OpenAI SDK (which guards against browser-like environments at construction).
 let _defaultOpenAI: OpenAI | undefined;
 function getDefaultOpenAI(): OpenAI {
+  requireAi("openai", "The weekly narrative");
   // gpt-4o-mini for a ~500-token narrative typically returns in 2–5s. 30s is
   // comfortable headroom — anything longer means OpenAI is degraded and we'd
   // rather fail fast than hold a serverless function slot for the SDK default

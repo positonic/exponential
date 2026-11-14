@@ -14,6 +14,7 @@ import {
 import { stripHtml } from "~/lib/utils";
 import { shortIdSearchWhere, ticketUrlId } from "~/lib/fun-ids";
 import { getKnowledgeService } from "~/server/services/KnowledgeService";
+import { isAiConfigured } from "~/server/services/ai/requireAi";
 
 /**
  * Global search — the server-side equivalent of the Cmd+K palette
@@ -579,6 +580,8 @@ export const searchRouter = createTRPCRouter({
       select: { slug: true },
     });
     if (!workspace) return empty;
+    // Semantic search needs an embeddings provider; without one it's switched off.
+    if (!isAiConfigured("openai")) return empty;
 
     let chunks;
     try {

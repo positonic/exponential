@@ -267,7 +267,7 @@ describe("EmbeddingTriggerService — reindexStalePages (cron backstop)", () => 
 
     const result = await svc.reindexStalePages(new Date("2026-10-08T12:00:00Z"), 20);
 
-    expect(result).toEqual({ checked: 3, embedded: 1, cleared: 2, failed: 0 });
+    expect(result).toEqual({ checked: 3, embedded: 1, cleared: 2, failed: 0, skipped: 0 });
     expect(embedSource).toHaveBeenCalledTimes(1);
     expect(deleteChunks).toHaveBeenCalledWith("page", "p2");
     expect(deleteChunks).toHaveBeenCalledWith("page", "p4");
@@ -304,6 +304,6 @@ describe("EmbeddingTriggerService — reindexStalePages (cron backstop)", () => 
 
     const result = await svc.reindexStalePages();
 
-    expect(result).toEqual({ checked: 2, embedded: 1, cleared: 0, failed: 1 });
+    expect(result).toEqual({ checked: 2, embedded: 1, cleared: 0, failed: 1, skipped: 0 });
   });
 });

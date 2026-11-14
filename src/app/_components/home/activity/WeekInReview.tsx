@@ -17,6 +17,7 @@ import {
 } from '@tabler/icons-react';
 import Link from 'next/link';
 import { useAgentModal } from '~/providers/AgentModalProvider';
+import { useAiCapabilities } from '~/providers/AiCapabilitiesProvider';
 import { useWorkspace } from '~/providers/WorkspaceProvider';
 import { api } from '~/trpc/react';
 
@@ -87,6 +88,9 @@ function WeeklyDelta({ delta }: { delta: number }) {
 export function WeekInReview() {
   const { workspaceId, workspaceSlug, workspace } = useWorkspace();
   const { openWithPrompt } = useAgentModal();
+  // The narrative needs an OpenAI key, "Ask agent" needs the Assistant: each is
+  // left out when this install doesn't have it. The stats and chart stay.
+  const { openai: canNarrate, assistant: hasAssistant } = useAiCapabilities();
   const utils = api.useUtils();
   const { data, isLoading } = api.workspace.getHomeStats.useQuery(
     { workspaceId: workspaceId ?? '' },
@@ -97,7 +101,7 @@ export function WeekInReview() {
   // ISO week); the 30-min client staleTime just dampens dev-mode refetches.
   const narrativeQ = api.workspace.getWeeklyNarrative.useQuery(
     { workspaceId: workspaceId ?? '' },
-    { enabled: !!workspaceId, staleTime: 30 * 60 * 1000 },
+    { enabled: !!workspaceId && canNarrate, staleTime: 30 * 60 * 1000 },
   );
 
   const regenerate = api.workspace.regenerateWeeklyNarrative.useMutation({
@@ -112,7 +116,7 @@ export function WeekInReview() {
   // (isLoading=false, data=undefined) would briefly flash the "Couldn't
   // generate" error caption before WorkspaceProvider resolves.
   const narrativeBusy =
-    !workspaceId || narrativeQ.isLoading || regenerate.isPending;
+    canNarrate && (!workspaceId || narrativeQ.isLoading || regenerate.isPending);
 
   const showSkeleton = isLoading || !data;
   const range = currentWeekRange(new Date());
@@ -149,6 +153,7 @@ export function WeekInReview() {
             <span className="wsa-week__range-dot" aria-hidden="true" />
             {range}
           </span>
+          {canNarrate && (
           <Tooltip label="Regenerate narrative" withArrow position="top">
             <ActionIcon
               size="sm"
@@ -165,6 +170,7 @@ export function WeekInReview() {
               <IconRefresh size={14} stroke={1.8} />
             </ActionIcon>
           </Tooltip>
+          )}
         </div>
 
         {showSkeleton ? (
@@ -179,7 +185,7 @@ export function WeekInReview() {
           </div>
         )}
 
-        {narrativeBusy ? (
+        {!canNarrate ? null : narrativeBusy ? (
           <div className="wsa-week__narrative wsa-week__narrative--loading">
             <Loader size="xs" />
             <span className="wsa-card__caption">
@@ -221,6 +227,7 @@ export function WeekInReview() {
           >
             Plan next week
           </Button>
+          {hasAssistant && (
           <Button
             size="sm"
             variant="default"
@@ -269,6 +276,7 @@ export function WeekInReview() {
           >
             Ask agent to summarize
           </Button>
+          )}
         </div>
       </div>
 

@@ -5,6 +5,7 @@
  * them; the narrative is stored beside the structured items and never
  * parsed back. Same model default and temperature as ActionExtractionService.
  */
+import { isAiConfigured } from "~/server/services/ai/requireAi";
 import { ChatOpenAI } from "@langchain/openai";
 import { HumanMessage, SystemMessage } from "@langchain/core/messages";
 import type { AgendaSnapshot } from "./types";
@@ -69,7 +70,7 @@ export async function narrateAgenda(
 ): Promise<string | null> {
   const human = buildNarrationInput(input.ceremonyName, input.when, input.agenda);
   if (options.invoke) return stripLinks((await options.invoke(NARRATE_SYSTEM_PROMPT, human)).trim());
-  if (!process.env.OPENAI_API_KEY) return null;
+  if (!isAiConfigured("openai")) return null;
   const modelName = options.modelName ?? process.env.LLM_MODEL ?? "gpt-4o";
   // Bounded on purpose: the hourly sweep calls this once per occurrence in a
   // sequential loop inside a 300s function. LangChain's default 6 retries

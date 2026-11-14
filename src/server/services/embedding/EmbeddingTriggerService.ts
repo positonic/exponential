@@ -1,6 +1,7 @@
 import type { PrismaClient } from "@prisma/client";
 import { after } from "next/server";
 import { getKnowledgeService } from "../KnowledgeService";
+import { isAiConfigured } from "../ai/requireAi";
 import { TranscriptionSource } from "./sources/TranscriptionSource";
 import { PageSource } from "./sources/PageSource";
 import { projectedPageBody } from "~/server/services/databases/projection";
@@ -40,6 +41,8 @@ export interface StalePageSweepResult {
   embedded: number;
   cleared: number;
   failed: number;
+  /** Left as they were because no embeddings provider is configured. */
+  skipped: number;
 }
 
 /**
@@ -149,6 +152,7 @@ export class EmbeddingTriggerService {
       embedded: 0,
       cleared: 0,
       failed: 0,
+      skipped: 0,
     };
     for (const { id } of stale) {
       try {
@@ -190,7 +194,7 @@ export class EmbeddingTriggerService {
   /** Embed or clear one Page from a fresh read. */
   private async indexPage(
     pageId: string,
-  ): Promise<"embedded" | "cleared" | "failed"> {
+  ): Promise<"embedded" | "cleared" | "failed" | "skipped"> {
     const knowledgeService = getKnowledgeService(this.db);
     const page = await this.db.knowledgePage.findUnique({
       where: { id: pageId },
@@ -211,6 +215,7 @@ export class EmbeddingTriggerService {
       return "cleared";
     }
     const result = await knowledgeService.embedSource(PageSource.fromEntity({ ...page, body }));
+    if (result.skipped) return "skipped";
     if (result.success) {
       console.log(
         `[EmbeddingTriggerService] Embedded page ${pageId}: ${result.chunkCount} chunks`,
@@ -253,6 +258,10 @@ export class EmbeddingTriggerService {
   async embedTranscriptionNow(
     transcriptionId: string
   ): Promise<EmbeddingStatus> {
+    // No embeddings provider: leave the status untouched (nothing attempted),
+    // so the meeting embeds once a key is added.
+    if (!isAiConfigured("openai")) return "none";
+
     const knowledgeService = getKnowledgeService(this.db);
 
     // 1. Mark as processing

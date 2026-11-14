@@ -3,7 +3,7 @@
  * agent principal, none for humans, none while a live run exists, none on a
  * parked or finished action. Mocked Prisma — no DB.
  */
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { mockDeep, mockReset, type DeepMockProxy } from "vitest-mock-extended";
 import { Prisma, type PrismaClient } from "@prisma/client";
 import { enqueueAgentRunsForAssignees, cancelQueuedRunsForUnassigned, resumeWaitingRunsOnReply } from "../enqueue";
@@ -34,6 +34,34 @@ describe("enqueueAgentRunsForAssignees", () => {
     expect(db.agentRun.create).toHaveBeenCalledTimes(1);
     expect(db.agentRun.create.mock.calls[0]?.[0]).toMatchObject({
       data: { actionId: ACTION, agentId: AGENT, requestedById: "human-1", executor: "MASTRA" },
+    });
+  });
+
+  describe("on an install with no Assistant (production, MASTRA_API_URL unset)", () => {
+    beforeEach(() => {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("MASTRA_API_URL", "");
+    });
+    afterEach(() => {
+      vi.unstubAllEnvs();
+    });
+
+    it("queues no hosted (MASTRA) run, which would never be dispatched", async () => {
+      const runs = await enqueueAgentRunsForAssignees(db, { actionId: ACTION, userIds: [SHADOW], requestedById: "human-1" });
+      expect(runs).toEqual([]);
+      expect(db.agentRun.create).not.toHaveBeenCalled();
+    });
+
+    it("still queues a locally executed agent's run", async () => {
+      db.externalAgent.findMany.mockResolvedValue([{ id: AGENT, executor: "LOCAL_CLI" }] as never);
+      const runs = await enqueueAgentRunsForAssignees(db, { actionId: ACTION, userIds: [SHADOW], requestedById: "human-1" });
+      expect(runs).toEqual([{ id: "run-1", agentId: AGENT, executor: "LOCAL_CLI" }]);
+    });
+
+    it("queues the hosted run again once MASTRA_API_URL is set (exponential.im)", async () => {
+      vi.stubEnv("MASTRA_API_URL", "https://mastra.example.test");
+      const runs = await enqueueAgentRunsForAssignees(db, { actionId: ACTION, userIds: [SHADOW], requestedById: "human-1" });
+      expect(runs).toEqual([{ id: "run-1", agentId: AGENT, executor: "MASTRA" }]);
     });
   });
 

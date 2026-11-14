@@ -22,6 +22,8 @@ import { IconRobot, IconCheck, IconAlertCircle, IconCopy, IconTrash } from '@tab
 import { useState, useEffect } from 'react';
 import { api } from '~/trpc/react';
 import { useWorkspace } from '~/providers/WorkspaceProvider';
+import { useAiCapabilities } from '~/providers/AiCapabilitiesProvider';
+import { AiNotConfiguredNote } from '~/app/_components/ai/AiNotConfiguredNote';
 import { TelegramGatewayCard } from '~/app/_components/TelegramGatewayCard';
 import { MatrixGatewayCard } from '~/app/_components/MatrixGatewayCard';
 import { MarkdownInput } from '~/app/_components/shared/MarkdownInput';
@@ -47,6 +49,7 @@ const EXECUTOR_OPTIONS = [
 
 export default function AssistantSettingsPage() {
   const { workspaceId: currentWorkspaceId } = useWorkspace();
+  const { assistant: hasAssistant } = useAiCapabilities();
   const utils = api.useUtils();
 
   // Assistants are per workspace, but this page has no workspace in its URL.
@@ -210,6 +213,9 @@ export default function AssistantSettingsPage() {
             responds to you across the app, and it can be assigned work like a
             teammate.
           </Text>
+          {!hasAssistant && (
+            <AiNotConfiguredNote requirement="assistant" feature="The Assistant" className="mt-3" />
+          )}
         </div>
 
         {error && (

@@ -24,6 +24,7 @@ import {
 import { api, type RouterOutputs } from "~/trpc/react";
 import { useWorkspace } from "~/providers/WorkspaceProvider";
 import { useLocalDay } from "~/hooks/useDayRollover";
+import { useAiCapabilities } from "~/providers/AiCapabilitiesProvider";
 import { useAgentModal } from "~/providers/AgentModalProvider";
 import { stripHtml } from "~/lib/utils";
 import { calculateProjectHealth } from "./ProjectHealth";
@@ -46,6 +47,7 @@ export function UserHomeDashboard() {
   const { workspace, workspaceId } = useWorkspace();
   const { data: session } = useSession();
   const { openWithPrompt } = useAgentModal();
+  const { assistant: hasAssistant } = useAiCapabilities();
 
   // Zoe canvas experiment (ADR-0040): with the sticky ?canvas=1 opt-in, sends
   // from the hero input / chips answer in the page instead of the drawer.
@@ -167,7 +169,8 @@ export function UserHomeDashboard() {
         </div>
       </header>
 
-      {/* Zoe */}
+      {/* Zoe — only when this install has an Assistant (Mastra) */}
+      {hasAssistant && (
       <section className={classes.agentHero}>
         <div className={classes.agentHead}>
           <div className={classes.agentAvatar}>
@@ -230,6 +233,7 @@ export function UserHomeDashboard() {
           </button>
         </div>
       </section>
+      )}
 
       {/* Zoe canvas: the engagement answers in the page (ADR-0040) */}
       {canvasActive && (

@@ -8,7 +8,7 @@
  *   1. Load `.env` files the way `next start` will (`@next/env`, production
  *      mode), so the preflight sees what the app will; then defaults — trust
  *      the Host header (AUTH_TRUST_HOST), production mode.
- *   2. Env preflight — `src/env.js` (the four required variables and the
+ *   2. Env preflight — `src/env.js` (the three required variables and the
  *      encryption key's shape), SMTP_HOST needs a sender, and the active
  *      sign-in methods, with loud warnings for log delivery or no way in.
  *   3. pgvector preflight — this Postgres must provide pgvector 0.5.0+.
@@ -98,7 +98,7 @@ async function preflightEnvironment(): Promise<void> {
     await import("../../src/env.js");
   } catch {
     throw new StartupError(
-      "Invalid environment (details above). Required: DATABASE_URL, AUTH_SECRET, DATABASE_ENCRYPTION_KEY, OPENAI_API_KEY; see .env.selfhost.example.",
+      "Invalid environment (details above). Required: DATABASE_URL, AUTH_SECRET, DATABASE_ENCRYPTION_KEY; see .env.selfhost.example.",
     );
   }
   const { error, lines } = preflightEnv(process.env);

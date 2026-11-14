@@ -6,6 +6,7 @@
  * rendered by code. When narration is unavailable the opening falls back to
  * a plain sentence built from the counts.
  */
+import { isAiConfigured } from "~/server/services/ai/requireAi";
 import { ChatOpenAI } from "@langchain/openai";
 import { HumanMessage, SystemMessage } from "@langchain/core/messages";
 import type { ShutdownRecap } from "./types";
@@ -92,7 +93,7 @@ export async function narrateRecapOpening(recap: ShutdownRecap, options: Narrate
     if (options.invoke) {
       text = await options.invoke(RECAP_SYSTEM_PROMPT, human);
     } else {
-      if (!process.env.OPENAI_API_KEY) return fallbackRecapOpening(recap);
+      if (!isAiConfigured("openai")) return fallbackRecapOpening(recap);
       // Bounded like `narrateAgenda`: LangChain's default retries against a
       // degraded provider would eat the cron's budget for every later user.
       const model = new ChatOpenAI({

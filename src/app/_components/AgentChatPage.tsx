@@ -6,6 +6,8 @@ import ManyChat from './ManyChat';
 import { useAgentModal, type ChatMessage } from '~/providers/AgentModalProvider';
 import { api } from '~/trpc/react';
 import { useWorkspace } from '~/providers/WorkspaceProvider';
+import { useAiCapabilities } from '~/providers/AiCapabilitiesProvider';
+import { AiNotConfiguredNote } from '~/app/_components/ai/AiNotConfiguredNote';
 import { Avatar, Menu } from '@mantine/core';
 import { IconChevronDown } from '@tabler/icons-react';
 
@@ -91,7 +93,20 @@ interface AgentChatPageProps {
   scopeToWorkspace?: boolean;
 }
 
-export function AgentChatPage({ scopeToWorkspace = false }: AgentChatPageProps = {}) {
+/** The Assistant's full-page chat, or how to turn the Assistant on when this install has none. */
+export function AgentChatPage(props: AgentChatPageProps = {}) {
+  const { assistant } = useAiCapabilities();
+  if (!assistant) {
+    return (
+      <div className="mx-auto max-w-xl p-6">
+        <AiNotConfiguredNote requirement="assistant" feature="The Assistant" />
+      </div>
+    );
+  }
+  return <AgentChat {...props} />;
+}
+
+function AgentChat({ scopeToWorkspace = false }: AgentChatPageProps) {
   const [defaultAgent, setDefaultAgent] = useState<{ id: string; name: string } | null>(null);
   const [loadingConversationId, setLoadingConversationId] = useState<string | null>(null);
   const { conversationId, loadConversation, clearChat, messages } = useAgentModal();

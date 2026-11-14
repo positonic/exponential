@@ -36,13 +36,27 @@ describe("/api/cron/embed-meetings", () => {
     vi.clearAllMocks();
     vi.spyOn(console, "error").mockImplementation(() => undefined);
     process.env.CRON_SECRET = "test-secret";
+    vi.stubEnv("OPENAI_API_KEY", "sk-test");
     sweepMock.mockResolvedValue(sweepResult);
     authHeader("Bearer test-secret");
   });
 
   afterEach(() => {
     process.env.CRON_SECRET = originalSecret;
+    vi.unstubAllEnvs();
     vi.restoreAllMocks();
+  });
+
+  it("with no OPENAI_API_KEY, logs one line and skips the sweep (keyless self-host)", async () => {
+    vi.stubEnv("OPENAI_API_KEY", "");
+    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+
+    const response = await GET(request);
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({ success: true, skipped: "ai-not-configured" });
+    expect(sweepMock).not.toHaveBeenCalled();
+    expect(log).toHaveBeenCalledTimes(1);
   });
 
   it("fails closed with 503 when CRON_SECRET is not configured", async () => {

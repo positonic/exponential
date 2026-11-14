@@ -3,6 +3,10 @@ import { type NextRequest, NextResponse } from "next/server";
 import { headers } from "next/headers";
 import { db } from "~/server/db";
 import { runYouTubeSummarySweep } from "~/server/services/youtubeSummary/youtubeSummarySweep";
+import {
+  defaultYouTubeSummaryDeps,
+  isYouTubeSummaryConfigured,
+} from "~/server/services/youtubeSummary/youtubeSummary";
 
 /**
  * Cron endpoint: retries the article for YouTube links saved to the Reading
@@ -32,6 +36,11 @@ export async function GET(_request: NextRequest) {
     const provided = Buffer.from(authHeader ?? "");
     if (provided.length !== expected.length || !timingSafeEqual(provided, expected)) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    if (!isYouTubeSummaryConfigured(defaultYouTubeSummaryDeps())) {
+      console.log("[ai] cron summarize-youtube-resources skipped: video articles need ANTHROPIC_API_KEY with SUPADATA_API_KEY, or GEMINI_API_KEY.");
+      return NextResponse.json({ success: true, skipped: "ai-not-configured" });
     }
 
     const result = await runYouTubeSummarySweep(db);
