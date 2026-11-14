@@ -32,7 +32,7 @@ const points = [
     icon: IconKey,
     title: "AI is optional, with your own key",
     description:
-      "The workspace runs without a model provider. Add an OpenAI or Anthropic key to switch on the assistant and meeting features; those requests go to that provider.",
+      "The workspace runs without a model provider. Add an OpenAI or Anthropic key for the AI features, and start the optional assistant service for chat. Those requests go to the provider you choose.",
   },
 ];
 
@@ -59,6 +59,10 @@ export function SelfHostSection({ id }: SelfHostSectionProps) {
               <span className="text-text-primary">
                 git clone {SOCIAL_PROFILES.github}.git
               </span>
+            </div>
+            <div>
+              <span className="text-text-muted select-none">$ </span>
+              <span className="text-text-primary">cd exponential</span>
             </div>
             <div>
               <span className="text-text-muted select-none">$ </span>

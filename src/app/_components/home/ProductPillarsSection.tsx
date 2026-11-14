@@ -70,7 +70,7 @@ const pillars: Pillar[] = [
 
 export function ProductPillarsSection({ id }: ProductPillarsSectionProps) {
   return (
-    <section id={id} className="bg-background-primary py-20 md:py-28">
+    <section id={id} className="bg-background-primary py-20 md:py-28 scroll-mt-20">
       <Container size="lg">
         <div className="space-y-20 md:space-y-28">
           {pillars.map((pillar, index) => (
