@@ -8,6 +8,7 @@ import {
   getPersonSummary,
   resolvePersonScope,
 } from "~/server/services/person/personPage";
+import { getPersonWeekSummary } from "~/server/services/person/weekSummary/summary";
 
 /**
  * Person page (`/people/<userId>`): one page per person, human or agent,
@@ -66,4 +67,18 @@ export const personRouter = createTRPCRouter({
         actorUserId: input.userId,
       });
     }),
+
+  /**
+   * An AI-written summary of the subject's current week, built only from the
+   * events the viewer can see on this page. Never available for your own page:
+   * that shows your Weekly work digest instead.
+   */
+  getWeekSummary: protectedProcedure
+    .input(z.object({ userId: z.string().min(1) }))
+    .query(({ ctx, input }) =>
+      getPersonWeekSummary(ctx.db, {
+        viewerId: ctx.session.user.id,
+        subjectId: input.userId,
+      }),
+    ),
 });

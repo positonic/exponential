@@ -11,6 +11,7 @@ import { WeeklyWorkDigestPanel } from '~/app/_components/home/activity/WeeklyWor
 import { api } from '~/trpc/react';
 import { PersonFeed } from './PersonFeed';
 import { PersonHeader } from './PersonHeader';
+import { PersonWeekSummaryPanel } from './PersonWeekSummaryPanel';
 
 import '~/app/_components/home/activity/activity-home.css';
 
@@ -78,7 +79,13 @@ export function PersonPage({ userId }: PersonPageProps) {
 
         {/* Your own page only. The panel reads the signed-in user's digest and
             takes no subject, so it cannot show anyone else's (ADR-0018). */}
-        {person.data.isSelf ? <WeeklyWorkDigestPanel /> : null}
+        {person.data.isSelf ? (
+          <WeeklyWorkDigestPanel />
+        ) : (
+          // Someone else's page: a summary written only from what the viewer
+          // can see in the feed below, never from that person's digest.
+          <PersonWeekSummaryPanel userId={userId} name={name} />
+        )}
 
         <PersonFeed
           userId={userId}
