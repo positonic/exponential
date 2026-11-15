@@ -20,6 +20,11 @@ import type {
 } from "@prisma/client";
 import { TRPCError } from "@trpc/server";
 import { recordActivity, type ActivityAction } from "~/server/services/activity/recordActivity";
+import { emitOutboundPost } from "~/server/services/outboundPosts/emit";
+import {
+  DECISION_EVENTS,
+  decisionEventForStatus,
+} from "~/server/services/outboundPosts/producers/decision";
 import { formatDecisionLabel } from "~/lib/decision-label";
 import { parseEvidence, type DecisionEvidenceTurn } from "~/lib/decision-evidence";
 // Imported from the resolver module rather than the access barrel: the
@@ -397,6 +402,12 @@ export async function createDecision(db: PrismaClient, input: CreateDecisionInpu
       transcriptionSessionId: decision.transcriptionSessionId,
     },
   });
+  await emitDecisionPost(db, {
+    decisionId: decision.id,
+    event: DECISION_EVENTS.PUBLISHED,
+    userId: input.createdById,
+    actorIsAgent: agentActing,
+  });
 
   return decision;
 }
@@ -689,6 +700,33 @@ function activityTitle(decision: { number: number; statement: string }): string 
   return `${formatDecisionLabel(decision.number)} ${decision.statement}`;
 }
 
+/**
+ * Tell the bound room (ADR-0075). Only a person's act posts (D-0056), and who is
+ * acting comes from the verified credential (`Principal`), never a label: an agent,
+ * or an agent working under a person's identity, never causes a post. `setStatus` and
+ * `confirmDraft` already refuse those principals (ADR-0071); this is the same rule
+ * held again at the emit, so a new caller cannot post by accident. Like
+ * `recordActivity`, this never fails the write.
+ */
+async function emitDecisionPost(
+  db: PrismaClient,
+  input: { decisionId: string; event: string; userId: string; actorIsAgent: boolean },
+): Promise<void> {
+  try {
+    await emitOutboundPost(db, {
+      kind: "decision",
+      subjectId: input.decisionId,
+      event: input.event,
+      actorUserId: input.userId,
+      actorIsAgent: input.actorIsAgent,
+    });
+  } catch (error) {
+    // `emitOutboundPost` already swallows; this is the belt to its braces. A decision
+    // that was confirmed stays confirmed whether or not a room hears of it.
+    console.error("[decisionService] outbound post emit failed:", error);
+  }
+}
+
 /** The activity action a move into `status` records, so the feed reads as a lifecycle. */
 function statusActivityAction(status: DecisionStatus): ActivityAction {
   switch (status) {
@@ -973,6 +1011,15 @@ export async function setStatus(db: PrismaClient, input: SetStatusInput) {
         : null,
     },
   });
+  const event = decisionEventForStatus(input.status);
+  if (event) {
+    await emitDecisionPost(db, {
+      decisionId: decision.id,
+      event,
+      userId: input.userId,
+      actorIsAgent: isAgentActing(input.principal),
+    });
+  }
   return decision;
 }
 
@@ -1110,6 +1157,18 @@ async function applyDraftResolution(
       transcriptionSessionId: draft.transcriptionSessionId,
     },
   });
+  // The resolved target is a confirmed decision whose status a person just changed:
+  // the same act, and the same message, `setStatus` would post.
+  const resolutionEvent = statusChanged ? decisionEventForStatus(status) : null;
+  if (resolutionEvent) {
+    await emitDecisionPost(db, {
+      decisionId: decision.id,
+      event: resolutionEvent,
+      userId,
+      // Reached only through `confirmDraft`, which refuses every non-human principal.
+      actorIsAgent: false,
+    });
+  }
   return decision;
 }
 
@@ -1281,6 +1340,23 @@ async function confirmDraftAttempt(
         supersededById: null,
         supersededByLabel: null,
       },
+    });
+  }
+  // Confirming is the person's act that lets a room hear about this decision at all;
+  // a status change in the same call is a second act and a second message.
+  await emitDecisionPost(db, {
+    decisionId: decision.id,
+    event: DECISION_EVENTS.PUBLISHED,
+    userId: input.userId,
+    actorIsAgent: isAgentActing(input.principal),
+  });
+  const statusEvent = statusChanged ? decisionEventForStatus(status) : null;
+  if (statusEvent) {
+    await emitDecisionPost(db, {
+      decisionId: decision.id,
+      event: statusEvent,
+      userId: input.userId,
+      actorIsAgent: isAgentActing(input.principal),
     });
   }
   return decision;

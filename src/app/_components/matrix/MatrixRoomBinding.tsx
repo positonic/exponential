@@ -14,16 +14,45 @@ import { IconAlertTriangle, IconExternalLink } from "@tabler/icons-react";
 import { useState } from "react";
 import { api } from "~/trpc/react";
 import { matrixRoomPermalink } from "~/lib/matrixPermalink";
+import {
+  DEFAULT_OUTBOUND_KIND,
+  type OutboundKind,
+} from "~/server/services/outboundPosts/types";
 import { MatrixRoomPicker, type MatrixRoomChoice } from "./MatrixRoomPicker";
 
 interface MatrixRoomBindingProps {
   workspaceId: string;
   /** Null binds the workspace default; a project id binds that project. */
   projectId?: string | null;
+  /** Which content this binding carries (ADR-0075). Defaults to meeting summaries. */
+  kind?: OutboundKind;
 }
 
+/** The words that differ per kind; everything else about a binding is the same. */
+const COPY: Record<OutboundKind, { noun: string; offNote: string }> = {
+  meeting_summary: {
+    noun: "Meeting summaries",
+    offNote: "Meeting summaries for this project stay in Exponential.",
+  },
+  decision: {
+    noun: "Decisions",
+    offNote: "Decisions for this project stay in Exponential.",
+  },
+  workspace_update: {
+    noun: "Workspace updates",
+    offNote: "Workspace updates for this project stay in Exponential.",
+  },
+  agenda: {
+    noun: "Agendas",
+    offNote: "Agendas for this project stay in Exponential.",
+  },
+};
+
 /**
- * Where this project's (or workspace's) meeting summaries go.
+ * Where this project's (or workspace's) content of one kind goes — meeting summaries
+ * by default, decisions when asked. Each kind has its own binding, so a project can
+ * route decisions to one room and meeting summaries to another, or switch one off
+ * without the other.
  *
  * The project control is the tri-state used elsewhere in the drawer. `Off` is not
  * cosmetic: it hard-blocks posting and does not fall through to the workspace default,
@@ -35,19 +64,21 @@ interface MatrixRoomBindingProps {
 export function MatrixRoomBinding({
   workspaceId,
   projectId = null,
+  kind = DEFAULT_OUTBOUND_KIND,
 }: MatrixRoomBindingProps) {
   const [pickerOpened, { open: openPicker, close: closePicker }] = useDisclosure(false);
   const [chosen, setChosen] = useState<MatrixRoomChoice | null>(null);
+  const copy = COPY[kind];
 
   const utils = api.useUtils();
   const serversQuery = api.matrixServer.list.useQuery({ workspaceId });
-  const bindingQuery = api.matrixRoom.getBinding.useQuery({ workspaceId, projectId });
+  const bindingQuery = api.matrixRoom.getBinding.useQuery({ workspaceId, projectId, kind });
 
   const servers = serversQuery.data ?? [];
   const serverId = servers[0]?.id ?? null;
 
   function refresh() {
-    void utils.matrixRoom.getBinding.invalidate({ workspaceId, projectId });
+    void utils.matrixRoom.getBinding.invalidate({ workspaceId, projectId, kind });
   }
 
   const bind = api.matrixRoom.bind.useMutation({
@@ -78,11 +109,11 @@ export function MatrixRoomBinding({
 
   function handleModeChange(value: string) {
     if (value === "inherit") {
-      unbind.mutate({ workspaceId, projectId });
+      unbind.mutate({ workspaceId, projectId, kind });
       return;
     }
     if (value === "off" && projectId) {
-      setOff.mutate({ workspaceId, projectId });
+      setOff.mutate({ workspaceId, projectId, kind });
       return;
     }
     // "room" needs a choice before it means anything.
@@ -147,7 +178,7 @@ export function MatrixRoomBinding({
 
       {binding?.mode === "off" && (
         <Text size="xs" className="text-text-muted">
-          Meeting summaries for this project stay in Exponential.
+          {copy.offNote}
         </Text>
       )}
 
@@ -166,7 +197,11 @@ export function MatrixRoomBinding({
       <Modal
         opened={pickerOpened}
         onClose={closePicker}
-        title={projectId ? "Choose this project's room" : "Choose the default room"}
+        title={
+          projectId
+            ? `Choose this project's room for ${copy.noun.toLowerCase()}`
+            : `Choose the default room for ${copy.noun.toLowerCase()}`
+        }
         size="lg"
         transitionProps={{ duration: 0 }}
       >
@@ -198,6 +233,7 @@ export function MatrixRoomBinding({
                 serverId,
                 roomId: chosen.roomId,
                 roomName: chosen.name,
+                kind,
               });
             }}
           >

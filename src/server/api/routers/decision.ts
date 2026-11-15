@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { after } from "next/server";
 import { TRPCError } from "@trpc/server";
 import type { PrismaClient } from "@prisma/client";
 import {
@@ -37,6 +38,7 @@ import { formatDecisionLabel, parseDecisionLabel } from "~/lib/decision-label";
 import { resolvePrincipal } from "~/server/services/access/principal";
 import { buildAdrDraft } from "~/server/services/decisions/renderAdrMarkdown";
 import { settleDraftReviewNotification } from "~/server/services/decisions/settleDraftReviewNotification";
+import { kickOutboundPostsForSubject } from "~/server/services/outboundPosts/deliver";
 import { TranscriptionProcessingService } from "~/server/services/TranscriptionProcessingService";
 import { reportHandledErrorServer } from "~/server/utils/reportHandledErrorServer";
 import { parseTranscript, type TranscriptTurn } from "~/lib/transcript";
@@ -299,6 +301,25 @@ async function settleDraftReviewAfter(
       area: "decision.settleDraftReviewNotification",
       context: { transcriptionSessionId: subject.transcriptionSession.id },
     });
+  }
+}
+
+/**
+ * Deliver whatever the service just enqueued for a decision (ADR-0075), once the
+ * response is on its way. `after()` needs a request scope and throws outside one
+ * (the `action.assign` precedent); the fallback runs the kick fire-and-forget so a
+ * caller without a request scope still delivers. Delivery records its own outcome
+ * on each row, so nothing here can fail the mutation.
+ */
+function kickDecisionPosts(db: PrismaClient, decisionId: string): void {
+  const run = () =>
+    kickOutboundPostsForSubject(db, { kind: "decision", subjectId: decisionId }).catch(
+      () => undefined,
+    );
+  try {
+    after(run);
+  } catch {
+    void run();
   }
 }
 
@@ -618,6 +639,8 @@ export const decisionRouter = createTRPCRouter({
         // for a person is drafted by her credential, not by `source`.
         principal: await resolvePrincipal(ctx),
       });
+      // A draft enqueued nothing; a confirmed create may have.
+      if (decision.reviewState === "CONFIRMED") kickDecisionPosts(ctx.db, decision.id);
       return { ...decision, label: formatDecisionLabel(decision.number) };
     }),
 
@@ -815,6 +838,7 @@ export const decisionRouter = createTRPCRouter({
         // accepting makes them the decider. Agents, Zoe included, are refused.
         principal: await resolvePrincipal(ctx),
       });
+      kickDecisionPosts(ctx.db, decision.id);
       return { ...decision, label: formatDecisionLabel(decision.number) };
     }),
 
@@ -853,7 +877,43 @@ export const decisionRouter = createTRPCRouter({
         principal: await resolvePrincipal(ctx),
       });
       await settleDraftReviewAfter(ctx.db, subject);
+      // A plain confirm emits for the confirmed row; a resolution draft emits for its
+      // target, which is what the service returns. Kick both ids when they differ so
+      // neither depends on a later act (the sweep would catch it, but not promptly).
+      kickDecisionPosts(ctx.db, decision.id);
+      if (decision.id !== subject.id) kickDecisionPosts(ctx.db, subject.id);
       return { ...decision, label: formatDecisionLabel(decision.number) };
+    }),
+
+  /**
+   * Where this decision has been posted (ADR-0075): the "Posted to #leadership · 2m
+   * ago" line. Gated on viewing the decision itself, so a restricted project's room
+   * is not revealed to someone who cannot see the decision. Never a credential.
+   */
+  outboundPosts: protectedProcedure
+    .input(z.object({ workspaceId: z.string(), decisionId: z.string() }))
+    .use(requireWorkspaceMembership("view"))
+    .query(async ({ ctx, input }) => {
+      const subject = await loadDecisionSubject(ctx.db, input.workspaceId, input.decisionId);
+      await ensureDecisionAccess(ctx.db, ctx.session.user.id, subject, "view");
+      const rows = await ctx.db.outboundPost.findMany({
+        where: { workspaceId: input.workspaceId, kind: "decision", subjectId: subject.id },
+        select: {
+          id: true,
+          event: true,
+          provider: true,
+          externalId: true,
+          status: true,
+          sentAt: true,
+          createdAt: true,
+          channelLink: { select: { displayName: true } },
+        },
+        orderBy: { createdAt: "desc" },
+      });
+      return rows.map(({ channelLink, ...row }) => ({
+        ...row,
+        roomName: channelLink?.displayName ?? row.externalId,
+      }));
     }),
 
   /** Reject a draft. Confirmed decisions are deprecated, never rejected. */

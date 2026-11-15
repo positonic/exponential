@@ -2,11 +2,12 @@
  * The producer registry, keyed by kind. Adding a producer is one file plus one line
  * here; nothing in `emit` or `deliver` knows a producer by name.
  *
- * Empty until the decisions producer lands (ticket tiny.olive); the others arrive as
- * they migrate onto the primitive. Tests register their own through `registerProducer`.
+ * Decisions are the first producer; the others arrive as they migrate onto the
+ * primitive. Tests reset the registry and register their own.
  */
 
 import type { OutboundKind, OutboundSubject, Producer } from "../types";
+import { decisionProducer } from "./decision";
 
 const producers = new Map<OutboundKind, Producer<OutboundSubject>>();
 
@@ -24,3 +25,5 @@ export function getProducer(kind: OutboundKind): Producer<OutboundSubject> | und
 export function resetProducersForTests(): void {
   producers.clear();
 }
+
+registerProducer(decisionProducer);

@@ -42,6 +42,9 @@ export function DecisionStatusMenu({ workspaceId, decision, targetLabel = "Chang
       void utils.decision.get.invalidate({ workspaceId, decisionId: decision.id });
       void utils.decision.list.invalidate();
       void utils.decision.listForMeeting.invalidate();
+      // A status change may have enqueued a room post (ADR-0075); the detail page's
+      // "Posted to" line polls while it is pending.
+      void utils.decision.outboundPosts.invalidate({ workspaceId, decisionId: decision.id });
       if (updated.supersededById) {
         void utils.decision.get.invalidate({
           workspaceId,

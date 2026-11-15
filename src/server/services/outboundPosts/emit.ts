@@ -52,6 +52,8 @@ export async function emitOutboundPost(
     });
     if (destination.kind !== "room") return [];
 
+    // One destination per scope and kind in V1 (see `resolveOutboundDestination`); the
+    // array return and the per-destination unique are the shape the V2 fan-out keeps.
     const { link } = destination;
     try {
       const post = await db.outboundPost.create({

@@ -17,9 +17,6 @@
  * room and meeting summaries to another, or switch one off without the other.
  */
 
-/** Which producer's content a binding carries. Defaults to the pre-`kind` meaning. */
-const kindSchema = z.enum(OUTBOUND_KINDS).default(DEFAULT_OUTBOUND_KIND);
-
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { Prisma } from "@prisma/client";
@@ -35,8 +32,11 @@ import { DEFAULT_OUTBOUND_KIND, OUTBOUND_KINDS } from "~/server/services/outboun
 import { MATRIX_CHANNEL_PROVIDER } from "~/server/services/matrix/constants";
 import { resolveMatrixDestination } from "~/server/services/matrix/resolveMatrixDestination";
 import { getMatrixClientForServer } from "~/server/services/matrix/matrixServer";
-import { SHARED_MATRIX_INTEGRATION_WHERE } from "~/server/utils/matrixGatewayIntegration";
+import { lookupMemberMxids } from "~/server/services/matrix/memberMxids";
 import { reportHandledError } from "~/lib/reportHandledError";
+
+/** Which producer's content a binding carries. Defaults to the pre-`kind` meaning. */
+const kindSchema = z.enum(OUTBOUND_KINDS).default(DEFAULT_OUTBOUND_KIND);
 
 /** A project lead configures their own project's room; only admins set the default. */
 async function assertCanBind(
@@ -311,26 +311,15 @@ export const matrixRoomRouter = createTRPCRouter({
         });
       }
 
-      const gateway = await ctx.db.integration.findFirst({
-        where: SHARED_MATRIX_INTEGRATION_WHERE,
-        select: { id: true },
-      });
-      if (!gateway) return [];
-
       const members = await ctx.db.workspaceUser.findMany({
         where: { workspaceId: input.workspaceId },
         select: { userId: true, user: { select: { name: true, email: true } } },
       });
 
-      const mappings = await ctx.db.integrationUserMapping.findMany({
-        where: {
-          integrationId: gateway.id,
-          userId: { in: members.map((m) => m.userId) },
-        },
-        select: { userId: true, externalUserId: true },
-      });
-
-      const byUser = new Map(mappings.map((m) => [m.userId, m.externalUserId]));
+      const byUser = await lookupMemberMxids(
+        ctx.db,
+        members.map((m) => m.userId),
+      );
 
       return members.flatMap((member) => {
         const mxid = byUser.get(member.userId);

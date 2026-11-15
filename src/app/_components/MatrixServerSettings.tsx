@@ -16,6 +16,7 @@ import { useDisclosure } from "@mantine/hooks";
 import { IconAlertTriangle, IconServer } from "@tabler/icons-react";
 import { MatrixRoomPicker } from "~/app/_components/matrix/MatrixRoomPicker";
 import { MatrixRoomBinding } from "~/app/_components/matrix/MatrixRoomBinding";
+import { Panel } from "~/app/_components/ui";
 import { useState } from "react";
 import { api } from "~/trpc/react";
 
@@ -138,6 +139,21 @@ export function MatrixServerSettings({
           </Text>
           <MatrixRoomBinding workspaceId={workspace.id} projectId={null} />
         </Stack>
+      )}
+
+      {servers.length > 0 && (
+        <Panel radius="md" padding="sm" className="flex flex-col gap-1">
+          <Text size="sm" fw={600} className="text-text-primary">
+            Decisions room
+          </Text>
+          <Text size="xs" className="text-text-muted">
+            Hears about a decision when a person confirms, accepts or supersedes it:
+            the D-number, the statement, the deciders and a link. Agent drafts never
+            post. Projects set to Inherit use this room; a project can pick its own or
+            switch decisions off.
+          </Text>
+          <MatrixRoomBinding workspaceId={workspace.id} projectId={null} kind="decision" />
+        </Panel>
       )}
 
       {removeMutation.error && (

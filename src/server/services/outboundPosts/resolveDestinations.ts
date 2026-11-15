@@ -8,6 +8,12 @@
  * `Off` is a project-level row with `isActive: false`, so "explicitly off" and "never
  * configured" stay distinguishable: Off hard-blocks and never falls through to the
  * workspace default. A row with a null `projectId` is the workspace default.
+ *
+ * V1 resolves **one** destination per scope and kind. The binding unique is per
+ * (room, kind), not per scope, so a second provider could later bind the same scope and
+ * kind; until the Slack poster (V2) turns this into a fan-out over every bound
+ * destination, the oldest binding wins, deterministically, rather than whichever row
+ * the planner returned first.
  */
 
 import type { PrismaClient } from "@prisma/client";
@@ -51,6 +57,7 @@ export async function resolveOutboundDestination(
         direction: OUTBOUND,
         kind,
       },
+      orderBy: { createdAt: "asc" },
     });
 
     if (projectLink) {
@@ -81,6 +88,7 @@ export async function resolveOutboundDestination(
       kind,
       isActive: true,
     },
+    orderBy: { createdAt: "asc" },
   });
 
   return workspaceLink ? { kind: "room", link: workspaceLink } : { kind: "none" };

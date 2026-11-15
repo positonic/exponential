@@ -1,0 +1,187 @@
+/**
+ * The decision service emits an outbound post on a person's act and on nothing else
+ * (ADR-0075, D-0056): a confirmed create, a confirm, an accept / supersede /
+ * deprecate. Drafts and agent actors emit nothing, and a failing emit never fails the
+ * write.
+ */
+
+import { describe, expect, it, vi, beforeEach } from "vitest";
+import type { PrismaClient } from "@prisma/client";
+import { mockDeep, mockReset, type DeepMockProxy } from "vitest-mock-extended";
+
+const emitOutboundPost = vi.hoisted(() => vi.fn().mockResolvedValue([]));
+vi.mock("~/server/services/outboundPosts/emit", () => ({ emitOutboundPost }));
+vi.mock("~/server/services/activity/recordActivity", () => ({ recordActivity: vi.fn(async () => true) }));
+vi.mock("~/server/services/access/resolvers/decisionResolver", () => ({
+  getDecisionAccess: vi.fn(),
+  canEditDecision: vi.fn(() => true),
+}));
+
+import { confirmDraft, createDecision, setStatus } from "../decisionService";
+
+const WORKSPACE_ID = "ws-1";
+const USER = "user-1";
+/** Who is acting comes from the verified credential (Principal), never a label. */
+const HUMAN = { kind: "human", userId: USER, surface: "web" } as const;
+const AGENT = {
+  kind: "agent",
+  userId: "agent-1",
+  agentId: "ext-1",
+  ownerId: USER,
+  surface: "agent-key",
+} as const;
+
+const CONFIRMED = {
+  id: "dec-1",
+  workspaceId: WORKSPACE_ID,
+  number: 7,
+  statement: "Use tRPC",
+  status: "PROPOSED",
+  reviewState: "CONFIRMED",
+  decidedAt: null,
+  supersededById: null,
+  source: "MANUAL",
+  transcriptionSessionId: null,
+  projectId: null,
+  deciders: [],
+  supersededBy: null,
+};
+
+let db: DeepMockProxy<PrismaClient>;
+
+beforeEach(() => {
+  db = mockDeep<PrismaClient>();
+  mockReset(db);
+  emitOutboundPost.mockClear();
+  emitOutboundPost.mockResolvedValue([]);
+  db.user.findUnique.mockResolvedValue({ id: USER, name: "Dev", email: "dev@example.test", isAgent: false } as never);
+  // The agent-principal existence check: nobody is an agent unless a test says so.
+  db.user.findFirst.mockResolvedValue(null as never);
+});
+
+describe("decision service → outbound posts", () => {
+  it("a person's confirmed create emits `published`", async () => {
+    db.$transaction.mockImplementation((async (fn: (tx: unknown) => unknown) => fn(db)) as never);
+    db.workspace.update.mockResolvedValue({ decisionCounter: 7 } as never);
+    db.decision.create.mockResolvedValue(CONFIRMED as never);
+
+    await createDecision(db, { workspaceId: WORKSPACE_ID, createdById: USER, statement: "Use tRPC", principal: HUMAN });
+
+    expect(emitOutboundPost).toHaveBeenCalledWith(db, {
+      kind: "decision",
+      subjectId: "dec-1",
+      event: "published",
+      actorUserId: USER,
+      actorIsAgent: false,
+    });
+  });
+
+  it("a draft create emits nothing", async () => {
+    db.$transaction.mockImplementation((async (fn: (tx: unknown) => unknown) => fn(db)) as never);
+    db.workspace.update.mockResolvedValue({ decisionCounter: 8 } as never);
+    db.decision.create.mockResolvedValue({ ...CONFIRMED, id: "draft-1", reviewState: "DRAFT" } as never);
+
+    await createDecision(db, {
+      workspaceId: WORKSPACE_ID,
+      createdById: "agent-1",
+      statement: "x",
+      principal: AGENT,
+    });
+
+    expect(emitOutboundPost).not.toHaveBeenCalled();
+  });
+
+  it("accepting, superseding-class moves and deprecating emit their transition for a person", async () => {
+    db.decision.findFirst.mockResolvedValue(CONFIRMED as never);
+    db.decision.update.mockResolvedValue({ ...CONFIRMED, status: "ACCEPTED" } as never);
+
+    await setStatus(db, { decisionId: "dec-1", workspaceId: WORKSPACE_ID, userId: USER, principal: HUMAN, status: "ACCEPTED" });
+    expect(emitOutboundPost).toHaveBeenLastCalledWith(
+      db,
+      expect.objectContaining({ event: "accepted", actorIsAgent: false }),
+    );
+
+    await setStatus(db, { decisionId: "dec-1", workspaceId: WORKSPACE_ID, userId: USER, principal: HUMAN, status: "DEPRECATED" });
+    expect(emitOutboundPost).toHaveBeenLastCalledWith(
+      db,
+      expect.objectContaining({ event: "deprecated", actorIsAgent: false }),
+    );
+  });
+
+  it("an agent cannot move a confirmed decision at all, so nothing is ever posted for one", async () => {
+    db.decision.findFirst.mockResolvedValue(CONFIRMED as never);
+
+    await expect(
+      setStatus(db, { decisionId: "dec-1", workspaceId: WORKSPACE_ID, userId: "agent-1", principal: AGENT, status: "ACCEPTED" }),
+    ).rejects.toThrow();
+    await expect(
+      confirmDraft(db, { decisionId: "dec-1", workspaceId: WORKSPACE_ID, userId: "agent-1", principal: AGENT }),
+    ).rejects.toThrow();
+
+    expect(emitOutboundPost).not.toHaveBeenCalled();
+  });
+
+  it("confirming a draft emits `published`, plus the transition when confirmed as accepted", async () => {
+    const draft = { ...CONFIRMED, id: "draft-2", reviewState: "DRAFT", status: "OPEN", body: null, evidence: [] };
+    db.decision.findFirst.mockResolvedValue(draft as never);
+    db.$transaction.mockImplementation((async (fn: (tx: unknown) => unknown) => fn(db)) as never);
+    db.decision.updateMany.mockResolvedValue({ count: 1 });
+    db.decision.findUniqueOrThrow.mockResolvedValue({ ...draft, reviewState: "CONFIRMED" } as never);
+    db.decision.update.mockResolvedValue({ ...draft, reviewState: "CONFIRMED", status: "ACCEPTED" } as never);
+
+    await confirmDraft(db, { decisionId: "draft-2", workspaceId: WORKSPACE_ID, userId: USER, principal: HUMAN });
+    expect(emitOutboundPost.mock.calls.map((c) => (c[1] as { event: string }).event)).toEqual(["published"]);
+
+    emitOutboundPost.mockClear();
+    await confirmDraft(db, { decisionId: "draft-2", workspaceId: WORKSPACE_ID, userId: USER, principal: HUMAN, status: "ACCEPTED" });
+    expect(emitOutboundPost.mock.calls.map((c) => (c[1] as { event: string }).event)).toEqual([
+      "published",
+      "accepted",
+    ]);
+  });
+
+  it("a resolution draft emits the transition for its target, not for the draft", async () => {
+    const target = {
+      ...CONFIRMED,
+      id: "open-1",
+      number: 2,
+      status: "OPEN",
+      body: null,
+      evidence: [],
+      transcriptionSession: null,
+    };
+    const draft = {
+      ...CONFIRMED,
+      id: "draft-1",
+      number: 9,
+      status: "ACCEPTED",
+      reviewState: "DRAFT",
+      supersededById: "open-1",
+      body: null,
+      evidence: [],
+      decidedAt: new Date("2026-10-27T00:00:00Z"),
+    };
+    db.decision.findFirst.mockResolvedValueOnce(draft as never).mockResolvedValueOnce(target as never);
+    db.$transaction.mockImplementation((async (fn: (tx: unknown) => unknown) => fn(db)) as never);
+    db.decision.deleteMany.mockResolvedValue({ count: 1 } as never);
+    db.decision.update.mockResolvedValue({ ...target, status: "ACCEPTED", supersededBy: null } as never);
+
+    const result = await confirmDraft(db, { decisionId: "draft-1", workspaceId: WORKSPACE_ID, userId: USER, principal: HUMAN });
+
+    expect(result.id).toBe("open-1");
+    expect(emitOutboundPost.mock.calls.map((c) => c[1])).toEqual([
+      expect.objectContaining({ subjectId: "open-1", event: "accepted", actorIsAgent: false }),
+    ]);
+  });
+
+  it("a failing emit never fails the write", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    emitOutboundPost.mockRejectedValue(new Error("emit exploded"));
+    db.decision.findFirst.mockResolvedValue(CONFIRMED as never);
+    db.decision.update.mockResolvedValue({ ...CONFIRMED, status: "ACCEPTED" } as never);
+
+    await expect(
+      setStatus(db, { decisionId: "dec-1", workspaceId: WORKSPACE_ID, userId: USER, principal: HUMAN, status: "ACCEPTED" }),
+    ).resolves.toMatchObject({ status: "ACCEPTED" });
+  });
+});

@@ -177,4 +177,21 @@ describe("integration credential exposure (V1 audit regressions)", () => {
       matrixServerPaths.filter((path) => /token|credential|secret/i.test(path)),
     ).toEqual([]);
   });
+
+  /**
+   * Outbound posts (ADR-0075) are delivered through registered-server credentials, so
+   * the surfaces that read them back must stay to room, status and timestamps. The
+   * compile-time walker covers the shape; this pins that the read procedure exists
+   * and that nothing on the decision or matrixRoom routers names a token.
+   */
+  it("exposes outbound post history without any credential-shaped procedure", () => {
+    expect(procedurePaths).toContain("decision.outboundPosts");
+    expect(
+      procedurePaths.filter(
+        (path) =>
+          (path.startsWith("decision.") || path.startsWith("matrixRoom.")) &&
+          /token|credential|secret/i.test(path),
+      ),
+    ).toEqual([]);
+  });
 });

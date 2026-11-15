@@ -46,8 +46,9 @@ workspace chose. Forcing it through would give per-person preferences a meaning 
    only through its own explicit binding for the kind. The rule lives in resolution, so every
    producer gets it. (Meeting summaries keep their shipped behaviour until they migrate.)
 7. **Idempotency is in the row.** The unique makes a double enqueue a no-op; the provider
-   transaction id derives from `(postId, attempt)`, so a retry of a timed-out send is the same
-   message.
+   transaction id *is* the post id, stable across every attempt, so a send that reached the
+   homeserver but was never recorded comes back as the same event on the next attempt rather
+   than a second message.
 
 ## Considered alternatives
 
