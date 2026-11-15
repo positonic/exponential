@@ -242,6 +242,139 @@ describe("search router — global (mocked)", () => {
   });
 });
 
+describe("search router — global ticket search (mocked)", () => {
+  let dbMock: DeepMockProxy<PrismaClient>;
+
+  interface TicketRow {
+    id: string;
+    title: string;
+    shortId: string | null;
+    number: number;
+    status: string;
+    updatedAt: number;
+    /** The only workspace the caller is a member of is `workspaceId`. */
+    workspaceId: string;
+  }
+
+  const ticketRow = (
+    id: string,
+    title: string,
+    shortId: string | null,
+    number: number,
+    ws = workspaceId,
+    updatedAt = 0,
+  ): TicketRow => ({ id, title, shortId, number, status: "BACKLOG", updatedAt, workspaceId: ws });
+
+  const accessClause = () => ({
+    product: { workspace: { is: buildWorkspaceAccessWhere(callerId) } },
+  });
+
+  /**
+   * Stand-in for Postgres: honours the match clauses the search builds, and
+   * hides tickets outside the caller's workspace only when the query carries
+   * the access clause — so a search that dropped the scope would leak.
+   */
+  function matchesTicket(row: TicketRow, where: Record<string, unknown>): boolean {
+    if (Array.isArray(where.OR)) {
+      return (where.OR as Record<string, unknown>[]).some((w) => matchesTicket(row, w));
+    }
+    if (Array.isArray(where.AND)) {
+      return (where.AND as Record<string, unknown>[]).every((w) => matchesTicket(row, w));
+    }
+    if ("product" in where) {
+      expect(where).toEqual(accessClause());
+      return row.workspaceId === workspaceId;
+    }
+    if (typeof where.number === "number") return row.number === where.number;
+    const title = where.title as { contains?: string } | undefined;
+    if (title?.contains !== undefined) {
+      return row.title.toLowerCase().includes(title.contains.toLowerCase());
+    }
+    const shortId = where.shortId as { contains?: string; in?: string[] } | undefined;
+    if (shortId?.in) return row.shortId !== null && shortId.in.includes(row.shortId);
+    if (shortId?.contains !== undefined) {
+      return (row.shortId ?? "").toLowerCase().includes(shortId.contains.toLowerCase());
+    }
+    return true;
+  }
+
+  function stubTickets(rows: TicketRow[]) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    dbMock.ticket.findMany.mockImplementation(((args: any) => {
+      const where = args.where as Record<string, unknown>;
+      const hits = rows
+        .filter((r) => matchesTicket(r, where))
+        .sort((a, b) => b.updatedAt - a.updatedAt)
+        .slice(0, args.take as number)
+        .map((r) => ({
+          ...r,
+          product: { slug: "exponential", name: "Exponential", workspace: workspaceRef },
+        }));
+      return Promise.resolve(hits);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    }) as any);
+  }
+
+  beforeEach(() => {
+    dbMock = getDbMock();
+    mockReset(dbMock);
+    stubEmptyResults(dbMock);
+  });
+
+  // Six fresher tickets whose fallback shortIds contain both words, so a
+  // plain `contains` search fills a 5-row page before reaching the one named.
+  const decoys = Array.from({ length: 6 }, (_, i) =>
+    ticketRow(`d${i}`, `Thunder work ${i}`, `snappy.thunder.${i}`, 100 + i, workspaceId, 10 + i),
+  );
+  const named = ticketRow("named", "Search doesn't find fun ids", "snappy.thunder", 42);
+
+  it("finds the ticket an exact short ID names, first", async () => {
+    stubTickets([...decoys, named]);
+    const caller = createMockCaller({ userId: callerId, db: dbMock });
+    const res = await caller.search.global({ query: "snappy.thunder", limit: 5 });
+
+    const tickets = res.results.filter((r) => r.type === "ticket");
+    expect(tickets[0]).toMatchObject({
+      id: "named",
+      subtitle: "snappy.thunder BACKLOG",
+      url: "/w/clear/products/exponential/tickets/snappy.thunder",
+    });
+    expect(tickets).toHaveLength(5);
+  });
+
+  it("tolerates case, whitespace and either word order", async () => {
+    stubTickets([...decoys, named]);
+    const caller = createMockCaller({ userId: callerId, db: dbMock });
+    for (const query of ["  Snappy.THUNDER  ", "thunder snappy", "#42"]) {
+      const res = await caller.search.global({ query, limit: 5 });
+      expect(res.results.find((r) => r.type === "ticket")?.id, query).toBe("named");
+    }
+  });
+
+  it("never returns a ticket the caller cannot see, even when the ID matches exactly", async () => {
+    const hidden = ticketRow("hidden", "Someone else's ticket", "brave.otter", 7, "ws-other");
+    stubTickets([hidden, named]);
+    const caller = createMockCaller({ userId: callerId, db: dbMock });
+
+    const res = await caller.search.global({ query: "brave.otter" });
+    expect(res.results.filter((r) => r.type === "ticket")).toEqual([]);
+    // Both the exact-ID and the text query carried the access clause.
+    expect(dbMock.ticket.findMany).toHaveBeenCalledTimes(2);
+    for (const [args] of dbMock.ticket.findMany.mock.calls) {
+      expect((args?.where?.AND as unknown[])[0]).toEqual(accessClause());
+    }
+  });
+
+  it("still finds tickets by ordinary title text", async () => {
+    stubTickets([...decoys, named]);
+    const caller = createMockCaller({ userId: callerId, db: dbMock });
+    const res = await caller.search.global({ query: "doesn't find fun" });
+    expect(res.results.filter((r) => r.type === "ticket").map((r) => r.id)).toEqual(["named"]);
+    // Title text names no ticket, so only the text query ran.
+    expect(dbMock.ticket.findMany).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe("search router — knowledge (mocked)", () => {
   let dbMock: DeepMockProxy<PrismaClient>;
 

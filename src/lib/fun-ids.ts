@@ -176,6 +176,119 @@ export function shortIdSearchWhere(
 }
 
 /**
+ * In-memory twin of `shortIdSearchWhere`, for lists already loaded on the
+ * client: true when `shortId` matches `query` under the same rules (one word
+ * is a substring; two real words match in either order; anything longer is a
+ * plain substring of the whole query). Case-insensitive.
+ */
+export function shortIdMatchesQuery(shortId: string | null, query: string): boolean {
+  if (!shortId) return false;
+  const id = shortId.toLowerCase();
+  const q = query.trim().toLowerCase();
+  const words = q.split(/[.\s]+/).filter(Boolean);
+  if (words.length === 0) return false;
+  if (words.length === 1) return id.includes(words[0]!);
+  return words.length === 2 && words.every((w) => w.length >= 2)
+    ? words.every((w) => id.includes(w))
+    : id.includes(q);
+}
+
+/**
+ * What a search query names when it is a ticket *identifier* rather than
+ * title text: a fun shortId (`snappy.thunder`), a sequential number (`42`,
+ * `#42`) or a Linear-style id (`EXP-42`). Searches use it to put the ticket the
+ * query names exactly ahead of tickets that merely contain the words.
+ */
+export interface TicketIdQuery {
+  /** Lower-case shortIds the query names exactly, in both word orders. */
+  shortIds: string[];
+  /** The sequential number the query names, or null. */
+  number: number | null;
+  /**
+   * The upper-case prefix of a Linear-style query (`EXP` for `exp-42`), or
+   * null. When set, the number only names a ticket in a product whose
+   * `generateLinearId` prefix is the same.
+   */
+  linearPrefix: string | null;
+}
+
+/**
+ * Parse a search query into the ticket identifiers it could name exactly.
+ * Case, surrounding whitespace, a leading `#`, and a space in place of the dot
+ * are all tolerated; word order is too, because people remember the two words
+ * of a fun id but not which came first.
+ */
+/** The largest value `Ticket.number` (a Postgres `integer`) can hold. */
+export const MAX_TICKET_NUMBER = 2_147_483_647;
+
+export function parseTicketIdQuery(query: string): TicketIdQuery {
+  const q = query.trim().toLowerCase().replace(/^#/, "").trim();
+  const result: TicketIdQuery = { shortIds: [], number: null, linearPrefix: null };
+  if (!q) return result;
+
+  const numberMatch = /^(?:([a-z][a-z0-9]*)-)?(\d+)$/.exec(q);
+  if (numberMatch) {
+    const parsed = parseInt(numberMatch[2]!, 10);
+    // `Ticket.number` is a 32-bit Int: a larger number can't name a ticket,
+    // and passing it to Prisma would throw and fail the whole search. Leave it
+    // as plain text.
+    if (parsed > 0 && parsed <= MAX_TICKET_NUMBER) {
+      result.number = parsed;
+      result.linearPrefix = numberMatch[1]?.toUpperCase() ?? null;
+    }
+    return result;
+  }
+
+  // adjective.noun, or the collision fallback adjective.noun.NN.
+  const parts = q.split(/[.\s]+/).filter(Boolean);
+  const [a, b, suffix] = parts;
+  const isWord = (w: string | undefined): w is string => !!w && /^[a-z]{2,}$/.test(w);
+  if (isWord(a) && isWord(b) && (parts.length === 2 || (parts.length === 3 && /^\d+$/.test(suffix!)))) {
+    const tail = parts.length === 3 ? `.${suffix}` : "";
+    result.shortIds = Array.from(new Set([`${a}.${b}${tail}`, `${b}.${a}${tail}`]));
+  }
+  return result;
+}
+
+/** One exact-identifier condition in the shape Prisma's `TicketWhereInput` accepts. */
+type TicketIdClause =
+  | { shortId: { in: string[] } }
+  | { number: number };
+
+/**
+ * Where-clauses (for a Prisma `OR`) finding the tickets a `TicketIdQuery`
+ * names exactly. Both hit the `(productId, shortId)` / `(productId, number)`
+ * unique indexes. Empty when the query names no identifier. A Linear-style
+ * prefix is not expressible here (it is derived from the product name), so
+ * callers filter those rows with `isTicketIdMatch`.
+ */
+export function ticketIdWhere(idQuery: TicketIdQuery): TicketIdClause[] {
+  const clauses: TicketIdClause[] = [];
+  // Generated shortIds are always lower-case, so an exact `in` is enough.
+  if (idQuery.shortIds.length > 0) clauses.push({ shortId: { in: idQuery.shortIds } });
+  if (idQuery.number !== null) clauses.push({ number: idQuery.number });
+  return clauses;
+}
+
+/**
+ * True when `ticket` is one the query names exactly. `productName` is needed
+ * only to check a Linear-style prefix; without it such a query never matches.
+ */
+export function isTicketIdMatch(
+  ticket: { shortId: string | null; number: number },
+  idQuery: TicketIdQuery,
+  productName?: string,
+): boolean {
+  if (ticket.shortId && idQuery.shortIds.includes(ticket.shortId.toLowerCase())) return true;
+  if (idQuery.number === null || ticket.number !== idQuery.number) return false;
+  if (idQuery.linearPrefix === null) return true;
+  return (
+    productName !== undefined &&
+    generateLinearId(productName, ticket.number) === `${idQuery.linearPrefix}-${ticket.number}`
+  );
+}
+
+/**
  * Parse a ticket URL segment into a sequential-number lookup key. Accepts a
  * bare number (`29`) or a Linear-style id (`PLAT-29`, case-insensitive).
  * Returns the number when the segment encodes a *positive* one, otherwise null

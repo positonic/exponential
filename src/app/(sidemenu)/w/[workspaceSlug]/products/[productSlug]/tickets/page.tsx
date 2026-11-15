@@ -54,7 +54,12 @@ import { PeekDrawer } from "~/app/_components/product/peek/PeekDrawer";
 import { TicketPeek } from "~/app/_components/product/peek/TicketPeek";
 import { CreateTicketModal } from "~/app/_components/product/CreateTicketModal";
 import { EditTicketModal } from "~/app/_components/product/EditTicketModal";
-import { generateLinearId } from "~/lib/fun-ids";
+import {
+  generateLinearId,
+  isTicketIdMatch,
+  parseTicketIdQuery,
+  shortIdMatchesQuery,
+} from "~/lib/fun-ids";
 import { TicketKanbanBoard } from "~/app/_components/product/TicketKanbanBoard";
 import { useViewPrefs } from "~/hooks/useViewPrefs";
 import { useTicketViewUrl } from "~/hooks/useTicketViewUrl";
@@ -658,23 +663,32 @@ export default function TicketsBacklogPage() {
   const sorted = useMemo(() => {
     if (!tickets) return [];
     const q = search.toLowerCase().trim();
+    // A query that names a ticket (`snappy.thunder`, `42`, `#42`, `EXP-42`)
+    // finds it even when the id is not displayed, and sorts it first.
+    const idQuery = parseTicketIdQuery(q);
+    const isNamed = (t: (typeof tickets)[number]) =>
+      !!q && isTicketIdMatch(t, idQuery, product?.name);
     const matchesFilters = (t: (typeof tickets)[number]) => matchesTicketFilters(t, filters);
     const matchesSearch = (t: (typeof tickets)[number]) =>
       !q ||
+      isNamed(t) ||
       t.title.toLowerCase().includes(q) ||
+      shortIdMatchesQuery(t.shortId, q) ||
       t.type.toLowerCase().includes(q) ||
       (t.assignee?.name ?? "").toLowerCase().includes(q);
 
     const list = tickets.filter((t) => matchesFilters(t) && matchesSearch(t));
-    list.sort((a, b) =>
-      cmp(
-        sortValue(a as unknown as Record<string, unknown>, sortField),
-        sortValue(b as unknown as Record<string, unknown>, sortField),
-        sortDir,
-      ),
+    list.sort(
+      (a, b) =>
+        Number(isNamed(b)) - Number(isNamed(a)) ||
+        cmp(
+          sortValue(a as unknown as Record<string, unknown>, sortField),
+          sortValue(b as unknown as Record<string, unknown>, sortField),
+          sortDir,
+        ),
     );
     return list;
-  }, [tickets, search, sortField, sortDir, filters]);
+  }, [tickets, search, sortField, sortDir, filters, product?.name]);
 
   // Split completed tickets from active
   const { active: activeTickets, completed: completedTickets } = useMemo(() => {

@@ -46,7 +46,8 @@ import {
 } from "~/lib/ticket-statuses";
 import { TEXT_LIMITS, boundedText } from "~/lib/text-limits";
 import { uploadToBlob } from "~/lib/blob";
-import { parseTicketUrlId, shortIdSearchWhere } from "~/lib/fun-ids";
+import { parseTicketUrlId } from "~/lib/fun-ids";
+import { searchTicketsIdFirst } from "../services/ticketTextSearch";
 
 const prosemirrorDoc = z.record(z.string(), z.unknown());
 
@@ -1268,32 +1269,27 @@ export const ticketRouter = createTRPCRouter({
       }),
     )
     .query(async ({ ctx, input }) => {
-      await loadProductWithAccess(ctx.db, ctx.session.user.id, input.productId, "view");
+      const product = await loadProductWithAccess(ctx.db, ctx.session.user.id, input.productId, "view");
       const q = (input.query ?? "").trim();
       const limit = input.limit ?? 20;
 
-      const numberFromQuery = /^\d+$/.test(q) ? parseInt(q, 10) : undefined;
+      const scope: Prisma.TicketWhereInput = {
+        productId: input.productId,
+        ...(input.excludeTicketId ? { id: { not: input.excludeTicketId } } : {}),
+      };
+      const find = (match: Prisma.TicketWhereInput, take: number, skip = 0) =>
+        ctx.db.ticket.findMany({
+          where: { AND: [scope, match] },
+          orderBy: [{ updatedAt: "desc" }],
+          take,
+          ...(skip > 0 ? { skip } : {}),
+          select: DEP_TICKET_SELECT,
+        });
 
-      return ctx.db.ticket.findMany({
-        where: {
-          productId: input.productId,
-          ...(input.excludeTicketId ? { id: { not: input.excludeTicketId } } : {}),
-          ...(q
-            ? {
-                OR: [
-                  { title: { contains: q, mode: "insensitive" as const } },
-                  // Fun shortIds match word-order-insensitively
-                  // ("toucan.prime" finds prime.toucan).
-                  ...shortIdSearchWhere(q),
-                  ...(numberFromQuery !== undefined ? [{ number: numberFromQuery }] : []),
-                ],
-              }
-            : {}),
-        },
-        orderBy: [{ updatedAt: "desc" }],
-        take: limit,
-        select: DEP_TICKET_SELECT,
-      });
+      if (!q) return find({}, limit);
+      // Title, shortId (partial, any word order) or number; a query naming a
+      // ticket exactly (`snappy.thunder`, `42`, `#42`, `EXP-42`) puts it first.
+      return searchTicketsIdFirst({ query: q, limit, find, productName: () => product.name });
     }),
 
   addDependency: protectedProcedure

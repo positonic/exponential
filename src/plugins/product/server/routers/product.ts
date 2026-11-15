@@ -69,7 +69,7 @@ async function loadProductWithAccess(
 ) {
   const product = await db.product.findUnique({
     where: { id: productId },
-    select: { id: true, workspaceId: true, slug: true },
+    select: { id: true, workspaceId: true, slug: true, name: true },
   });
   if (!product) {
     throw new TRPCError({ code: "NOT_FOUND", message: "Product not found" });

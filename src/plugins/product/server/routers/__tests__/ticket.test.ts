@@ -837,3 +837,86 @@ describe("ticket router — initBodyDoc (mocked)", () => {
     ).resolves.toEqual({ migrated: false });
   });
 });
+
+describe("ticket router — search (mocked)", () => {
+  let dbMock: DeepMockProxy<PrismaClient>;
+
+  const ticket = (id: string, shortId: string | null, number: number, title: string) => ({
+    id,
+    shortId,
+    number,
+    title,
+    status: "BACKLOG",
+    priority: null,
+    prUrl: null,
+    assignee: null,
+  });
+
+  beforeEach(() => {
+    dbMock = getDbMock();
+    mockReset(dbMock);
+    dbMock.product.findUnique.mockResolvedValue(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      { id: productId, workspaceId, slug: "exponential", name: "Exponential" } as any,
+    );
+    stubMembership(dbMock, true);
+  });
+
+  it("puts the ticket an exact short ID names ahead of word matches, within the product", async () => {
+    const named = ticket("named", "snappy.thunder", 42, "Search doesn't find fun ids");
+    const decoy = ticket("decoy", "snappy.thunder.2", 43, "Snappy thunder decoy");
+    // First call is the exact-ID query, second the text query (fresher first).
+    dbMock.ticket.findMany
+      .mockResolvedValueOnce([named] as never)
+      .mockResolvedValueOnce([decoy] as never);
+
+    const caller = createMockCaller({ userId: callerId, db: dbMock });
+    const res = await caller.product.ticket.search({ productId, query: " Thunder Snappy ", limit: 1 });
+
+    expect(res.map((t) => t.id)).toEqual(["named"]);
+    const [idCall, textCall] = dbMock.ticket.findMany.mock.calls.map(([args]) => args);
+    expect(idCall?.where).toEqual({
+      AND: [
+        { productId },
+        { OR: [{ shortId: { in: ["thunder.snappy", "snappy.thunder"] } }] },
+      ],
+    });
+    expect((textCall?.where?.AND as unknown[])[0]).toEqual({ productId });
+  });
+
+  it("resolves a Linear-style id against this product's prefix", async () => {
+    const named = ticket("named", null, 42, "Numbered ticket");
+    dbMock.ticket.findMany.mockResolvedValueOnce([named] as never).mockResolvedValueOnce([] as never);
+
+    const caller = createMockCaller({ userId: callerId, db: dbMock });
+    expect((await caller.product.ticket.search({ productId, query: "E-42" })).map((t) => t.id)).toEqual(["named"]);
+
+    dbMock.ticket.findMany.mockResolvedValueOnce([named] as never).mockResolvedValueOnce([] as never);
+    expect(await caller.product.ticket.search({ productId, query: "FP-42" })).toEqual([]);
+  });
+
+  it("refuses a caller outside the product's workspace without querying tickets", async () => {
+    stubMembership(dbMock, false);
+    dbMock.teamUser.findFirst.mockResolvedValue(null);
+
+    const caller = createMockCaller({ userId: callerId, db: dbMock });
+    await expect(
+      caller.product.ticket.search({ productId, query: "snappy.thunder" }),
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
+    expect(dbMock.ticket.findMany).not.toHaveBeenCalled();
+  });
+
+  it("still matches ordinary title text with a single query", async () => {
+    dbMock.ticket.findMany.mockResolvedValue([ticket("t1", null, 1, "Fix the search bug")] as never);
+
+    const caller = createMockCaller({ userId: callerId, db: dbMock });
+    const res = await caller.product.ticket.search({ productId, query: "fix the search" });
+
+    expect(res.map((t) => t.id)).toEqual(["t1"]);
+    expect(dbMock.ticket.findMany).toHaveBeenCalledTimes(1);
+    const where = dbMock.ticket.findMany.mock.calls[0]?.[0]?.where;
+    expect((where?.AND as { OR?: unknown[] }[])[1]?.OR).toContainEqual({
+      title: { contains: "fix the search", mode: "insensitive" },
+    });
+  });
+});

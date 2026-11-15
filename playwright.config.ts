@@ -23,7 +23,11 @@ const E2E_CRON_SECRET = "e2e-cron-secret";
 const NOT_E2E = ["perf/**", "docs-screenshots/**"];
 
 /** Specs that write the fixture user's saved product view prefs directly. */
-const SHARED_VIEW_PREFS_SPECS = ["product-view-prefs.spec.ts", "ticket-dependency-nesting.spec.ts"];
+const SHARED_VIEW_PREFS_SPECS = [
+  "product-view-prefs.spec.ts",
+  "ticket-dependency-nesting.spec.ts",
+  "ticket-short-id-search.spec.ts",
+];
 
 export default defineConfig({
   testDir: "./e2e",

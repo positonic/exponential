@@ -129,6 +129,8 @@ export interface SeededFixture {
   featureTicketCount: number;
   /** Total tickets seeded, including the scope-only one the accordion hides. */
   totalTicketCount: number;
+  /** The one seeded ticket carrying a fun shortId, for the short-ID search spec. */
+  shortIdTicket: { shortId: string; title: string; number: number };
   /** App-relative URL of the OKR dashboard holding the seeded objective. */
   okrUrl: string;
   /** App-relative URL of the seeded project's Goals tab (the goal hierarchy). */
@@ -209,13 +211,18 @@ interface TicketSpec {
   assign: boolean;
   /** Attach to the scope INSTEAD of the feature (the excluded case). */
   scopeOnly?: boolean;
+  /**
+   * A fun shortId, though the product shows Linear-style ids: searching for
+   * one must still find the ticket (snappy.thunder).
+   */
+  shortId?: string;
 }
 
 const TICKETS: TicketSpec[] = [
   { number: 1, title: "Render ticket rows in the accordion", status: "DONE", priority: 1, assign: true },
   { number: 2, title: "Wire blocked indicator through ticket.list", status: "IN_PROGRESS", priority: 0, assign: true },
   { number: 3, title: "Empty state copy for ticketless features", status: "BACKLOG", priority: 3, assign: false },
-  { number: 4, title: "Peek drawer keyboard navigation", status: "QA", priority: 2, assign: true },
+  { number: 4, title: "Peek drawer keyboard navigation", status: "QA", priority: 2, assign: true, shortId: "zesty.quasar" },
   { number: 5, title: "Ticket row hover affordances", status: "BACKLOG", priority: null, assign: false },
   { number: 6, title: "Scope-only ticket (must NOT appear in the feature accordion)", status: "BACKLOG", priority: null, assign: false, scopeOnly: true },
 ];
@@ -441,6 +448,7 @@ export async function seedDevFixture(db: PrismaClient): Promise<SeededFixture> {
         assigneeId: spec.assign ? user.id : null,
         featureId: spec.scopeOnly ? null : feature.id,
         scopeId: spec.scopeOnly ? scope.id : null,
+        shortId: spec.shortId ?? null,
       },
       create: {
         productId: product.id,
@@ -453,6 +461,7 @@ export async function seedDevFixture(db: PrismaClient): Promise<SeededFixture> {
         scopeId: spec.scopeOnly ? scope.id : null,
         createdById: user.id,
         assigneeId: spec.assign ? user.id : null,
+        shortId: spec.shortId ?? null,
       },
     });
     byNumber.set(spec.number, ticket.id);
@@ -1317,6 +1326,10 @@ export async function seedDevFixture(db: PrismaClient): Promise<SeededFixture> {
     peekUrl: `${base}/features?peek=${feature.id}`,
     featureTicketCount: TICKETS.filter((t) => !t.scopeOnly).length,
     totalTicketCount: TICKETS.length,
+    shortIdTicket: (() => {
+      const spec = TICKETS.find((t) => t.shortId)!;
+      return { shortId: spec.shortId!, title: spec.title, number: spec.number };
+    })(),
     okrUrl: `/w/${FIXTURE.workspaceSlug}/goals?view=okrs&year=${FIXTURE.okrPeriod.split("-")[1]}&period=Annual`,
   };
 }

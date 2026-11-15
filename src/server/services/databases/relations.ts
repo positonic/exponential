@@ -29,6 +29,7 @@ import {
 import { buildPageEditorPath } from "~/lib/pages/page-path";
 import { buildKnowledgePageAccessWhere } from "~/server/services/access";
 import { PropertyValueError } from "./values";
+import { searchTicketsIdFirst } from "~/plugins/product/server/services/ticketTextSearch";
 
 type Db = PrismaClient | Prisma.TransactionClient;
 
@@ -498,12 +499,25 @@ export async function searchRelationTargets(
       }));
     }
     case "TICKET": {
-      const tickets = await db.ticket.findMany({
-        where: { product: { workspaceId }, ...(title ? { title } : {}) },
-        orderBy: { updatedAt: "desc" },
-        take: limit,
-        select: { id: true, title: true, status: true, product: { select: { slug: true } } },
-      });
+      const find = (match: Prisma.TicketWhereInput, take: number, skip = 0) =>
+        db.ticket.findMany({
+          where: { product: { workspaceId }, ...match },
+          orderBy: { updatedAt: "desc" },
+          take,
+          ...(skip > 0 ? { skip } : {}),
+          select: {
+            id: true,
+            title: true,
+            status: true,
+            shortId: true,
+            number: true,
+            product: { select: { slug: true, name: true } },
+          },
+        });
+      // Title, shortId or number; a query naming a ticket exactly goes first.
+      const tickets = q
+        ? await searchTicketsIdFirst({ query: q, limit, find, productName: (t) => t.product.name })
+        : await find({}, limit);
       return tickets.map((t) => ({
         kind: "TICKET" as const,
         id: t.id,
