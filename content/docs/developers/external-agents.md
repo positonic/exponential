@@ -106,3 +106,6 @@ No. Exponential's MCP server is the `exponential-mcp` package, which runs on the
 
 **How do I see what an agent did?**
 Actions it created list the agent as creator, and the workspace activity feed shows its entries with an **agent** chip.
+
+**My agent created an action. Where does it show up?**
+An action the agent files in a project appears in that project, for everyone who can see the project. An action it files with no project and no assignee is assigned to you, so it lands on your Today and Inbox like anything else assigned to you, and you are notified. The agent stays the creator. If the agent names an assignee, that person gets it instead. Whoever it is assigned to, you can find and open anything your agent created in a workspace you belong to.

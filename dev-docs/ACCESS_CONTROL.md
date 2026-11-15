@@ -111,6 +111,12 @@ the owner is no longer in. Per row it is `hasAgentOwnerAccess` /
 the three WHERE builders (`createdBy.externalAgentShadow.ownerId` plus
 `buildWorkspaceAccessWhere` for reads, `buildWorkspaceWriteWhere` for writes).
 
+Reaching an action is not the same as having it on your plate: Today, the Inbox
+and `action.getAll` list what you created or are assigned to. So when an agent
+creates an action with no project and no assignee, `createAction` assigns its
+owner (`resolveAgentOwnerAssignee`, ADR-0049), provided the owner belongs to
+the action's workspace. That is an ordinary assignment, not another access path.
+
 ### Projects
 
 A user can **view** a project if ANY of these are true:

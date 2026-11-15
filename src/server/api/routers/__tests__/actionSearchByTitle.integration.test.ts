@@ -156,4 +156,28 @@ describe("action.searchByTitle", () => {
     await expect(asOwner.action.getById({ id: action.id })).rejects.toThrow(/not found/i);
     await expect(asOwner.action.update({ id: action.id, name: "Renamed" })).rejects.toThrow();
   });
+
+  // The whole chain against real tables: the create's owner default, then
+  // the owner's own list, which is "created by me, or assigned to me".
+  it("puts a project-less action an agent creates on its owner's list", async () => {
+    const owner = await createUser(db);
+    const ws = await createWorkspace(db, { ownerId: owner.id, slug: "sbt-agent-plate" });
+    const shadow = await db.user.create({ data: { name: "Desk agent", isAgent: true } });
+    await db.externalAgent.create({
+      data: { name: "Desk agent", ownerId: owner.id, shadowUserId: shadow.id },
+    });
+    await addWorkspaceMember(db, ws.id, shadow.id);
+
+    const created = await createTestCaller(shadow.id).action.create({
+      name: "Ask the accountant about payouts",
+      workspaceId: ws.id,
+    });
+
+    expect(created.createdById).toBe(shadow.id);
+    expect(created.source).toBe("agent");
+    expect(created.assignees.map((a) => a.userId)).toEqual([owner.id]);
+
+    const mine = await createTestCaller(owner.id).action.getAll({ workspaceId: ws.id });
+    expect(mine.map((a) => a.id)).toEqual([created.id]);
+  });
 });

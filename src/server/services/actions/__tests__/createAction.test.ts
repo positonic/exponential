@@ -399,6 +399,172 @@ describe("createAction", () => {
     });
   });
 
+  // An agent writes as its shadow user (ADR-0049). A project-less Action it
+  // files for nobody is on nobody's Today or Inbox, so it goes to the person
+  // the agent works for.
+  describe("an agent's project-less action goes to its owner", () => {
+    const AGENT = ACTOR; // the shadow user is the actor
+    const OWNER = "user-owner";
+    const COLLEAGUE = "user-2";
+
+    /** The actor is an agent's shadow user, owned by OWNER. */
+    function stubAgentActor() {
+      db.user.findUnique.mockResolvedValue({ isAgent: true } as never);
+      db.externalAgent.findUnique.mockResolvedValue({ id: "agent-1", ownerId: OWNER } as never);
+    }
+
+    /** `roles[userId]` is that user's direct role in WORKSPACE; absent = not a member. */
+    function stubWorkspaceRoles(roles: Record<string, string>) {
+      db.workspaceUser.findUnique.mockImplementation(((args: {
+        where: { userId_workspaceId: { userId: string; workspaceId: string } };
+      }) => {
+        const { userId, workspaceId } = args.where.userId_workspaceId;
+        const role = roles[userId];
+        return Promise.resolve(role ? { role, workspaceId } : null);
+      }) as never);
+      db.teamUser.findFirst.mockResolvedValue(null);
+    }
+
+    function stubCreatedWith(assigneeIds: string[]) {
+      db.action.create.mockResolvedValue(createdRow());
+      db.action.findUniqueOrThrow.mockResolvedValue(
+        createdRow({ assignees: assigneeIds.map((id) => ({ userId: id, user: { id } })) }),
+      );
+    }
+
+    it("assigns the owner when the agent names no project and no assignee", async () => {
+      stubAgentActor();
+      stubWorkspaceRoles({ [AGENT]: "member", [OWNER]: "owner" });
+      stubCreatedWith([OWNER]);
+
+      const result = await createAction(
+        { db, actor: { userId: AGENT, tokenType: "agent-key", isAdmin: false } },
+        { source: "agent", name: "Open a payments account", workspaceId: WORKSPACE },
+      );
+
+      expect(db.actionAssignee.createMany).toHaveBeenCalledWith({
+        data: [{ actionId: "a1", userId: OWNER }],
+      });
+      expect(result.assignees.map((a) => a.userId)).toEqual([OWNER]);
+      // The writer is still the agent, and its owner hears about it the way
+      // anyone assigned work does.
+      expect(db.action.create.mock.calls[0]![0]!.data).toMatchObject({ createdById: AGENT });
+      expect(emitNotification).toHaveBeenCalledWith(
+        expect.objectContaining({
+          category: "assignment",
+          actorUserId: AGENT,
+          subject: { actionId: "a1", assignedUserIds: [OWNER] },
+        }),
+      );
+    });
+
+    it("recognises an Assistant run, which presents no agent key", async () => {
+      stubAgentActor();
+      stubWorkspaceRoles({ [AGENT]: "member", [OWNER]: "member" });
+      stubCreatedWith([OWNER]);
+
+      await createAction(
+        { db, actor: { userId: AGENT, tokenType: "agent-context", isAdmin: false } },
+        { source: "agent", name: "Follow up", workspaceId: WORKSPACE },
+      );
+
+      expect(db.actionAssignee.createMany).toHaveBeenCalledWith({
+        data: [{ actionId: "a1", userId: OWNER }],
+      });
+    });
+
+    it("leaves the assignees alone when the agent named some", async () => {
+      stubAgentActor();
+      stubWorkspaceRoles({ [AGENT]: "member", [OWNER]: "owner", [COLLEAGUE]: "member" });
+      stubCreatedWith([COLLEAGUE]);
+
+      await createAction(
+        { db, actor: { userId: AGENT, tokenType: "agent-key", isAdmin: false } },
+        {
+          source: "agent",
+          name: "Review the draft",
+          workspaceId: WORKSPACE,
+          assigneeIds: [COLLEAGUE],
+        },
+      );
+
+      expect(db.actionAssignee.createMany).toHaveBeenCalledWith({
+        data: [{ actionId: "a1", userId: COLLEAGUE }],
+      });
+    });
+
+    it("adds nobody to an action in a project: the project's people already see it", async () => {
+      stubAgentActor();
+      stubWorkspaceRoles({ [AGENT]: "member", [OWNER]: "owner" });
+      stubProject(db, { createdById: OWNER, workspaceId: WORKSPACE });
+      db.action.findFirst.mockResolvedValue(null);
+      db.action.create.mockResolvedValue(createdRow({ projectId: "p1" }));
+
+      await createAction(
+        { db, actor: { userId: AGENT, tokenType: "agent-key", isAdmin: false } },
+        { source: "agent", name: "Slice 1", projectId: "p1" },
+      );
+
+      expect(db.actionAssignee.createMany).not.toHaveBeenCalled();
+      expect(emitNotification).not.toHaveBeenCalled();
+    });
+
+    it("assigns the owner of an action in no workspace at all", async () => {
+      stubAgentActor();
+      stubCreatedWith([OWNER]);
+
+      await createAction(
+        { db, actor: { userId: AGENT, tokenType: "agent-key", isAdmin: false } },
+        { source: "agent", name: "Renew the passport" },
+      );
+
+      expect(db.actionAssignee.createMany).toHaveBeenCalledWith({
+        data: [{ actionId: "a1", userId: OWNER }],
+      });
+    });
+
+    it("still creates the action, unassigned, when the owner is not in the workspace", async () => {
+      // Assignment never reaches further than the reader set: an owner outside
+      // the workspace could not open the action, so they are not attached to it.
+      stubAgentActor();
+      stubWorkspaceRoles({ [AGENT]: "member" });
+      db.action.create.mockResolvedValue(createdRow());
+
+      const result = await createAction(
+        { db, actor: { userId: AGENT, tokenType: "agent-key", isAdmin: false } },
+        { source: "agent", name: "Open a payments account", workspaceId: WORKSPACE },
+      );
+
+      expect(result).toMatchObject({ id: "a1" });
+      expect(db.actionAssignee.createMany).not.toHaveBeenCalled();
+    });
+
+    it("assigns nobody when a person creates the action", async () => {
+      db.user.findUnique.mockResolvedValue({ isAgent: false } as never);
+      stubWorkspaceRole(db, WORKSPACE, "member");
+      db.action.create.mockResolvedValue(createdRow());
+
+      await createAction(deps(db), { source: "ui", name: "Ship it", workspaceId: WORKSPACE });
+
+      expect(db.externalAgent.findUnique).not.toHaveBeenCalled();
+      expect(db.actionAssignee.createMany).not.toHaveBeenCalled();
+    });
+
+    it("assigns nobody when an agent acts for a person, who is already the creator", async () => {
+      // Zoe in chat, a gateway, voice: the row is written as the person.
+      db.user.findUnique.mockResolvedValue({ isAgent: false } as never);
+      stubWorkspaceRole(db, WORKSPACE, "member");
+      db.action.create.mockResolvedValue(createdRow());
+
+      await createAction(
+        { db, actor: { userId: ACTOR, tokenType: "agent-context", isAdmin: false } },
+        { source: "agent", name: "Ship it", workspaceId: WORKSPACE },
+      );
+
+      expect(db.actionAssignee.createMany).not.toHaveBeenCalled();
+    });
+  });
+
   describe("source", () => {
     it("stamps the named source on the row", async () => {
       stubWorkspaceRole(db, WORKSPACE, "member");

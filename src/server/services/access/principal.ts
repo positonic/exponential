@@ -14,8 +14,10 @@
  * `createdBy`, …) cannot move the answer: identity comes from the credential.
  *
  * Every "person or agent?" check goes through it: `humanOnlyProcedure`, the
- * decision service, the time-entry router and the Action source helpers
- * (`actionSourceForPrincipal`). `isPersonCredential` is its pure pre-check.
+ * decision service, the time-entry router, the Action source helpers
+ * (`actionSourceForPrincipal`) and the owner an agent's project-less Action
+ * is assigned to (`resolveAgentOwnerAssignee`). `isPersonCredential` is its
+ * pure pre-check.
  * The token types it knows are the only list of who presents which token;
  * see `dev-docs/AGENT_PRINCIPLES_AUDIT.md`.
  */

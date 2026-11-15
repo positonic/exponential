@@ -1357,24 +1357,46 @@ describe("action router (mocked)", () => {
       expect(dbMock.action.create).toHaveBeenCalled();
     });
 
+    // The last column: an agent principal's project-less, unassigned Action is
+    // assigned to the agent's owner (slim.lake). A person, and an agent acting
+    // as a person, is already the creator, so nobody is added.
     it.each([
-      [undefined, false, "ui"],
-      ["api-token", false, "cli"],
-      ["agent-key", false, "agent"],
-      ["agent-context", false, "agent"], // Zoe in chat, for the person: not the UI
-      ["agent-context", true, "agent"], // an Assistant run's shadow user
-      ["telegram-gateway", false, "telegram"],
-    ] as const)("names the source from the principal: %s (shadow user: %s) is %s", async (tokenType, isAgent, source) => {
+      [undefined, false, "ui", false],
+      ["api-token", false, "cli", false],
+      ["agent-key", false, "agent", true],
+      ["agent-context", false, "agent", false], // Zoe in chat, for the person: not the UI
+      ["agent-context", true, "agent", true], // an Assistant run's shadow user
+      ["telegram-gateway", false, "telegram", false],
+    ] as const)("names the source from the principal: %s (shadow user: %s) is %s", async (tokenType, isAgent, source, assignsOwner) => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       dbMock.user.findUnique.mockResolvedValue({ id: callerId, isAgent } as any);
       dbMock.externalAgent.findUnique.mockResolvedValue({ id: "agent-1", ownerId: "owner-1" } as never);
+      // The owner is a person, so assigning them starts no Agent run.
+      dbMock.externalAgent.findMany.mockResolvedValue([] as never);
       dbMock.action.create.mockResolvedValue(
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         { id: "a1", name: "Personal", workspaceId: null, project: null, assignees: [] } as any,
       );
+      dbMock.action.findUniqueOrThrow.mockResolvedValue({
+        id: "a1",
+        name: "Personal",
+        workspaceId: null,
+        project: null,
+        assignees: [{ userId: "owner-1" }],
+      } as never);
       const caller = createMockCaller({ userId: callerId, db: dbMock, tokenType });
-      await caller.action.create({ name: "Personal" });
+      const created = await caller.action.create({ name: "Personal" });
       expect(dbMock.action.create.mock.calls[0]![0]!.data).toMatchObject({ source });
+
+      if (assignsOwner) {
+        expect(dbMock.actionAssignee.createMany).toHaveBeenCalledWith({
+          data: [{ actionId: "a1", userId: "owner-1" }],
+        });
+        expect(created.assignees).toEqual([{ userId: "owner-1" }]);
+        expect(created.agentRunsQueued).toBe(0);
+      } else {
+        expect(dbMock.actionAssignee.createMany).not.toHaveBeenCalled();
+      }
     });
 
     it("needs no membership probe when no workspaceId is supplied", async () => {
@@ -2175,8 +2197,15 @@ describe("action router (mocked)", () => {
         dbMock.externalAgent.findUnique.mockResolvedValue({ id: "agent-1", ownerId: "owner-1" } as never);
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         dbMock.action.create.mockResolvedValue({ id: "a1", name: "x", project: null } as any);
+        // An agent principal's project-less Action is assigned to its owner,
+        // so the create re-reads the row with its assignee.
+        dbMock.action.findUniqueOrThrow.mockResolvedValue({ id: "a1", name: "x", project: null } as never);
       }
       const stored = () => dbMock.action.create.mock.calls[0]![0]!.data.source;
+      const assignedOwner = () =>
+        dbMock.actionAssignee.createMany.mock.calls.some(
+          ([args]) => JSON.stringify(args?.data) === JSON.stringify([{ actionId: "a1", userId: "owner-1" }]),
+        );
 
       it.each(["ui", "cli", "ios", "ios-shortcut", "meeting"])(
         "an agent key that sends source %s is recorded as the agent",
@@ -2185,6 +2214,7 @@ describe("action router (mocked)", () => {
           const caller = createMockCaller({ userId: callerId, db: dbMock, tokenType: "agent-key" });
           await caller.action.quickCreate({ name: "x", source });
           expect(stored()).toBe("agent");
+          expect(assignedOwner()).toBe(true);
         },
       );
 
@@ -2193,6 +2223,7 @@ describe("action router (mocked)", () => {
         const caller = createMockCaller({ userId: callerId, db: dbMock, tokenType: "agent-context", agentRunId: "run-1" });
         await caller.action.quickCreate({ name: "x", source: "ui" });
         expect(stored()).toBe("agent");
+        expect(assignedOwner()).toBe(true);
       });
 
       it.each([
@@ -2204,6 +2235,8 @@ describe("action router (mocked)", () => {
         const caller = createMockCaller({ userId: callerId, db: dbMock, tokenType });
         await caller.action.quickCreate({ name: "x", source: "ui" });
         expect(stored()).toBe(source);
+        // The row is written as the person, so there is no owner to add.
+        expect(assignedOwner()).toBe(false);
       });
 
       it.each(["agent", "whatsapp", "voice"])("a person cannot claim an agent's source (%s)", async (source) => {
@@ -2821,21 +2854,36 @@ describe("action router (mocked)", () => {
       });
     });
 
+    // The last column: only an agent principal's Action goes to its owner.
     it.each([
-      ["agent-context", false, "agent"], // Zoe in chat, for the person
-      ["agent-context", true, "agent"], // an Assistant run's shadow user
-      ["agent-key", false, "agent"],
-      ["api-token", false, "cli"], // a person's own token is the person, not an agent
-    ] as const)("mastra.quickCreateAction names the source from the principal: %s (shadow user: %s) is %s", async (tokenType, isAgent, source) => {
+      ["agent-context", false, "agent", false], // Zoe in chat, for the person
+      ["agent-context", true, "agent", true], // an Assistant run's shadow user
+      ["agent-key", false, "agent", true],
+      ["api-token", false, "cli", false], // a person's own token is the person, not an agent
+    ] as const)("mastra.quickCreateAction names the source from the principal: %s (shadow user: %s) is %s", async (tokenType, isAgent, source, assignsOwner) => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       dbMock.user.findUnique.mockResolvedValue({ id: callerId, isAgent } as any);
       dbMock.externalAgent.findUnique.mockResolvedValue({ id: "agent-1", ownerId: "owner-1" } as never);
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       dbMock.action.create.mockResolvedValue({ id: "a1", name: "Buy milk", priority: "Quick", dueDate: null, scheduledStart: null, project: null } as any);
+      dbMock.action.findUniqueOrThrow.mockResolvedValue({
+        id: "a1",
+        name: "Buy milk",
+        priority: "Quick",
+        dueDate: null,
+        scheduledStart: null,
+        project: null,
+      } as never);
 
       await createGatewayCaller(tokenType).mastra.quickCreateAction({ text: "Buy milk" });
 
       expect(dbMock.action.create.mock.calls[0]![0]!.data).toMatchObject({ source });
+      expect(dbMock.actionAssignee.createMany).toHaveBeenCalledTimes(assignsOwner ? 1 : 0);
+      if (assignsOwner) {
+        expect(dbMock.actionAssignee.createMany).toHaveBeenCalledWith({
+          data: [{ actionId: "a1", userId: "owner-1" }],
+        });
+      }
     });
 
     it("mastra.quickCreateAction rejects an unmapped gateway token type with BAD_REQUEST and no row", async () => {

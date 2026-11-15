@@ -21,8 +21,18 @@ complete it, although the owner holds the agent's key. The owner of the agent th
 Action now reaches it through the central action resolver, **while they still belong to the
 Action's workspace**: view at any role, edit and delete at a write role. The path ends when the
 owner leaves the workspace, as the agent's own membership does; an Action in no workspace follows
-the agent's owner. Attribution is unchanged: `createdById` stays the shadow user. Whether such an
-Action should also land on the owner's plate (Today, Inbox) is a separate, open product decision.
+the agent's owner. Attribution is unchanged: `createdById` stays the shadow user.
+
+Amended 2026-11-15 (ticket slim.lake, decided by James): such an Action also lands on the owner's
+plate. When an agent principal creates an Action with **no project and no assignee**, the owner is
+assigned to it, so it appears on their Today and Inbox and they get the usual Assignment
+notification. The rule is the Action write module's (`resolveAgentOwnerAssignee`), so every create
+path has it, and it reads the verified principal, never a label the caller sends. An Action in a
+project is left alone (the project's people already see it, and an agent filing backlog work for a
+team is not handing it all to its owner), as is one whose assignee the agent named. The owner is
+added only if they belong to the Action's workspace. This is the third "an agent keeps this for
+its owner" case after time (ADR-0061) and the Reading list (ADR-0079), and differs from both: the
+row is not owned by the owner, it is assigned to them.
 
 ## Context
 

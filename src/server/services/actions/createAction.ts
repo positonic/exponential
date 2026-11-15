@@ -25,6 +25,7 @@ import {
 } from "./containment";
 import { nextKanbanOrder } from "./kanban";
 import { assertCanWriteToWorkspace } from "./workspaceGate";
+import { resolveAgentOwnerAssignee } from "./agentOwnerDefault";
 import {
   assertLinkableBlockers,
   blockedByInclude,
@@ -63,9 +64,10 @@ export type CreatedAction = Prisma.ActionGetPayload<{
  * In order: gate (project edit access when a project is given, otherwise a
  * write role in the target workspace), workspace derivation (the project's
  * workspace wins over a caller-supplied one), scoped-reference and attachment
- * containment guards, kanban seed, one transaction writing the row plus its
- * tags, assignees and sprint membership, then the activity event and the
- * Assignment notification.
+ * containment guards, the owner default for an agent's project-less Action
+ * (`resolveAgentOwnerAssignee`), kanban seed, one transaction writing the row
+ * plus its tags, assignees and sprint membership, then the activity event and
+ * the Assignment notification.
  *
  * `source` is required and must be one of `ACTION_SOURCES`; a caller that
  * cannot name its surface fails rather than defaulting.
@@ -187,12 +189,21 @@ export async function createAction(
     await assertLinkableBlockers(db, actor.userId, targetWorkspaceId, uniqueBlockerIds);
   }
 
-  // 4. One transaction: the row and every attachment, so an Action with
+  // 4. An agent's project-less Action with nobody named goes to the agent's
+  //    owner, or it would sit on no person's Today or Inbox. Asked only in
+  //    that case, so every other create pays nothing for it.
+  const ownerDefaultId =
+    !columns.projectId && uniqueAssigneeIds.length === 0
+      ? await resolveAgentOwnerAssignee(deps, targetWorkspaceId)
+      : null;
+  const assigneeIdsToWrite = ownerDefaultId ? [ownerDefaultId] : uniqueAssigneeIds;
+
+  // 5. One transaction: the row and every attachment, so an Action with
   //    partial attachments cannot exist. The re-read at the end returns the
   //    same include shape whether or not anything was attached.
   const hasAttachments =
     uniqueTagIds.length > 0 ||
-    uniqueAssigneeIds.length > 0 ||
+    assigneeIdsToWrite.length > 0 ||
     uniqueBlockerIds.length > 0 ||
     !!sprintListId;
 
@@ -214,9 +225,9 @@ export async function createAction(
         data: uniqueTagIds.map((tagId) => ({ actionId: row.id, tagId })),
       });
     }
-    if (uniqueAssigneeIds.length > 0) {
+    if (assigneeIdsToWrite.length > 0) {
       await tx.actionAssignee.createMany({
-        data: uniqueAssigneeIds.map((userId) => ({ actionId: row.id, userId })),
+        data: assigneeIdsToWrite.map((userId) => ({ actionId: row.id, userId })),
       });
     }
     if (sprintListId) {
@@ -233,7 +244,7 @@ export async function createAction(
     });
   });
 
-  // 5. Side effects, after the commit. `recordActivity` never throws by
+  // 6. Side effects, after the commit. `recordActivity` never throws by
   //    contract, but the `.catch` keeps instrumentation from ever breaking the
   //    caller's mutation even if the helper is later refactored.
   const activityWorkspaceId =
@@ -264,9 +275,10 @@ export async function createAction(
   }
 
   // Unified notification pipeline (ADR-0045): one Assignment emit for every
-  // assignee who is not the actor. Best-effort and not awaited, matching
-  // `action.assign`; the cron worker retries any channel that failed.
-  const notifiedAssigneeIds = uniqueAssigneeIds.filter((id) => id !== actor.userId);
+  // assignee who is not the actor, the owner an agent's Action defaulted to
+  // included. Best-effort and not awaited, matching `action.assign`; the cron
+  // worker retries any channel that failed.
+  const notifiedAssigneeIds = assigneeIdsToWrite.filter((id) => id !== actor.userId);
   if (notifiedAssigneeIds.length > 0) {
     void emitNotification({
       category: NOTIFICATION_CATEGORIES.ASSIGNMENT,
