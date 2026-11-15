@@ -21,6 +21,7 @@ import { modals } from "@mantine/modals";
 import { notifications } from "@mantine/notifications";
 import { buildPrdExtensions } from "~/lib/prd/extensions";
 import { SlashCommand, type SlashCommandItem } from "~/lib/prd/slash-command";
+import { DomSelectionSync } from "~/lib/prd/dom-selection-sync";
 import { markdownToDoc, EMPTY_DOC, isDocEmpty } from "~/lib/prd/codec";
 import { createSaveQueue } from "~/lib/prd/save-queue";
 import { selectionToMarkdown } from "~/lib/prd/selection-markdown";
@@ -530,6 +531,8 @@ export function RichDocEditor({
       }),
       ...(editable
         ? [
+            // Keys act on the selection the person sees (see the module).
+            DomSelectionSync,
             SlashCommand.configure({
               extraCommands: slashExtras ?? [],
               ...(stableUpload ? { uploadImage: stableUpload } : {}),
