@@ -239,6 +239,7 @@ describe('middleware matcher', () => {
       '/f/intake-form',
       '/',
       '/privacy',
+      '/pricing',
       '/robots.txt',
       '/sitemap.xml',
     ])('%s renders for anonymous visitors', (route) => {

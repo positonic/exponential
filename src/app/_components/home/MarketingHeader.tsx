@@ -11,8 +11,8 @@ import { CTAButton } from "./shared/CTAButton";
 
 interface MarketingHeaderProps {
   /**
-   * On the home page the section links are same-page anchors (`#pricing`).
-   * Everywhere else they point back at the home page (`/#pricing`).
+   * On the home page the section links are same-page anchors (`#self-host`).
+   * Everywhere else they point back at the home page (`/#self-host`).
    */
   onHomePage?: boolean;
   /**
@@ -74,7 +74,7 @@ export function MarketingHeader({
               <Link href="/docs" className={NAV_LINK}>
                 Docs
               </Link>
-              <Link href={anchor("pricing")} className={NAV_LINK}>
+              <Link href="/pricing" className={NAV_LINK}>
                 Pricing
               </Link>
               <ResourcesMenu />
@@ -92,7 +92,7 @@ export function MarketingHeader({
                   <Link href="/docs" className={MOBILE_LINK}>
                     Docs
                   </Link>
-                  <Link href={anchor("pricing")} className={MOBILE_LINK}>
+                  <Link href="/pricing" className={MOBILE_LINK}>
                     Pricing
                   </Link>
                   <Link href="/learn" className={MOBILE_LINK}>

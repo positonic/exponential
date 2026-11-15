@@ -29,6 +29,7 @@ export const PUBLIC_EXACT = new Set([
   '/setup', // self-host first-run claim (ADR-0081); 404s once the install has an admin
   '/privacy',
   '/terms',
+  '/pricing', // marketing pricing page
   '/roadmap', // public product roadmap (embeds Loom)
   // File conventions served through the middleware matcher.
   '/llms.txt',

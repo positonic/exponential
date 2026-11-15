@@ -5,9 +5,8 @@ interface PricingSectionProps {
 }
 
 /**
- * Pricing, as one statement. There is a single hosted plan and it is free,
- * so a plan card says nothing a sentence does not. When there is more than
- * one plan, this becomes a link to a pricing page.
+ * Pricing, as one statement. The plans themselves, the comparison table and
+ * the FAQ are on /pricing; this section links there.
  */
 export function PricingSection({ id }: PricingSectionProps) {
   return (
@@ -27,8 +26,8 @@ export function PricingSection({ id }: PricingSectionProps) {
             <CTAButton href="/signin" variant="pill" size="large">
               Get started free
             </CTAButton>
-            <CTAButton href="#self-host" variant="text">
-              Self-host
+            <CTAButton href="/pricing" variant="text">
+              Compare plans
             </CTAButton>
           </div>
         </div>
