@@ -204,7 +204,7 @@
 .fab {
   position: fixed;
   right: 20px;
-  bottom: 24px;
+  bottom: calc(24px + env(safe-area-inset-bottom));
   z-index: 50;
   display: grid;
   width: 60px;
@@ -226,6 +226,14 @@
 
 .fab:active {
   transform: translateY(0);
+}
+
+/* The assistant launcher (.zoeFab in layout/ZoeDrawer.module.css) holds the
+   bottom-right corner of every page: 52px tall, 24px above the safe area, and
+   stacked above this button. When it is on screen, sit 16px above it instead
+   of underneath it. Both are centred 50px from the right edge. */
+.fab[data-above-launcher] {
+  bottom: calc(24px + 52px + 16px + env(safe-area-inset-bottom));
 }
 
 @media (min-width: 769px) {
