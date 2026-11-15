@@ -32,7 +32,7 @@ export default async function VerifyRequest() {
     process.env.NEXT_PUBLIC_SUPPORT_EMAIL ?? "support@exponential.im";
 
   return (
-    <div className="auth-surface">
+    <div className="auth-surface mkt">
       <header className="auth-header">
         <Link href="/" className="auth-header__brand">
           <Image

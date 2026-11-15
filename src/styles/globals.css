@@ -1384,50 +1384,16 @@ body {
 .blog-content table { font-size: 1rem; line-height: 1.7; }
 
 /* ==========================================================================
-   Auth surface (/signin, /invite/[token]) - scoped design tokens
-   Consumed by src/styles/auth-surface.css. All hex lives here so the feature
-   CSS can be hex-free (pre-commit hook only allows hex in this file,
-   colors.ts, mantineTheme.ts, EmailService.ts).
+   Auth surface (/signin, /invite/[token], /setup, /auth/verify-request) -
+   the few values only these pages need. Consumed by src/styles/auth-surface.css.
+
+   The pages carry no palette of their own: each root is `auth-surface mkt`,
+   so backgrounds, borders and text are the home page palette (see "Marketing
+   surface" above) and brand and accent colours are the shared tokens. All hex
+   lives here so the feature CSS can be hex-free (pre-commit hook only allows
+   hex in this file, colors.ts, mantineTheme.ts, EmailService.ts).
    ========================================================================== */
 .auth-surface {
-  /* Backgrounds */
-  --color-bg-primary: #0B0F17;
-  --color-bg-secondary: #10151F;
-  --color-bg-elevated: #141B27;
-  --color-bg-hover: #1A2230;
-  --color-bg-overlay: rgba(5, 8, 13, 0.72);
-
-  /* Surfaces */
-  --color-surface-muted: #161D2A;
-  --color-surface-raised: #1C2433;
-
-  /* Borders */
-  --color-border-primary: #1F2A3C;
-  --color-border-subtle: #172030;
-  --color-border-strong: #2A3850;
-
-  /* Text */
-  --color-text-primary: #E6ECF5;
-  --color-text-secondary: #96A2B5;
-  --color-text-muted: #5E6A7E;
-  --color-text-faint: #3F4A5C;
-
-  /* Brand scale */
-  --brand-50: #EEF3FF;
-  --brand-200: #A8C5FF;
-  --brand-400: #4E89FF;
-  --brand-500: #1F5DE0;
-  --brand-600: #1A4EC4;
-  --brand-700: #153FA8;
-
-  /* Accents */
-  --accent-ritual: #6B8CFF;
-  --accent-knowledge: #5AC8E0;
-  --accent-meetings: #A78BFA;
-  --accent-crm: #4ADE8C;
-  --accent-okr: #F5B94A;
-  --accent-due: #F87171;
-
   /* Avatar gradient presets */
   --invite-avatar-a1: linear-gradient(135deg, #F59E7E, #C73E9A);
   --invite-avatar-a2: linear-gradient(135deg, #8B7EE8, #5AC8E0);

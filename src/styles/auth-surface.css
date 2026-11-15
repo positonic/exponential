@@ -1,10 +1,11 @@
 
 /* ============================================================================
    auth-surface.css
-   Shared dark auth chrome used on /signin and /invite/[token]. The root
-   container uses class `.auth-surface`. All design tokens are declared under
-   `.auth-surface` in src/styles/globals.css — this file only references them
-   via var(), never hardcodes hex.
+   Shared auth chrome used on /signin, /invite/[token], /setup and
+   /auth/verify-request. The root container is `auth-surface mkt`: colours are
+   the home page palette and the shared tokens, so the pages follow the light
+   and dark themes. This file only references tokens via var(), never
+   hardcodes hex.
    ============================================================================ */
 
 .auth-surface, .auth-surface * { box-sizing: border-box; }
@@ -376,17 +377,21 @@
 .auth-surface .btn-primary {
   margin-top: 12px;
   height: 40px;
-  border-radius: var(--radius-md);
-  border: 1px solid var(--brand-500);
-  background: var(--brand-500);
-  color: white;
+  border-radius: var(--radius-full);
+  border: 1px solid var(--mkt-cta-bg);
+  background: var(--mkt-cta-bg);
+  color: var(--mkt-cta-text);
   font-size: 13.5px;
   font-weight: 500;
   font-family: inherit;
   display: flex; align-items: center; justify-content: center; gap: 8px;
   width: 100%;
 }
-.auth-surface .btn-primary:hover:not(:disabled) { background: var(--brand-600); border-color: var(--brand-600); }
+/* The home page's light pill (.mkt-btn-primary): text colour as the fill. */
+.auth-surface .btn-primary:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--mkt-cta-bg) 86%, var(--mkt-cta-text));
+  border-color: color-mix(in srgb, var(--mkt-cta-bg) 86%, var(--mkt-cta-text));
+}
 
 .auth-surface .terms {
   margin-top: 16px;

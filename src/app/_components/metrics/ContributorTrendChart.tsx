@@ -30,7 +30,6 @@ const PALETTE = [
   'var(--accent-crm)',
   'var(--accent-okr)',
   'var(--accent-ritual)',
-  'var(--accent-knowledge)',
   'var(--accent-due)',
   'var(--accent-quick)',
 ];
