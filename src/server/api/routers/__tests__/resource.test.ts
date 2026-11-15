@@ -119,6 +119,7 @@ import {
   deriveContent,
   countWords,
   resaveReadStatus,
+  saveReadState,
   MAX_RAW_CONTENT_CHARS,
 } from "../resource";
 
@@ -183,6 +184,37 @@ describe("resaveReadStatus", () => {
   it("honours an explicit read or reading request", () => {
     expect(resaveReadStatus("read", "reading")).toBe("read");
     expect(resaveReadStatus("reading", "read")).toBe("reading");
+  });
+});
+
+describe("saveReadState", () => {
+  const queued = { forReference: false, readStatus: "to_read" as const };
+  const reference = { forReference: true, readStatus: "to_read" as const };
+
+  it("a new save lands on the requested state; for reference it starts read", () => {
+    expect(saveReadState(queued, null)).toEqual({ readStatus: "to_read", readAt: null });
+    const filed = saveReadState(reference, null);
+    expect(filed.readStatus).toBe("read");
+    expect(filed.readAt).toBeInstanceOf(Date);
+  });
+
+  it("a save for reference patches nothing on a Resource that exists, whatever its state", () => {
+    const readAt = new Date("2026-09-01T00:00:00Z");
+    expect(saveReadState(reference, { readStatus: "to_read", readAt: null })).toEqual({});
+    expect(saveReadState(reference, { readStatus: "reading", readAt })).toEqual({});
+    expect(saveReadState(reference, { readStatus: "read", readAt })).toEqual({});
+  });
+
+  it("any other re-save follows the queue rule", () => {
+    const readAt = new Date("2026-09-01T00:00:00Z");
+    expect(saveReadState(queued, { readStatus: "read", readAt })).toEqual({
+      readStatus: "to_read",
+      readAt: null,
+    });
+    expect(saveReadState(queued, { readStatus: "reading", readAt })).toEqual({
+      readStatus: "reading",
+      readAt,
+    });
   });
 });
 
@@ -323,6 +355,23 @@ describe("resource router — reading list (mocked)", () => {
       expect(data.readStatus).toBe("to_read");
       expect(data.readAt).toBeNull();
       expect(embedResourceMock).not.toHaveBeenCalled();
+    });
+
+    it("a new Resource saved for reference starts read, outside the queue", async () => {
+      dbMock.resource.create.mockResolvedValue(fakeResource({ readStatus: "read" }));
+      const caller = createMockCaller({ userId: callerId, db: dbMock });
+
+      const out = await caller.resource.create({
+        title: "A listing",
+        url: "https://example.com/listing",
+        contentType: "bookmark",
+        forReference: true,
+      });
+
+      const data = dbMock.resource.create.mock.calls[0]![0].data;
+      expect(data.readStatus).toBe("read");
+      expect(data.readAt).toBeInstanceOf(Date);
+      expect(out.created).toBe(true);
     });
 
     it("embeds pasted content as before, and stamps readAt when saved as read", async () => {
@@ -505,6 +554,84 @@ describe("resource router — reading list (mocked)", () => {
         expect(data.readAt).toBeInstanceOf(Date);
         await flushAfter();
         expect(embedResourceMock).toHaveBeenCalledWith("old");
+      });
+
+      describe("saved for reference (raw.hen)", () => {
+        async function resaveForReference(existing: Record<string, unknown>) {
+          dbMock.resource.findFirst.mockResolvedValue(fakeResource({ id: "old", ...existing }));
+          dbMock.resource.update.mockResolvedValue(fakeResource({ id: "old" }));
+          const caller = createMockCaller({ userId: callerId, db: dbMock });
+
+          const out = await caller.resource.create({
+            title: "x",
+            url: "https://example.com/post",
+            forReference: true,
+          });
+
+          expect(out.created).toBe(false);
+          return dbMock.resource.update.mock.calls[0]![0].data;
+        }
+
+        it("leaves a queued item to_read, so it stays in the queue", async () => {
+          const data = await resaveForReference({ readStatus: "to_read", readAt: null });
+
+          expect(data).not.toHaveProperty("readStatus");
+          expect(data).not.toHaveProperty("readAt");
+        });
+
+        it("leaves an item mid-read, with its readAt untouched", async () => {
+          const data = await resaveForReference({
+            readStatus: "reading",
+            readAt: new Date("2026-09-01T00:00:00Z"),
+          });
+
+          expect(data).not.toHaveProperty("readStatus");
+          expect(data).not.toHaveProperty("readAt");
+        });
+
+        it("un-archives a finished item without putting it back in the queue", async () => {
+          const data = await resaveForReference({
+            readStatus: "read",
+            readAt: new Date("2026-09-01T00:00:00Z"),
+            archivedAt: new Date("2026-09-02T00:00:00Z"),
+          });
+
+          expect(data.archivedAt).toBeNull();
+          expect(data).not.toHaveProperty("readStatus");
+          expect(data).not.toHaveProperty("readAt");
+        });
+
+        it("is not overridden by a readStatus sent alongside it", async () => {
+          dbMock.resource.findFirst.mockResolvedValue(
+            fakeResource({ id: "old", readStatus: "to_read" }),
+          );
+          dbMock.resource.update.mockResolvedValue(fakeResource({ id: "old" }));
+          const caller = createMockCaller({ userId: callerId, db: dbMock });
+
+          await caller.resource.create({
+            title: "x",
+            url: "https://example.com/post",
+            forReference: true,
+            readStatus: "read",
+          });
+
+          expect(dbMock.resource.update.mock.calls[0]![0].data).not.toHaveProperty("readStatus");
+        });
+
+        it("a save that states no intent still returns a finished item to the queue", async () => {
+          dbMock.resource.findFirst.mockResolvedValue(
+            fakeResource({ id: "old", readStatus: "read", readAt: new Date("2026-09-01T00:00:00Z") }),
+          );
+          dbMock.resource.update.mockResolvedValue(fakeResource({ id: "old" }));
+          const caller = createMockCaller({ userId: callerId, db: dbMock });
+
+          await caller.resource.create({ title: "x", url: "https://example.com/post" });
+
+          expect(dbMock.resource.update.mock.calls[0]![0].data).toMatchObject({
+            readStatus: "to_read",
+            readAt: null,
+          });
+        });
       });
 
       it("only matches the caller's own rows", async () => {
