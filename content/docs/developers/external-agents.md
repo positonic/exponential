@@ -4,7 +4,7 @@ description: Connect third-party AI agents to Exponential as first-class team me
 icon: IconRobotFace
 order: 2
 sidebarTitle: External agents
-updated: 2026-11-09
+updated: 2026-11-15
 ---
 
 External agents let you connect autonomous AI software — [Hermes Agent](https://hermes-agent.nousresearch.com/), MCP clients, custom scripts, anything that can send an HTTP request — to Exponential **as its own identity**, not as you. When your agent creates an action, the action says the *agent* created it, and the workspace's activity feed and members list show it with an **agent** badge. This is different from Zoe, who works *with* you in a conversation and acts as you with your confirmation.
@@ -34,6 +34,22 @@ Authorization: Bearer exp_agent_...
 ```
 
 For agent software that runs shell commands (like Hermes), the simplest path is the Exponential CLI with the agent key as its token — see [API tokens](/docs/developers/api-tokens#how-to-use-a-token).
+
+For an MCP client (Claude Desktop, Claude Code, Cursor, or any agent that can launch an MCP server), use the **`exponential-mcp`** server. The client starts it on its own machine, and it signs in with the agent key:
+
+```json
+{
+  "mcpServers": {
+    "exponential": {
+      "command": "npx",
+      "args": ["-y", "exponential-mcp", "serve"],
+      "env": { "EXPONENTIAL_API_KEY": "exp_agent_..." }
+    }
+  }
+}
+```
+
+On a [self-hosted install](/docs/self-hosting), add `"EXPONENTIAL_API_URL": "https://your-install.example.com"` to `env`. Setup, the full tool list and `exponential-mcp doctor` are on [MCP server & SDK](/docs/developers/mcp-and-sdk).
 
 ## How to give an agent access to a restricted project
 
@@ -84,6 +100,9 @@ No. [API tokens](/docs/developers/api-tokens) act as you and are right for webho
 
 **I assigned an action to my external agent — does Exponential run it?**
 No. An external agent is software you run; it polls for the actions assigned to it (`exponential actions list` with its key) and works them itself, commenting and changing status as it goes. Exponential starts a hosted run only when you assign your built-in [assistant](/docs/zoe/assistant-runs), which has no software of its own. The two never overlap: the same assignment is either yours to pick up or the assistant's to run.
+
+**Is there a hosted MCP URL I can paste into a client?**
+No. Exponential's MCP server is the `exponential-mcp` package, which runs on the same machine as the MCP client (see [How to point your software at Exponential](#how-to-point-your-software-at-exponential)). A client that can only connect to a remote MCP server can't use it yet.
 
 **How do I see what an agent did?**
 Actions it created list the agent as creator, and the workspace activity feed shows its entries with an **agent** chip.
