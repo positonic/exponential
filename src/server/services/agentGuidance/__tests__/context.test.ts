@@ -72,7 +72,7 @@ vi.mock("~/server/db", () => {
 
 import { createMockCaller } from "~/test/trpc-helpers";
 import { assembleScopeInstructions } from "~/server/services/ai/scopeInstructions";
-import { loadScopeInstructions } from "../context";
+import { CONTEXT_DECISION_LIMIT, contextRevision, loadScopeInstructions } from "../context";
 
 const USER_ID = "user-1";
 const WS = { id: "ws-1", slug: "acme", name: "Acme", type: "team", description: null };
@@ -237,7 +237,7 @@ describe("loadScopeInstructions (the chat route's fetch)", () => {
   it("keeps a project-only scope (no workspace) working", async () => {
     withProject(db, "Ship small.", { workspaceId: "ws-any" });
     const loaded = await loadScopeInstructions(db as unknown as PrismaClient, { userId: USER_ID, projectId: PROJECT.id });
-    expect(loaded.project).toEqual({ id: PROJECT.id, name: "Launch", aiInstructions: "Ship small." });
+    expect(loaded.project).toEqual({ id: PROJECT.id, name: "Launch", productId: null, aiInstructions: "Ship small." });
   });
 
   it("admits a team-linked member through the central resolver", async () => {
@@ -246,5 +246,93 @@ describe("loadScopeInstructions (the chat route's fetch)", () => {
     db.workspace.findUnique.mockResolvedValue({ ...WS, aiInstructions: "Team rules." } as never);
     const loaded = await loadScopeInstructions(db as unknown as PrismaClient, { userId: USER_ID, workspaceId: WS.id });
     expect(loaded.workspace?.aiInstructions).toBe("Team rules.");
+  });
+});
+
+describe("agentGuidance.context decisions", () => {
+  let db: DeepMockProxy<PrismaClient>;
+
+  beforeEach(() => {
+    db = getDbMock();
+    mockReset(db);
+  });
+
+  const decidedAt = new Date("2026-11-10T00:00:00.000Z");
+  function withDecisions(rows: { id: string; number: number; statement: string; projectId: string | null }[], total?: number) {
+    db.decision.findMany.mockResolvedValue(rows.map((r) => ({ ...r, decidedAt })) as never);
+    db.decision.count.mockResolvedValue(total ?? rows.length);
+  }
+
+  it("lists the project's decisions with label, statement and a link, never the body", async () => {
+    withWorkspace(db, null);
+    withProject(db, null);
+    withDecisions([{ id: "dec-1", number: 70, statement: "Free is unlimited people.", projectId: PROJECT.id }]);
+    const context = await caller(db).agentGuidance.context({ workspaceId: WS.id, projectId: PROJECT.id });
+    expect(context.decisions.omitted).toBe(0);
+    expect(context.decisions.items).toHaveLength(1);
+    const [d] = context.decisions.items;
+    expect(d).toMatchObject({
+      id: "dec-1",
+      label: "D-0070",
+      statement: "Free is unlimited people.",
+      scope: "project",
+      decidedAt: decidedAt.toISOString(),
+    });
+    expect(d!.url).toMatch(/\/w\/acme\/decisions\/d\/dec-1$/);
+    expect(d).not.toHaveProperty("body");
+    const select = db.decision.findMany.mock.calls[0]![0]!.select!;
+    expect(select).not.toHaveProperty("body");
+  });
+
+  it("reads only ACCEPTED, confirmed decisions through the access resolver, newest first, capped", async () => {
+    withWorkspace(db, null);
+    withProject(db, null);
+    withDecisions([], 0);
+    await caller(db).agentGuidance.context({ workspaceId: WS.id, projectId: PROJECT.id });
+    const args = db.decision.findMany.mock.calls[0]![0]!;
+    const and = (args.where as { AND: Record<string, unknown>[] }).AND;
+    // The resolver clause: workspace-scoped and confirmed-only.
+    expect(and[0]).toMatchObject({ workspaceId: WS.id, reviewState: "CONFIRMED" });
+    expect(and[0]).toHaveProperty("OR");
+    expect(and[1]).toEqual({ status: "ACCEPTED", reviewState: "CONFIRMED" });
+    expect(and[2]).toEqual({ projectId: PROJECT.id });
+    expect(args.take).toBe(CONTEXT_DECISION_LIMIT);
+    expect(args.orderBy).toEqual([{ decidedAt: { sort: "desc", nulls: "last" } }, { number: "desc" }]);
+  });
+
+  it("adds project-less decisions on the project's product, marked as product scope", async () => {
+    withWorkspace(db, null);
+    withProject(db, null, { productId: "prod-1" } as Partial<typeof PROJECT>);
+    withDecisions([{ id: "dec-2", number: 3, statement: "Ship on Paddle.", projectId: null }]);
+    const context = await caller(db).agentGuidance.context({ workspaceId: WS.id, projectId: PROJECT.id });
+    const and = (db.decision.findMany.mock.calls[0]![0]!.where as { AND: unknown[] }).AND;
+    expect(and[2]).toEqual({ OR: [{ projectId: PROJECT.id }, { projectId: null, productId: "prod-1" }] });
+    expect(context.decisions.items[0]!.scope).toBe("product");
+  });
+
+  it("says how many decisions the cap left out", async () => {
+    withWorkspace(db, null);
+    withProject(db, null);
+    withDecisions([{ id: "dec-1", number: 1, statement: "One.", projectId: PROJECT.id }], 25);
+    const context = await caller(db).agentGuidance.context({ workspaceId: WS.id, projectId: PROJECT.id });
+    expect(context.decisions.omitted).toBe(24);
+  });
+
+  it("reads no decisions without a visible project", async () => {
+    withWorkspace(db, null);
+    db.project.findFirst.mockResolvedValue(null);
+    const context = await caller(db).agentGuidance.context({ workspaceId: WS.id, projectId: "someone-elses" });
+    expect(context.decisions).toEqual({ items: [], omitted: 0 });
+    expect(db.decision.findMany).not.toHaveBeenCalled();
+  });
+
+  it("folds decisions into the revision, leaving it unchanged when there are none", () => {
+    const instructions = [{ scope: "workspace" as const, sourceId: WS.id, text: "Rules." }];
+    const bare = contextRevision(instructions);
+    expect(contextRevision(instructions, { items: [], omitted: 0 })).toBe(bare);
+    const item = { id: "d", label: "D-0001", statement: "A.", scope: "project" as const, decidedAt: null, url: "u" };
+    const withOne = contextRevision(instructions, { items: [item], omitted: 0 });
+    expect(withOne).not.toBe(bare);
+    expect(contextRevision(instructions, { items: [{ ...item, statement: "B." }], omitted: 0 })).not.toBe(withOne);
   });
 });

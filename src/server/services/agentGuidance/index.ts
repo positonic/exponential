@@ -19,12 +19,16 @@ export {
 } from "./preview";
 export {
   assembleLoadedScope,
+  CONTEXT_DECISION_LIMIT,
   contextRevision,
   getContext,
+  loadProjectDecisions,
   loadScopeInstructions,
   PROJECT_NOT_IN_WORKSPACE_MESSAGE,
   scopeInstructionsFor,
   WORKSPACE_ACCESS_DENIED_MESSAGE,
+  type ContextDecision,
+  type ContextDecisions,
   type ContextInstruction,
   type ContextPayload,
   type LoadedScopeInstructions,

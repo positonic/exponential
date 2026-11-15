@@ -11,9 +11,15 @@
  * reads them.
  */
 import crypto from "crypto";
-import type { PrismaClient } from "@prisma/client";
+import type { Prisma, PrismaClient } from "@prisma/client";
 import { TRPCError } from "@trpc/server";
-import { buildProjectAccessWhere, getWorkspaceMembership } from "~/server/services/access";
+import { formatDecisionLabel } from "~/lib/decision-label";
+import { getPublicBaseUrlFromEnv } from "~/lib/urls";
+import {
+  buildDecisionAccessWhere,
+  buildProjectAccessWhere,
+  getWorkspaceMembership,
+} from "~/server/services/access";
 import {
   assembleScopeInstructions,
   type InstructionScope,
@@ -33,7 +39,7 @@ export interface LoadedScopeInstructions {
     aiInstructions: string | null;
   } | null;
   /** Null when no project was asked for, or the caller cannot see it. */
-  project: { id: string; name: string; aiInstructions: string | null } | null;
+  project: { id: string; name: string; productId: string | null; aiInstructions: string | null } | null;
 }
 
 /**
@@ -66,7 +72,7 @@ export async function loadScopeInstructions(
     opts.projectId
       ? db.project.findFirst({
           where: { id: opts.projectId, ...buildProjectAccessWhere(opts.userId) },
-          select: { id: true, name: true, workspaceId: true, aiInstructions: true },
+          select: { id: true, name: true, workspaceId: true, productId: true, aiInstructions: true },
         })
       : null,
   ]);
@@ -89,7 +95,10 @@ export async function loadScopeInstructions(
     // not an error (chat must keep working), but it isn't in this workspace's
     // scope either, so it contributes no instructions.
     const isOutsideWorkspace = !!opts.workspaceId && row?.workspaceId == null;
-    project = row && !isOutsideWorkspace ? { id: row.id, name: row.name, aiInstructions: row.aiInstructions } : null;
+    project =
+      row && !isOutsideWorkspace
+        ? { id: row.id, name: row.name, productId: row.productId ?? null, aiInstructions: row.aiInstructions }
+        : null;
   }
 
   return { workspace, project };
@@ -115,6 +124,28 @@ export interface ContextInstruction {
   text: string;
 }
 
+/** Most decisions listed in the context; the rest are counted in `omitted`. */
+export const CONTEXT_DECISION_LIMIT = 20;
+
+export interface ContextDecision {
+  id: string;
+  /** `D-0042`. */
+  label: string;
+  statement: string;
+  /** Why it is in scope: linked to the project, or to the project's product (and no project). */
+  scope: "project" | "product";
+  decidedAt: string | null;
+  /** The full decision (body, evidence, links) in the app. */
+  url: string;
+}
+
+export interface ContextDecisions {
+  /** Newest first, at most `CONTEXT_DECISION_LIMIT`. */
+  items: ContextDecision[];
+  /** Matching decisions left out by the cap. */
+  omitted: number;
+}
+
 export interface ContextPayload {
   workspace: { id: string; slug: string; name: string };
   project: { id: string; name: string } | null;
@@ -124,18 +155,84 @@ export interface ContextPayload {
   instructions: ContextInstruction[];
   /** Byte-identical to the block chat injects; null when no scope has text. */
   assembled: string | null;
-  /** `sha256:<hex>` over the source ids and texts, in order. */
+  /**
+   * The project's ACCEPTED, confirmed decisions the caller may read, plus
+   * project-less ones on the project's product. Statements only: fetch the
+   * link for the reasoning. Like instructions, they are guidance — context
+   * for the work, not permission for anything (ADR-0071). Empty without a
+   * project.
+   */
+  decisions: ContextDecisions;
+  /** `sha256:<hex>` over the source ids and texts, in order, then the listed decisions. */
   revision: string;
   generatedAt: string;
 }
 
 /** Changes when, and only when, an instruction (or its source) changes. */
-export function contextRevision(instructions: ContextInstruction[]): string {
+export function contextRevision(instructions: ContextInstruction[], decisions?: ContextDecisions): string {
   const hash = crypto.createHash("sha256");
   for (const i of instructions) {
     hash.update(`${i.scope}:${i.sourceId.length}:${i.sourceId}\n${i.text.length}:${i.text}\n`);
   }
+  // Absent or empty decisions leave the hash exactly as instructions alone make it.
+  if (decisions && (decisions.items.length > 0 || decisions.omitted > 0)) {
+    hash.update(`decisions:${decisions.omitted}\n`);
+    for (const d of decisions.items) {
+      hash.update(`${d.id.length}:${d.id}\n${d.statement.length}:${d.statement}\n`);
+    }
+  }
   return `sha256:${hash.digest("hex")}`;
+}
+
+/**
+ * The decisions in a project's scope, read through the central decision
+ * resolver (`buildDecisionAccessWhere`: confirmed only, and only rows the
+ * caller could open in the Decision Log). Product decisions count only when
+ * they carry no project, so another project's decisions never leak in by
+ * sharing a product.
+ */
+export async function loadProjectDecisions(
+  db: PrismaClient,
+  opts: {
+    userId: string;
+    workspace: { id: string; slug: string };
+    project: { id: string; productId: string | null };
+    limit?: number;
+  },
+): Promise<ContextDecisions> {
+  const limit = opts.limit ?? CONTEXT_DECISION_LIMIT;
+  const { project } = opts;
+  const where: Prisma.DecisionWhereInput = {
+    AND: [
+      buildDecisionAccessWhere(opts.userId, opts.workspace.id),
+      { status: "ACCEPTED", reviewState: "CONFIRMED" },
+      project.productId
+        ? { OR: [{ projectId: project.id }, { projectId: null, productId: project.productId }] }
+        : { projectId: project.id },
+    ],
+  };
+  const [rows, total] = await Promise.all([
+    db.decision.findMany({
+      where,
+      select: { id: true, number: true, statement: true, projectId: true, decidedAt: true },
+      orderBy: [{ decidedAt: { sort: "desc", nulls: "last" } }, { number: "desc" }],
+      take: limit,
+    }),
+    db.decision.count({ where }),
+  ]);
+  const list = rows ?? [];
+  const base = getPublicBaseUrlFromEnv();
+  return {
+    items: list.map((d) => ({
+      id: d.id,
+      label: formatDecisionLabel(d.number),
+      statement: d.statement,
+      scope: d.projectId === project.id ? "project" : "product",
+      decidedAt: d.decidedAt ? d.decidedAt.toISOString() : null,
+      url: `${base}/w/${opts.workspace.slug}/decisions/d/${d.id}`,
+    })),
+    omitted: Math.max(0, (total ?? list.length) - list.length),
+  };
 }
 
 export async function getContext(
@@ -158,13 +255,18 @@ export async function getContext(
     if (text && sourceId) instructions.push({ scope: s.scope, sourceId, text });
   }
 
+  const decisions: ContextDecisions = loaded.project
+    ? await loadProjectDecisions(db, { userId: opts.userId, workspace, project: loaded.project })
+    : { items: [], omitted: 0 };
+
   return {
     workspace: { id: workspace.id, slug: workspace.slug, name: workspace.name },
     project: loaded.project ? { id: loaded.project.id, name: loaded.project.name } : null,
     authority: "guidance",
     instructions,
     assembled: assembleLoadedScope(loaded),
-    revision: contextRevision(instructions),
+    decisions,
+    revision: contextRevision(instructions, decisions),
     generatedAt: (opts.now ?? new Date()).toISOString(),
   };
 }
