@@ -168,10 +168,12 @@ function ZoeChatDrawer() {
     { workspaceId: effectiveWorkspaceId ?? undefined },
     { enabled: !!effectiveWorkspaceId && isOpen },
   );
-  const { data: customAssistant } = api.assistant.getDefault.useQuery(
-    { workspaceId: effectiveWorkspaceId ?? "" },
-    { enabled: !!effectiveWorkspaceId && isOpen },
-  );
+  // One Assistant per person (ADR-0072): the same one in every workspace, so
+  // no workspace gate — a workspace without one no longer falls back to an
+  // unnamed agent.
+  const { data: customAssistant } = api.assistant.getMine.useQuery(undefined, {
+    enabled: isOpen,
+  });
   const { data: agents } = api.mastra.getMastraAgents.useQuery(undefined, {
     enabled: isOpen,
     staleTime: 10 * 60 * 1000,

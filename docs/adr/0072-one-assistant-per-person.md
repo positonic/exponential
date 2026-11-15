@@ -69,11 +69,14 @@ workspace is automatic). That lands with the V2 scope and does not change this d
 
 ## Consequences
 
-- The schema change ships as expand then contract. V1a (this change) adds `retiredAt`, the
-  resolver, the migration and the index beside the per-workspace reads. V1b moves every caller
-  and drops `Assistant.workspaceId` and `isDefault`.
-- Until V1b, `assistant.create` refuses a person who already has an Assistant (`CONFLICT`)
-  rather than making one per workspace.
+- The schema change ships as expand then contract. V1a added `retiredAt`, the resolver, the
+  migration and the index beside the per-workspace reads (merged 2026-11-15). V1b moved every
+  caller onto the resolver (`assistant.getMine`) and dropped `Assistant.workspaceId` and
+  `isDefault`.
+- `assistant.create` refuses a person who already has an Assistant (`CONFLICT`). It takes no
+  workspace: the new Assistant's first membership is its person's Personal workspace.
+- The Telegram and Matrix `/pair` body still carries a workspace (the agent's knowledge tools
+  need one): the person's default workspace, else their Personal workspace.
 - Every reader that treats "has an Assistant" as "may run" must check `retiredAt`. The display
   readers (Delegated, Waiting on me, the assignee roster, Positions) need nothing, because a
   retired Assistant holds no membership and no live run.

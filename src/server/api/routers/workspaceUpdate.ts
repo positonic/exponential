@@ -14,6 +14,7 @@ import {
   WORKSPACE_UPDATE_STATUS,
 } from "~/server/services/workspaceUpdates/types";
 import { manualPeriodKey, resolveWindowStart } from "~/server/services/workspaceUpdates/window";
+import { assistantWorksInWorkspaceWhere } from "~/server/services/assistant/resolveAssistant";
 
 const CONFIG_SELECT = {
   enabled: true,
@@ -120,8 +121,9 @@ export const workspaceUpdateRouter = createTRPCRouter({
         }
       }
       if (patch.assistantId) {
+        // An Assistant belongs to no workspace (ADR-0072): it must work here.
         const assistant = await ctx.db.assistant.findFirst({
-          where: { id: patch.assistantId, workspaceId },
+          where: { id: patch.assistantId, ...assistantWorksInWorkspaceWhere(workspaceId) },
           select: { id: true },
         });
         if (!assistant) throw new TRPCError({ code: "BAD_REQUEST", message: "Unknown assistant" });

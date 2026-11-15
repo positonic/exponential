@@ -583,8 +583,6 @@ model Workspace {
   dailyScores             DailyScore[]
   streaks                 ProductivityStreak[]
   leaderboardEntries      LeaderboardEntry[]
-  // AI Assistant customization
-  assistants              Assistant[]
   // Positions: who does what (ADR-0068)
   positions               Position[]
   // Workflow Pipeline relations
@@ -4785,16 +4783,17 @@ model RecurringTask {
 // AI Assistant Customization
 // ============================================
 
+/// A person's own agent: one per person, the same in every workspace it works
+/// in (ADR-0072). It belongs to no workspace; where it works is its principal's
+/// `WorkspaceUser` memberships.
 model Assistant {
   id           String   @id @default(cuid())
-  workspaceId  String
   createdById  String
   name         String // User-chosen assistant name ("Aria", "Max", etc.)
   emoji        String? // Visual symbol
   personality  String   @db.Text // Free-text soul/persona (like Clawd's SOUL.md)
   instructions String?  @db.Text // Operating instructions
   userContext  String?  @db.Text // About the user/team
-  isDefault    Boolean  @default(false)
   /// The Assistant's principal — an owned ExternalAgent with a shadow user and a
   /// workspace membership, which is what makes it an assignee (ADR-0067).
   /// Required: the migration backfills every existing row before setting NOT NULL.
@@ -4808,12 +4807,10 @@ model Assistant {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
-  workspace     Workspace      @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   createdBy     User           @relation("AssistantCreatedBy", fields: [createdById], references: [id])
   externalAgent ExternalAgent  @relation(fields: [externalAgentId], references: [id], onDelete: Cascade)
   contentDrafts ContentDraft[]
 
-  @@index([workspaceId])
   @@index([createdById])
 }
 

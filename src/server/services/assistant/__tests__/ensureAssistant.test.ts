@@ -65,8 +65,6 @@ describe("ensureAssistantForUser", () => {
         name: "Zoe",
         personality: "",
         createdById: USER_ID,
-        workspaceId: WORKSPACE_ID,
-        isDefault: true,
         externalAgentId: AGENT_ID,
       },
     });

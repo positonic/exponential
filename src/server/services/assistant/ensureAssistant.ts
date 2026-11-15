@@ -7,10 +7,10 @@ export const DEFAULT_ASSISTANT_NAME = "Zoe";
 
 export interface AssistantDefaults {
   /**
-   * The workspace the new Assistant's row and first membership belong to. The
-   * column goes in V1b; until then a row needs one. The caller guarantees the
-   * person is a non-viewer member there (the delegation invariant), or passes
-   * `grantMembership: false`.
+   * The workspace the new Assistant's first membership goes in — its person's
+   * Personal workspace (ADR-0072: the Assistant itself belongs to no
+   * workspace). The caller guarantees the person holds a delegating role there
+   * (ADR-0049), or passes `grantMembership: false`.
    */
   workspaceId: string;
   grantMembership?: boolean;
@@ -58,11 +58,7 @@ export async function ensureAssistantForUser(
           personality: defaults.personality ?? "",
           instructions: defaults.instructions ?? null,
           userContext: defaults.userContext ?? null,
-          workspaceId: defaults.workspaceId,
           createdById: userId,
-          // A person's only Assistant is their default; the per-workspace
-          // readers that still key on it go in V1b.
-          isDefault: true,
           externalAgentId,
         },
       });

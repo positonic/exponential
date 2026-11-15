@@ -21,12 +21,8 @@ function AgentHeader({
   onSelectAgent: (name: string) => void;
   onSelectDefault: () => void;
 }) {
-  const { workspaceId } = useWorkspace();
   const { data: agents } = api.mastra.getMastraAgents.useQuery();
-  const { data: customAssistant } = api.assistant.getDefault.useQuery(
-    { workspaceId: workspaceId ?? '' },
-    { enabled: !!workspaceId }
-  );
+  const { data: customAssistant } = api.assistant.getMine.useQuery();
 
   const getInitials = (name: string) => name.split(' ').map(n => n[0]).join('').toUpperCase();
 
@@ -114,10 +110,7 @@ function AgentChat({ scopeToWorkspace = false }: AgentChatPageProps) {
   const sidebarWorkspaceId = scopeToWorkspace ? (workspaceId ?? undefined) : undefined;
 
   // Fetch the user's custom assistant to use as the default agent name
-  const { data: customAssistant } = api.assistant.getDefault.useQuery(
-    { workspaceId: workspaceId ?? '' },
-    { enabled: !!workspaceId }
-  );
+  const { data: customAssistant } = api.assistant.getMine.useQuery();
 
   // Fetch agents list to resolve name→id for dropdown selection
   const { data: agents } = api.mastra.getMastraAgents.useQuery(undefined, {

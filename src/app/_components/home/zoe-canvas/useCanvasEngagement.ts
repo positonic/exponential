@@ -71,10 +71,7 @@ export function useCanvasEngagement({
   const engagementIdRef = useRef<string | null>(null);
 
   const startConversation = api.aiInteraction.startConversation.useMutation();
-  const { data: customAssistant } = api.assistant.getDefault.useQuery(
-    { workspaceId: workspaceId ?? '' },
-    { enabled: enabled && !!workspaceId },
-  );
+  const { data: customAssistant } = api.assistant.getMine.useQuery(undefined, { enabled });
   const { data: mastraAgents } = api.mastra.getMastraAgents.useQuery(undefined, {
     enabled,
     staleTime: 10 * 60 * 1000,

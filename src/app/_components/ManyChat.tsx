@@ -466,10 +466,7 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
   const utils = api.useUtils();
 
   // Fetch the user's custom assistant (if configured)
-  const { data: customAssistant } = api.assistant.getDefault.useQuery(
-    { workspaceId: workspaceId ?? '' },
-    { enabled: !!workspaceId }
-  );
+  const { data: customAssistant } = api.assistant.getMine.useQuery();
 
   // Use prop if provided, otherwise fall back to pageContext (auto-detected from current page)
   const projectId = projectIdProp ?? (pageContext?.data?.projectId as string | undefined);

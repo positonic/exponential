@@ -17,8 +17,32 @@ type Db = PrismaClient | Prisma.TransactionClient;
  * what leaves the server.
  */
 export async function resolveAssistantForUser(db: Db, userId: string) {
-  return db.assistant.findFirst({
+  return db.assistant.findFirst(activeAssistantQuery(userId));
+}
+
+/**
+ * An Assistant that works in a workspace (ADR-0072): it belongs to no
+ * workspace, so "in" means its principal is a member there. Never a retired
+ * one. For workspace settings that point at an Assistant (the Workspace
+ * Updates voice).
+ */
+export function assistantWorksInWorkspaceWhere(workspaceId: string) {
+  return {
+    retiredAt: null,
+    externalAgent: {
+      shadowUser: { workspaceMemberships: { some: { workspaceId } } },
+    },
+  } satisfies Prisma.AssistantWhereInput;
+}
+
+/**
+ * The query behind {@link resolveAssistantForUser}, for a caller that needs to
+ * add an `include` (the settings page's principal and keys) without restating
+ * the rule.
+ */
+export function activeAssistantQuery(userId: string) {
+  return {
     where: { createdById: userId, retiredAt: null },
-    orderBy: { updatedAt: "desc" },
-  });
+    orderBy: { updatedAt: "desc" as const },
+  };
 }

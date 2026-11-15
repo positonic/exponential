@@ -2,7 +2,7 @@ import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { createTRPCRouter, humanOnlyProcedure } from "~/server/api/trpc";
 import { generateJWT } from "~/server/utils/jwt";
-import { findGatewayAssistant } from "~/server/services/assistant/gatewayAssistant";
+import { resolveGatewayPairing } from "~/server/services/assistant/gatewayPairing";
 
 const TELEGRAM_GATEWAY_URL =
   process.env.TELEGRAM_GATEWAY_URL ?? "http://localhost:4113";
@@ -102,8 +102,9 @@ export const telegramGatewayRouter = createTRPCRouter({
         tokenType: "telegram-gateway",
       });
 
-      // Resolve the same assistant /settings/assistant shows for the gateways
-      const assistant = await findGatewayAssistant(ctx.db, ctx.session.user.id);
+      // The person's Assistant (one per person, ADR-0072) and a workspace the
+      // agent's tools need in context — never null when they have one (D13).
+      const { assistant, workspaceId } = await resolveGatewayPairing(ctx.db, ctx.session.user.id);
 
       let res: Response;
       try {
@@ -117,7 +118,7 @@ export const telegramGatewayRouter = createTRPCRouter({
             agentId: input.agentId,
             assistantId: assistant?.id,
             assistantName: assistant?.name,
-            workspaceId: assistant?.workspaceId,
+            workspaceId: workspaceId ?? undefined,
           }),
         });
       } catch (error) {

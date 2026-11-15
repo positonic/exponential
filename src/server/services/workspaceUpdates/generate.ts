@@ -21,6 +21,7 @@ import {
 } from "./types";
 import { formatWindowLabel } from "./window";
 import { constrainToSelection, createTemplateWriter, type UpdateWriter, type WriteContext } from "./writer";
+import { assistantWorksInWorkspaceWhere } from "~/server/services/assistant/resolveAssistant";
 
 export interface ReviewNotice {
   updateId: string;
@@ -93,7 +94,7 @@ export async function loadWriteContext(
   const timezone = config?.timezone ?? "UTC";
   const assistant = config?.assistantId
     ? await db.assistant.findFirst({
-        where: { id: config.assistantId, workspaceId },
+        where: { id: config.assistantId, ...assistantWorksInWorkspaceWhere(workspaceId) },
         select: { personality: true },
       })
     : null;

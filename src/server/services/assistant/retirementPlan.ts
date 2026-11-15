@@ -9,8 +9,9 @@
  * migration will do before he runs it. The migration's SQL implements the same
  * ranking; `20261111120100_retire_duplicate_assistants` cites this function.
  *
- * Ranking, best first — the first three are `findGatewayAssistant`'s, extended
- * so a person always keeps one:
+ * Ranking, best first — the first two are what the chat gateways paired to
+ * before V1b (`findGatewayAssistant`, since removed), extended so a person
+ * always keeps one. Kept as the record of the rule that migration ran:
  *  1. a default Assistant in the person's default workspace, still accessible;
  *  2. a default Assistant in any workspace the person can still access;
  *  3. any Assistant in a workspace the person can still access;

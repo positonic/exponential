@@ -38,7 +38,7 @@ vi.mock('~/trpc/react', () => ({
       },
     },
     assistant: {
-      getDefault: { useQuery: () => ({ data: undefined }) },
+      getMine: { useQuery: () => ({ data: undefined }) },
     },
     mastra: {
       getMastraAgents: {

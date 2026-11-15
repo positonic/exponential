@@ -30,7 +30,7 @@ export interface RetirementResult {
  * `onDelete: Cascade` — deleting the principal would destroy every run it
  * performed, with its event log. So retirement:
  *
- *  - stamps `retiredAt` (and drops `isDefault`), keeping the Assistant row, its
+ *  - stamps `retiredAt`, keeping the Assistant row, its
  *    External agent and its shadow user, so everything it wrote stays
  *    attributed to it and its persona text survives;
  *  - revokes its keys, so it never authenticates again;
@@ -87,13 +87,8 @@ export async function retireAssistant(
 
     await tx.assistant.update({
       where: { id: retiring.id },
-      data: { retiredAt: now, isDefault: false },
+      data: { retiredAt: now },
     });
-    // A person's only Assistant is their default: the per-workspace readers
-    // that still key on `isDefault` (until V1b) must keep resolving it.
-    if (input.survivorId) {
-      await tx.assistant.update({ where: { id: input.survivorId }, data: { isDefault: true } });
-    }
 
     const keys = await tx.externalAgentKey.deleteMany({ where: { agentId } });
 

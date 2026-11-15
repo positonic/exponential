@@ -86,9 +86,11 @@ describe("assistant.create — the Assistant is a principal (ADR-0067)", () => {
     dbMock.user.findUnique.mockResolvedValue({ isAgent: false } as never);
     writes = [];
 
-    // Owner is a non-viewer member — the delegation-invariant precondition.
+    // The person's Personal workspace, which they own — where a new
+    // Assistant's row and first membership go (ADR-0072).
+    dbMock.workspace.findFirst.mockResolvedValue({ id: WORKSPACE_ID } as never);
     dbMock.workspaceUser.findUnique.mockResolvedValue({
-      role: "member",
+      role: "owner",
       workspaceId: WORKSPACE_ID,
     } as never);
     dbMock.assistant.updateMany.mockResolvedValue({ count: 0 } as never);
@@ -114,11 +116,10 @@ describe("assistant.create — the Assistant is a principal (ADR-0067)", () => {
     }) as never);
   });
 
-  it("writes shadow user → External agent → membership → Assistant, in one transaction", async () => {
+  it("writes shadow user → External agent → Personal membership → Assistant, in one transaction", async () => {
     const caller = createMockCaller({ userId: OWNER_ID, db: dbMock });
 
     const created = await caller.assistant.create({
-      workspaceId: WORKSPACE_ID,
       name: "Aria",
       emoji: "✨",
       personality: "Warm, direct.",
@@ -133,28 +134,49 @@ describe("assistant.create — the Assistant is a principal (ADR-0067)", () => {
     expect(dbMock.externalAgent.create.mock.calls[0]?.[0]).toMatchObject({
       data: { name: "Aria", ownerId: OWNER_ID, shadowUserId: SHADOW_USER_ID },
     });
-    // Agents only ever hold `member` (ADR-0049), in the Assistant's own workspace.
+    // Agents only ever hold `member` (ADR-0049), here in the Personal workspace.
     expect(dbMock.workspaceUser.upsert.mock.calls[0]?.[0]).toMatchObject({
       where: { userId_workspaceId: { userId: SHADOW_USER_ID, workspaceId: WORKSPACE_ID } },
       create: { userId: SHADOW_USER_ID, workspaceId: WORKSPACE_ID, role: "member" },
       update: { role: "member" },
     });
     expect(dbMock.assistant.create.mock.calls[0]?.[0]).toMatchObject({
-      data: { externalAgentId: AGENT_ID, createdById: OWNER_ID, workspaceId: WORKSPACE_ID },
+      data: { externalAgentId: AGENT_ID, createdById: OWNER_ID },
     });
+    // The Assistant belongs to no workspace (ADR-0072): no column to write.
+    expect(dbMock.assistant.create.mock.calls[0]?.[0]?.data).not.toHaveProperty("workspaceId");
     expect(created).toMatchObject({ externalAgentId: AGENT_ID });
   });
 
-  it("refuses when the owner is not a member of the workspace, writing nothing", async () => {
-    dbMock.workspaceUser.findUnique.mockResolvedValue(null as never);
-    dbMock.teamUser.findFirst.mockResolvedValue(null as never);
+  it("looks the Personal workspace up by owner and type, not from client input", async () => {
+    const caller = createMockCaller({ userId: OWNER_ID, db: dbMock });
+
+    await caller.assistant.create({ name: "Aria", personality: "Warm." });
+
+    expect(dbMock.workspace.findFirst).toHaveBeenCalledWith({
+      where: { type: "personal", ownerId: OWNER_ID },
+      select: { id: true },
+    });
+  });
+
+  it("refuses a person with no Personal workspace yet, writing nothing", async () => {
+    dbMock.workspace.findFirst.mockResolvedValue(null);
     const caller = createMockCaller({ userId: OWNER_ID, db: dbMock });
 
     await expect(
-      caller.assistant.create({ workspaceId: WORKSPACE_ID, name: "Aria", personality: "x" }),
-    ).rejects.toThrow();
+      caller.assistant.create({ name: "Aria", personality: "x" }),
+    ).rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
 
     expect(writes).toEqual([]);
+  });
+
+  it("writes no membership where the person cannot delegate (ADR-0049)", async () => {
+    dbMock.workspaceUser.findUnique.mockResolvedValue({ role: "viewer", workspaceId: WORKSPACE_ID } as never);
+    const caller = createMockCaller({ userId: OWNER_ID, db: dbMock });
+
+    await caller.assistant.create({ name: "Aria", personality: "x" });
+
+    expect(writes).toEqual(["user", "externalAgent", "assistant"]);
   });
 });
 
@@ -163,7 +185,6 @@ describe("assistant.update / delete — the principal follows the Assistant (ADR
   let writes: string[];
   const owned = {
     id: "assistant-1",
-    workspaceId: WORKSPACE_ID,
     createdById: OWNER_ID,
     externalAgentId: AGENT_ID,
     name: "Aria",
@@ -171,7 +192,6 @@ describe("assistant.update / delete — the principal follows the Assistant (ADR
     personality: "Warm.",
     instructions: null,
     userContext: null,
-    isDefault: true,
     createdAt: new Date("2026-01-01"),
     updatedAt: new Date("2026-01-01"),
     externalAgent: { id: AGENT_ID, executor: "MASTRA", shadowUserId: SHADOW_USER_ID, description: null },

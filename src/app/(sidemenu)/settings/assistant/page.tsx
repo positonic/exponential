@@ -21,7 +21,6 @@ import {
 import { IconRobot, IconCheck, IconAlertCircle, IconCopy, IconTrash } from '@tabler/icons-react';
 import { useState, useEffect } from 'react';
 import { api } from '~/trpc/react';
-import { useWorkspace } from '~/providers/WorkspaceProvider';
 import { useAiCapabilities } from '~/providers/AiCapabilitiesProvider';
 import { AiNotConfiguredNote } from '~/app/_components/ai/AiNotConfiguredNote';
 import { TelegramGatewayCard } from '~/app/_components/TelegramGatewayCard';
@@ -31,9 +30,6 @@ import { MarkdownInput } from '~/app/_components/shared/MarkdownInput';
 const PERSONALITY_PLACEHOLDER = `Example: You're warm, direct, and a little playful. You have opinions and share them honestly. Skip the corporate tone — be real. When something doesn't add up, say so (kindly). You're genuinely helpful, not performatively helpful.`;
 
 const INSTRUCTIONS_PLACEHOLDER = `Example: When asked to create tasks, always confirm the project first. Keep responses concise unless detail is requested. Use bullet points for lists.`;
-
-// Roles that pass `requireWorkspaceMembership("edit")` on assistant.create
-const EDITABLE_ROLES = new Set(['owner', 'admin', 'member']);
 
 const USER_CONTEXT_PLACEHOLDER = `Example: I'm a startup founder working on a SaaS product. I manage a small team of 5. I prefer morning focus blocks and async communication.`;
 
@@ -48,33 +44,14 @@ const EXECUTOR_OPTIONS = [
 ];
 
 export default function AssistantSettingsPage() {
-  const { workspaceId: currentWorkspaceId } = useWorkspace();
   const { assistant: hasAssistant } = useAiCapabilities();
   const utils = api.useUtils();
 
-  // Assistants are per workspace, but this page has no workspace in its URL.
-  // Open on the one the Telegram/Matrix gateways use, so the page and the
-  // gateways agree; fall back to the current workspace for a first assistant.
-  const { data: gatewayAssistant, isLoading: gatewayLoading } =
-    api.assistant.getGatewayDefault.useQuery(undefined, {
-      refetchOnWindowFocus: false,
-    });
-  const { data: workspaces } = api.workspace.list.useQuery();
-  const editableWorkspaces = (workspaces ?? []).filter((ws) =>
-    EDITABLE_ROLES.has(ws.currentUserRole ?? '')
-  );
-
-  const [selectedWorkspaceId, setSelectedWorkspaceId] = useState<string | null>(null);
-  const workspaceId = gatewayLoading
-    ? null
-    : (selectedWorkspaceId ?? gatewayAssistant?.workspaceId ?? currentWorkspaceId);
-
-  const { data: assistant, isLoading: assistantLoading } = api.assistant.getDefault.useQuery(
-    { workspaceId: workspaceId ?? '' },
-    { enabled: !!workspaceId, refetchOnWindowFocus: false }
-  );
-  // Full-page loader only on first load; switching workspace keeps the picker mounted
-  const isLoading = gatewayLoading || (assistantLoading && !selectedWorkspaceId);
+  // One Assistant per person (ADR-0072): the same one in every workspace, so
+  // this page needs no workspace. Null until the person first saves it.
+  const { data: assistant, isLoading } = api.assistant.getMine.useQuery(undefined, {
+    refetchOnWindowFocus: false,
+  });
 
   const [name, setName] = useState('');
   const [emoji, setEmoji] = useState('');
@@ -84,8 +61,7 @@ export default function AssistantSettingsPage() {
   const [description, setDescription] = useState('');
   const [saved, setSaved] = useState(false);
 
-  // Populate form when data loads — and clear it when switching to a
-  // workspace with no assistant, so its fields aren't saved into the wrong one
+  // Populate the form when the Assistant loads.
   useEffect(() => {
     setName(assistant?.name ?? '');
     setEmoji(assistant?.emoji ?? '');
@@ -98,8 +74,7 @@ export default function AssistantSettingsPage() {
   const createMutation = api.assistant.create.useMutation({
     onSuccess: () => {
       console.log('[AssistantSettings] Create succeeded');
-      void utils.assistant.getDefault.invalidate();
-      void utils.assistant.getGatewayDefault.invalidate();
+      void utils.assistant.getMine.invalidate();
       setSaved(true);
       setTimeout(() => setSaved(false), 3000);
     },
@@ -111,8 +86,7 @@ export default function AssistantSettingsPage() {
   const updateMutation = api.assistant.update.useMutation({
     onSuccess: () => {
       console.log('[AssistantSettings] Update succeeded');
-      void utils.assistant.getDefault.invalidate();
-      void utils.assistant.getGatewayDefault.invalidate();
+      void utils.assistant.getMine.invalidate();
       setSaved(true);
       setTimeout(() => setSaved(false), 3000);
     },
@@ -126,19 +100,19 @@ export default function AssistantSettingsPage() {
   // would start runs nobody claims.
   const executorMutation = api.assistant.update.useMutation({
     onSuccess: () => {
-      void utils.assistant.getDefault.invalidate();
+      void utils.assistant.getMine.invalidate();
     },
   });
   const [runnerSecret, setRunnerSecret] = useState<string | null>(null);
   const createKeyMutation = api.assistant.createRunnerKey.useMutation({
     onSuccess: (result) => {
       setRunnerSecret(result.secret);
-      void utils.assistant.getDefault.invalidate();
+      void utils.assistant.getMine.invalidate();
     },
   });
   const revokeKeyMutation = api.assistant.revokeRunnerKey.useMutation({
     onSuccess: () => {
-      void utils.assistant.getDefault.invalidate();
+      void utils.assistant.getMine.invalidate();
     },
   });
 
@@ -148,16 +122,14 @@ export default function AssistantSettingsPage() {
 
   const handleSave = () => {
     console.log('[AssistantSettings] handleSave called', {
-      workspaceId,
       name: name.trim(),
       personality: personality.trim().substring(0, 50),
       hasAssistant: !!assistant,
       assistantId: assistant?.id,
     });
 
-    if (!workspaceId || !name.trim() || !personality.trim()) {
+    if (!name.trim() || !personality.trim()) {
       console.log('[AssistantSettings] Early return - missing required fields', {
-        workspaceId: !!workspaceId,
         name: !!name.trim(),
         personality: !!personality.trim(),
       });
@@ -177,13 +149,11 @@ export default function AssistantSettingsPage() {
       });
     } else {
       createMutation.mutate({
-        workspaceId,
         name: name.trim(),
         emoji: emoji.trim() || undefined,
         personality: personality.trim(),
         instructions: instructions.trim() || undefined,
         userContext: userContext.trim() || undefined,
-        isDefault: true,
       });
     }
   };
@@ -213,6 +183,18 @@ export default function AssistantSettingsPage() {
             responds to you across the app, and it can be assigned work like a
             teammate.
           </Text>
+          <Alert
+            icon={<IconAlertCircle size={16} />}
+            variant="light"
+            mt="md"
+            data-testid="assistant-persona-warning"
+          >
+            You have one assistant, the same in every workspace it works in. Its
+            name, personality, instructions and what you write about yourself go
+            with it into shared workspaces too, including work assigned to it
+            there. Don&apos;t write anything here you wouldn&apos;t want a teammate&apos;s
+            task to draw on.
+          </Alert>
           {!hasAssistant && (
             <AiNotConfiguredNote requirement="assistant" feature="The Assistant" className="mt-3" />
           )}
@@ -228,19 +210,6 @@ export default function AssistantSettingsPage() {
           <Alert icon={<IconCheck size={16} />} color="green" variant="light">
             Assistant saved successfully!
           </Alert>
-        )}
-
-        {editableWorkspaces.length > 1 && (
-          <Select
-            label="Workspace"
-            description="Each workspace has its own assistant."
-            data={editableWorkspaces.map((ws) => ({ value: ws.id, label: ws.name }))}
-            value={workspaceId}
-            onChange={(value) => {
-              if (value) setSelectedWorkspaceId(value);
-            }}
-            allowDeselect={false}
-          />
         )}
 
         {/* Identity */}
@@ -454,10 +423,9 @@ export default function AssistantSettingsPage() {
           </Paper>
         )}
 
-        {gatewayAssistant && (
+        {assistant && (
           <Text size="sm" c="dimmed">
-            Telegram and Matrix chat with <b>{gatewayAssistant.name}</b>, your
-            assistant in {gatewayAssistant.workspace.name}.
+            Telegram and Matrix chat with <b>{assistant.name}</b>, your assistant.
           </Text>
         )}
 
@@ -485,7 +453,7 @@ export default function AssistantSettingsPage() {
             <Button
               onClick={handleSave}
               loading={isSaving}
-              disabled={assistantLoading || !name.trim() || !personality.trim()}
+              disabled={isLoading || !name.trim() || !personality.trim()}
             >
               {assistant ? 'Update Assistant' : 'Create Assistant'}
             </Button>

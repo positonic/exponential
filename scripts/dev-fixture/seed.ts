@@ -528,12 +528,25 @@ export async function seedDevFixture(db: PrismaClient): Promise<SeededFixture> {
   // Each Assistant owns an External agent whose shadow user is a workspace
   // member (ADR-0067) — created through the same service `assistant.create`
   // uses, so the fixture can never drift from the product path.
+  // One Assistant per person (ADR-0072), a member of the fixture workspace
+  // (where it works is its principal's membership, not a column). An existing
+  // one is reused and re-joined, so a re-seed never creates a second.
   async function ensureAssistant(ownerId: string, name: string) {
     const existing = await db.assistant.findFirst({
-      where: { workspaceId: workspace.id, createdById: ownerId, name },
-      select: { id: true },
+      where: { createdById: ownerId, retiredAt: null },
+      select: { id: true, externalAgent: { select: { shadowUserId: true } } },
     });
-    if (existing) return existing;
+    if (existing) {
+      await db.assistant.update({ where: { id: existing.id }, data: { name } });
+      await db.workspaceUser.upsert({
+        where: {
+          userId_workspaceId: { userId: existing.externalAgent.shadowUserId, workspaceId: workspace.id },
+        },
+        create: { userId: existing.externalAgent.shadowUserId, workspaceId: workspace.id, role: "member" },
+        update: { role: "member" },
+      });
+      return { id: existing.id };
+    }
     return db.$transaction(async (tx) => {
       const { externalAgentId } = await createAssistantPrincipal(tx, {
         name,
@@ -545,9 +558,7 @@ export async function seedDevFixture(db: PrismaClient): Promise<SeededFixture> {
           name,
           emoji: "✨",
           personality: `${name} is warm, direct and allergic to filler.`,
-          workspaceId: workspace.id,
           createdById: ownerId,
-          isDefault: true,
           externalAgentId,
         },
         select: { id: true },
@@ -567,7 +578,7 @@ export async function seedDevFixture(db: PrismaClient): Promise<SeededFixture> {
   // any Position a spec created is removed, so the settings spec can create
   // one and assign a holder on every run.
   const ariaAssistant = await db.assistant.findFirstOrThrow({
-    where: { workspaceId: workspace.id, createdById: user.id, name: FIXTURE.assistantName },
+    where: { createdById: user.id, retiredAt: null },
     select: { externalAgent: { select: { shadowUserId: true } } },
   });
   const ariaMembership = await db.workspaceUser.findUniqueOrThrow({

@@ -4,7 +4,6 @@ import { useState } from 'react';
 import { IconPlus, IconSearch, IconChevronDown, IconChevronRight, IconBrandWhatsapp } from '@tabler/icons-react';
 import { TextInput, Avatar, Collapse } from '@mantine/core';
 import { api } from '~/trpc/react';
-import { useWorkspace } from '~/providers/WorkspaceProvider';
 import { WhatsAppGatewayModal } from '../WhatsAppGatewayModal';
 import { SectionHeader } from "~/app/_components/ui";
 
@@ -36,12 +35,8 @@ export function ChatSidebar({
     workspaceId: scopedWorkspaceId,
   });
 
-  const { workspaceId } = useWorkspace();
   const { data: agents } = api.mastra.getMastraAgents.useQuery();
-  const { data: customAssistant } = api.assistant.getDefault.useQuery(
-    { workspaceId: workspaceId ?? '' },
-    { enabled: !!workspaceId }
-  );
+  const { data: customAssistant } = api.assistant.getMine.useQuery();
 
   const getInitials = (name: string) => name.split(' ').map(n => n[0]).join('').toUpperCase();
 

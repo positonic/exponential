@@ -58,7 +58,7 @@ describe("retireAssistant (ADR-0072)", () => {
 
     expect(db.assistant.update).toHaveBeenCalledWith({
       where: { id: "asst-old" },
-      data: { retiredAt: NOW, isDefault: false },
+      data: { retiredAt: NOW },
     });
     expect(db.externalAgentKey.deleteMany).toHaveBeenCalledWith({ where: { agentId: "agent-old" } });
     expect(db.workspaceUser.deleteMany).toHaveBeenCalledWith({ where: { userId: "shadow-old" } });
@@ -121,8 +121,6 @@ describe("retireAssistant (ADR-0072)", () => {
       skipDuplicates: true,
     });
     expect(db.agentRun.create).not.toHaveBeenCalled();
-    // The survivor becomes the default the per-workspace readers resolve until V1b.
-    expect(db.assistant.update).toHaveBeenCalledWith({ where: { id: "asst-new" }, data: { isDefault: true } });
     expect(result).toMatchObject({ membershipsMoved: 1, positionsMoved: 1, assignmentsMoved: 1 });
   });
 

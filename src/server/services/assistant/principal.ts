@@ -2,15 +2,17 @@ import { Prisma, type PrismaClient } from "@prisma/client";
 
 /**
  * An Assistant's principal (ADR-0067): an owned External agent whose shadow
- * user is a `member` of the Assistant's workspace. This is what makes an
- * Assistant an ordinary assignee under ADR-0049's delegation invariant, and
- * what V2's `exp_agent_` runner key hangs off.
+ * user is a `member` of each workspace the Assistant works in. This is what
+ * makes an Assistant an ordinary assignee under ADR-0049's delegation
+ * invariant, and what V2's `exp_agent_` runner key hangs off.
  *
- * Shared by `assistant.create` and the backfill so the two cannot drift. Runs
- * inside the caller's transaction. The caller guarantees the owner is a
- * non-viewer member of `workspaceId` (the same precondition as
- * `externalAgent.grantWorkspaces`), or passes `grantMembership: false` to skip
- * the membership row — the invariant wins over completeness.
+ * Called by `ensureAssistantForUser`, the one entry point that creates an
+ * Assistant (ADR-0072). Runs inside the caller's transaction. `workspaceId` is
+ * the first membership — the person's Personal workspace; the Assistant itself
+ * belongs to no workspace. The caller guarantees the owner holds a delegating
+ * role there (the same precondition as `externalAgent.grantWorkspaces`), or
+ * passes `grantMembership: false` to skip the membership row — the invariant
+ * wins over completeness.
  */
 export async function createAssistantPrincipal(
   tx: Prisma.TransactionClient,

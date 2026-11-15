@@ -11,10 +11,9 @@
  *      Every id-addressed procedure took an arbitrary CUID with no ownership
  *      check, so any authenticated principal could rename or delete any
  *      assistant in any workspace (cross-tenant IDOR).
- *   2. Per-user scoping — `getDefault`/`list` are scoped by creator as well as
- *      workspace, and setting a default only unsets the *caller's* other
- *      defaults. Workspace-wide scoping meant co-members shared a single
- *      "default assistant" and silently overwrote each other's agent name.
+ *   2. Per-user scoping — `getMine`/`list` resolve only the caller's own
+ *      Assistant. Since ADR-0072 an Assistant is one per person and belongs
+ *      to no workspace, so co-members can never share or overwrite one.
  *
  * Uses `mockDeep<PrismaClient>()` — no real DB, ever.
  */
@@ -90,7 +89,6 @@ const ASSISTANT_ID = "assistant-1";
 /** A row belonging to OWNER_ID, as the DB would return it. */
 const ownedAssistant = {
   id: ASSISTANT_ID,
-  workspaceId: WORKSPACE_ID,
   createdById: OWNER_ID,
   externalAgentId: "agent-1",
   name: "Aria",
@@ -98,7 +96,6 @@ const ownedAssistant = {
   personality: "Warm, direct, allergic to filler.",
   instructions: null,
   userContext: null,
-  isDefault: true,
   createdAt: new Date("2026-01-01"),
   updatedAt: new Date("2026-01-01"),
 };
@@ -169,15 +166,6 @@ describe("assistant router — ownership (cross-tenant IDOR)", () => {
     await expect(caller.assistant.getById({ id: ASSISTANT_ID })).rejects.toThrow(TRPCError);
   });
 
-  it("refuses to flip another user's default via setDefault", async () => {
-    const caller = createMockCaller({ userId: ATTACKER_ID, db: dbMock });
-
-    await expect(caller.assistant.setDefault({ id: ASSISTANT_ID })).rejects.toThrow(TRPCError);
-
-    expect(dbMock.assistant.update).not.toHaveBeenCalled();
-    expect(dbMock.assistant.updateMany).not.toHaveBeenCalled();
-  });
-
   it("still lets the owner rename their own assistant", async () => {
     const caller = createMockCaller({ userId: OWNER_ID, db: dbMock });
 
@@ -191,7 +179,7 @@ describe("assistant router — ownership (cross-tenant IDOR)", () => {
   });
 });
 
-describe("assistant router — per-user default scoping", () => {
+describe("assistant router — per-user scoping", () => {
   let dbMock: DeepMockProxy<PrismaClient>;
 
   beforeEach(() => {
@@ -211,36 +199,21 @@ describe("assistant router — per-user default scoping", () => {
     dbMock.assistant.update.mockResolvedValue(ownedAssistant as never);
   });
 
-  it("scopes getDefault to the calling user's non-retired assistant, not just the workspace", async () => {
-    const caller = createMockCaller({ userId: OWNER_ID, db: dbMock });
-
-    await caller.assistant.getDefault({ workspaceId: WORKSPACE_ID });
-
-    expect(dbMock.assistant.findFirst).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: expect.objectContaining({
-          workspaceId: WORKSPACE_ID,
-          createdById: OWNER_ID,
-          retiredAt: null,
-        }),
-      }),
-    );
-  });
-
-  it("scopes list to the calling user's non-retired assistants, not just the workspace", async () => {
+  it("lists only the calling user's non-retired Assistant, and only where it works (ADR-0072)", async () => {
     const caller = createMockCaller({ userId: OWNER_ID, db: dbMock });
 
     await caller.assistant.list({ workspaceId: WORKSPACE_ID });
 
-    expect(dbMock.assistant.findMany).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: expect.objectContaining({
-          workspaceId: WORKSPACE_ID,
-          createdById: OWNER_ID,
-          retiredAt: null,
-        }),
-      }),
-    );
+    expect(dbMock.assistant.findMany).toHaveBeenCalledWith({
+      where: {
+        createdById: OWNER_ID,
+        retiredAt: null,
+        // It belongs to no workspace: "works here" is its principal's membership.
+        externalAgent: {
+          shadowUser: { workspaceMemberships: { some: { workspaceId: WORKSPACE_ID } } },
+        },
+      },
+    });
   });
 
   it("never loads a retired assistant for an id-addressed mutation (ADR-0072)", async () => {
@@ -273,15 +246,40 @@ describe("assistant router — per-user default scoping", () => {
 
     await expect(
       caller.assistant.create({
-        workspaceId: WORKSPACE_ID,
         name: "Aria",
         personality: "Warm, direct.",
-        isDefault: true,
       }),
     ).rejects.toMatchObject({ code: "CONFLICT" });
 
     expect(dbMock.assistant.updateMany).not.toHaveBeenCalled();
     expect(dbMock.assistant.create).not.toHaveBeenCalled();
     expect(dbMock.user.create).not.toHaveBeenCalled();
+  });
+});
+
+describe("assistant.getMine — one Assistant per person (ADR-0072)", () => {
+  let dbMock: DeepMockProxy<PrismaClient>;
+
+  beforeEach(() => {
+    dbMock = mockDeep<PrismaClient>();
+  });
+
+  it("resolves the caller's non-retired Assistant with no workspace in the query", async () => {
+    dbMock.assistant.findFirst.mockResolvedValue(ownedAssistant as never);
+    const caller = createMockCaller({ userId: OWNER_ID, db: dbMock });
+
+    await expect(caller.assistant.getMine()).resolves.toMatchObject({ id: ASSISTANT_ID });
+
+    const args = dbMock.assistant.findFirst.mock.calls[0]?.[0];
+    expect(args?.where).toEqual({ createdById: OWNER_ID, retiredAt: null });
+    expect(args?.orderBy).toEqual({ updatedAt: "desc" });
+    expect(args?.include).toHaveProperty("externalAgent");
+  });
+
+  it("is null for a person with no Assistant yet", async () => {
+    dbMock.assistant.findFirst.mockResolvedValue(null);
+    const caller = createMockCaller({ userId: OWNER_ID, db: dbMock });
+
+    await expect(caller.assistant.getMine()).resolves.toBeNull();
   });
 });

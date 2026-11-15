@@ -166,10 +166,10 @@ describe("matrixGateway router (mocked)", () => {
       expect(fetchMock).not.toHaveBeenCalled();
     });
 
-    it("passes mxid + default-assistant context to the gateway and returns the code", async () => {
-      dbMock.assistant.findMany.mockResolvedValue([
-        { id: "asst-1", name: "Zoe", workspaceId: "ws-1", workspace: { name: "WS" } },
-      ] as never);
+    it("passes mxid, the person's Assistant and their default workspace to the gateway", async () => {
+      dbMock.assistant.findFirst.mockResolvedValue({ id: "asst-1", name: "Zoe" } as never);
+      dbMock.user.findUnique.mockResolvedValue({ defaultWorkspaceId: "ws-1" } as never);
+      dbMock.workspace.findFirst.mockResolvedValue({ id: "ws-1" } as never);
       fetchMock.mockResolvedValue(
         okJson({
           pairingCode: "A3F1B2",
@@ -194,8 +194,27 @@ describe("matrixGateway router (mocked)", () => {
       });
     });
 
+    it("never sends a null workspace: falls back to the Personal workspace (Agent PRD D13)", async () => {
+      dbMock.assistant.findFirst.mockResolvedValue(null);
+      dbMock.user.findUnique.mockResolvedValue({ defaultWorkspaceId: null } as never);
+      dbMock.workspace.findFirst.mockResolvedValue({ id: "ws-personal" } as never);
+      fetchMock.mockResolvedValue(
+        okJson({ pairingCode: "A3F1B2", roomId: "!dm:syntro.fi", botUserId: "@zoe:syntro.fi", expiresInSeconds: 600 }),
+      );
+
+      const caller = createMockCaller({ userId: USER_ID, db: dbMock });
+      await caller.matrixGateway.initiatePairing({ mxid: MXID });
+
+      expect(dbMock.workspace.findFirst).toHaveBeenCalledWith({
+        where: { type: "personal", ownerId: USER_ID },
+        select: { id: true },
+      });
+      const [, init] = fetchMock.mock.calls[0]!;
+      expect(JSON.parse((init as RequestInit).body as string)).toMatchObject({ workspaceId: "ws-personal" });
+    });
+
     it("surfaces a friendly error when the gateway is unreachable", async () => {
-      dbMock.assistant.findMany.mockResolvedValue([] as never);
+      dbMock.assistant.findFirst.mockResolvedValue(null);
       fetchMock.mockRejectedValue(new Error("ECONNREFUSED"));
 
       const caller = createMockCaller({ userId: USER_ID, db: dbMock });

@@ -21,6 +21,7 @@ How an **Assistant** becomes an assignee, what happens when an Action is assigne
 
 ```
 Assistant 1──1 ExternalAgent 1──1 User(isAgent)        (ADR-0067: the principal)
+  one non-retired per person, no workspace (ADR-0072); where it works = the shadow user's WorkspaceUser rows
                  │  executor: MASTRA | LOCAL_CLI
                  └──< AgentRun >── Action
                          │  status: QUEUED → RUNNING → SUCCEEDED | FAILED | WAITING_ON_OWNER | TIMED_OUT
