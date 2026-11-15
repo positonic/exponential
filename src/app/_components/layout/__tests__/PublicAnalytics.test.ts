@@ -4,7 +4,7 @@ import { dropSignedInPageViews } from '../PublicAnalytics';
 const pageView = (path: string) => ({ type: 'pageview' as const, url: `https://www.exponential.im${path}` });
 
 describe('dropSignedInPageViews', () => {
-  it.each(['/docs', '/docs/getting-started', '/privacy', '/features/goals', '/p/some-page-abc'])(
+  it.each(['/docs', '/docs/getting-started', '/privacy', '/features/goals', '/p/some-page-abc', '/f/intake-form', '/updates/exponential/2026-11'])(
     'keeps the public page %s',
     (path) => {
       expect(dropSignedInPageViews(pageView(path))).toEqual(pageView(path));

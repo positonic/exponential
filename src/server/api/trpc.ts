@@ -20,6 +20,7 @@ import {
   CURRENT_SECURITY_VERSION,
 } from "~/server/utils/jwt";
 import { hashExternalAgentKey, isExternalAgentKey } from "~/server/utils/external-agent-keys";
+import { captureProcedureCall, resolveSurface } from "~/server/analytics/posthog";
 import { conflictFromError } from "~/server/services/revisions/revisionConflict";
 import { propertyRejectionFromError } from "~/server/services/databases/values";
 import { alreadyInProjectFromError } from "~/server/services/resources/alreadyInProject";
@@ -273,6 +274,33 @@ export const createTRPCRouter = t.router;
 export const publicProcedure = t.procedure;
 
 /**
+ * Product analytics (PostHog) for every authenticated procedure call.
+ *
+ * All client surfaces reach the app through tRPC, so this one middleware is
+ * the whole instrumentation: event = procedure path, keyed by user id and
+ * tagged with the calling surface. Inputs are never captured. A no-op unless
+ * `POSTHOG_KEY` is set. See src/server/analytics/posthog.ts for the capture
+ * rule (mutations always; queries only from non-browser surfaces).
+ */
+const analyticsMiddleware = t.middleware(async ({ ctx, path, type, next }) => {
+  const startedAt = Date.now();
+  const result = await next();
+  const userId = ctx.session?.user?.id;
+  if (userId) {
+    captureProcedureCall({
+      userId,
+      path,
+      type,
+      surface: resolveSurface({ tokenType: ctx.tokenType, headers: ctx.headers }),
+      ok: result.ok,
+      errorCode: result.ok ? undefined : result.error.code,
+      durationMs: Date.now() - startedAt,
+    });
+  }
+  return result;
+});
+
+/**
  * Protected (authenticated) procedure
  *
  * If you want a query or mutation to ONLY be accessible to logged in users, use this. It verifies
@@ -291,7 +319,8 @@ export const protectedProcedure = t.procedure
         session: { ...ctx.session, user: ctx.session.user },
       },
     });
-  });
+  })
+  .use(analyticsMiddleware);
 
 /**
  * Human-only procedure (ADR-0049, ADR-0070, ADR-0071)

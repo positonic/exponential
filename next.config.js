@@ -31,7 +31,8 @@ const docsRedirects = JSON.parse(
  * `script-src 'unsafe-inline'` is required by Next.js's inline bootstrap
  * scripts until a nonce strategy is adopted; 'unsafe-eval' is dev-only
  * (eval sourcemaps). Origins listed: Google Analytics (@next/third-parties),
- * the OpenAI realtime voice session, and Loom embeds. Sentry and Vercel
+ * the OpenAI realtime voice session, Loom embeds, and PostHog session replay
+ * (*.i.posthog.com: the ingest host and the recorder script it loads). Sentry and Vercel
  * Analytics both go through same-origin paths (/monitoring tunnel,
  * /_vercel/insights), so 'self' covers them.
  */
@@ -58,12 +59,12 @@ function contentSecurityPolicyReportOnly() {
   const reportUri = sentryCspReportUri();
   const directives = [
     "default-src 'self'",
-    `script-src 'self' 'unsafe-inline'${isDev ? " 'unsafe-eval'" : ""} https://www.googletagmanager.com`,
+    `script-src 'self' 'unsafe-inline'${isDev ? " 'unsafe-eval'" : ""} https://www.googletagmanager.com https://*.i.posthog.com`,
     "style-src 'self' 'unsafe-inline'",
     // Published pages and CRM avatars embed images from arbitrary origins.
     "img-src 'self' blob: data: https:",
     "font-src 'self' data:",
-    "connect-src 'self' https://api.openai.com wss://api.openai.com https://*.google-analytics.com https://*.analytics.google.com https://www.googletagmanager.com",
+    "connect-src 'self' https://api.openai.com wss://api.openai.com https://*.google-analytics.com https://*.analytics.google.com https://www.googletagmanager.com https://*.i.posthog.com",
     "media-src 'self' blob: data: https:",
     "frame-src 'self' https://www.loom.com https://www.youtube.com https://www.youtube-nocookie.com",
     "worker-src 'self' blob:",

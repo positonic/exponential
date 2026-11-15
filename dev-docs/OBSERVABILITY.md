@@ -129,6 +129,73 @@ selects on `--status READY_TO_PLAN --label ai-fixable`, and Sentry files
 tickets as `BACKLOG`. A human moving the ticket to `READY_TO_PLAN` is what
 arms it — deliberate, since a raw stack trace is rarely a sufficient spec.
 
+## Product analytics (PostHog)
+
+Usage events, as opposed to errors, go to PostHog. They are captured **once, server-side**,
+by the analytics middleware on `protectedProcedure` (`src/server/api/trpc.ts`), so every
+client surface is covered without its own SDK. Decision:
+[ADR-0076](../docs/adr/0076-posthog-server-side-analytics.md).
+
+- **Event name** = procedure path (`action.create`). **Distinct id** = user id.
+- **Properties**: `procedure`, `type`, `surface`, `ok`, `error_code`, `duration_ms`. The
+  `surface` comes from the request's `tokenType` (`api`, `external-agent`, `assistant`,
+  `whatsapp`, `telegram`, `matrix`, `voice`, `browser-extension`, `native-app`) or, for
+  cookie sessions, `web` / `rsc` / `electron`. Person properties `first_seen_surface` and
+  `last_seen_surface` are set alongside.
+- **What is captured**: every mutation; queries only from non-browser surfaces. Inputs and
+  IPs never.
+- **Delivery**: events queue in memory and are flushed via `after()` in
+  `src/app/api/trpc/[trpc]/route.ts`, after the response but before Vercel freezes the
+  function.
+
+### Browser: masked session replay only
+
+The browser runs **no general analytics SDK**: no page views, no identification. Vercel Web
+Analytics counts public page views. The only browser-side PostHog is session replay, in
+`src/app/_components/layout/SessionReplay.tsx`, mounted in the signed-in layout.
+
+- **Where**: only `REPLAY_PATHS` (`/onboarding`, `/welcome`, `/w/exponential`), meaning the
+  signup path and our own workspace. Customer workspaces are never recorded, and other pages
+  never download `posthog-js` (it is imported dynamically on the first recorded page).
+- **Masking, in the browser before anything is sent**: every text node
+  (`maskTextSelector: '*'`) and input; images, video, canvas and iframes are blocked; and
+  attributes go through an allowlist (`maskAttribute`). Only what a replay needs to render
+  is kept (class, SVG geometry, ARIA state, short Mantine `data-*` tokens, stylesheet links).
+  `title`, `aria-label`, `alt`, `href`, `id`, `value` and anything unlisted are masked.
+  posthog-js's `mask_all_text` / `mask_all_element_attributes` only affect autocapture, so
+  they do nothing for replay.
+- **Anonymous and storage-free**: never `identify`d, `person_profiles: 'identified_only'`,
+  `persistence: 'memory'`. That means no cookies or localStorage, so replays cannot be joined
+  to the server events' person.
+- **Off**: autocapture, page views, heatmaps, dead clicks, exceptions, surveys, console logs,
+  network timing, request headers and bodies.
+- **Transport**: straight to `*.i.posthog.com`, which is listed in the report-only CSP. There is
+  no same-origin proxy, so ad blockers drop some replays. That's acceptable for a sample, and
+  it avoids `skipTrailingSlashRedirect`, which would disable Next's trailing-slash redirect
+  that the public allowlist relies on (`/features/` vs `/features`).
+- **Navigation**: recording starts only if the visitor is still on a recorded page when
+  `posthog-js` finishes loading, and leaving one always stops it
+  (`SessionReplay.navigation.test.tsx`).
+
+Widening `REPLAY_PATHS` to customer workspaces, or identifying replays, is a privacy decision
+(and a privacy-page change), not a config tweak.
+
+### Environment variables
+
+| Variable | Where | Notes |
+|---|---|---|
+| `NEXT_PUBLIC_POSTHOG_KEY` | Vercel production (preview optional) | Project API key. Enables server events and browser replay. Unset = disabled. |
+| `NEXT_PUBLIC_POSTHOG_HOST` | Optional | Browser replay host, defaults to `https://eu.i.posthog.com`. |
+| `POSTHOG_KEY` | Optional | Server-side override of the key. |
+| `POSTHOG_HOST` | Optional | Server-side host, defaults to `https://eu.i.posthog.com`. |
+
+In the PostHog project settings: enable session replay, enable **Discard client IP data**,
+and leave console-log and network capture off.
+
+To see real events locally, put a project key in `.env.local` as `NEXT_PUBLIC_POSTHOG_KEY`,
+run the dev server, perform a mutation, and watch PostHog's Activity tab. Open `/welcome` to
+produce a replay.
+
 ## Other signals
 
 - **Vercel function logs** — tRPC internal errors are also `console.error`ed

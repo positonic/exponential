@@ -11,7 +11,7 @@ export default function PrivacyPolicy() {
     <div className="max-w-3xl mx-auto py-8 px-4">
       <h1 className="text-3xl font-bold mb-8">Privacy Policy</h1>
 
-      <p className="text-text-muted mb-8">Effective Date: January 14th, 2026</p>
+      <p className="text-text-muted mb-8">Effective Date: November 15th, 2026</p>
 
       <section className="mb-8">
         <h2 className="text-2xl font-semibold mb-4">Introduction</h2>
@@ -73,6 +73,15 @@ export default function PrivacyPolicy() {
           <p className="text-text-secondary mt-2">
             We do not use third-party advertising or tracking cookies.
           </p>
+        </div>
+
+        <div className="mb-4">
+          <h3 className="text-xl font-semibold mb-3">Analytics</h3>
+          <ul className="list-disc pl-5 text-text-secondary space-y-2">
+            <li><strong>Website Analytics:</strong> Vercel Web Analytics counts visits to our public pages: which page, the referring site, country and device type. It uses no cookies and does not identify you.</li>
+            <li><strong>Product Usage:</strong> When you use Exponential, from any of our apps or integrations, we record which actions you take (for example &quot;created a task&quot;), which app you used, whether it worked and how long it took. These events go to PostHog, hosted in the EU, linked to your account ID. They never include what you typed, your IP address or your location. We use them to see which features help and where people get stuck.</li>
+            <li><strong>Session Replay:</strong> On a small number of pages (sign-up and onboarding, and our own team&apos;s workspace) we use PostHog, hosted in the EU, to record how the interface is used: clicks, scrolling and page layout. All text, form inputs, labels and images are masked in your browser before anything is sent, so recordings never contain your content, and they are not linked to your account. It uses no cookies or local storage.</li>
+          </ul>
         </div>
       </section>
 
@@ -371,7 +380,7 @@ export default function PrivacyPolicy() {
           We do not sell, rent, or trade your personal data. We only share your information in the following limited circumstances:
         </p>
         <ul className="list-disc pl-5 text-text-secondary space-y-2">
-          <li><strong>Service Providers:</strong> We use trusted third-party services (Vercel for hosting, Railway for database) to operate our platform. These providers only have access to data necessary to perform their services and are bound by data protection agreements.</li>
+          <li><strong>Service Providers:</strong> We use trusted third-party services (Vercel for hosting and website analytics, Railway for database, PostHog for product usage analytics and masked session replay) to operate our platform. These providers only have access to data necessary to perform their services and are bound by data protection agreements.</li>
           <li><strong>Legal Requirements:</strong> We may disclose data if required by law, court order, or government request.</li>
           <li><strong>Business Transfers:</strong> In the event of a merger, acquisition, or sale of assets, your data may be transferred as part of that transaction. We will notify you of any such change.</li>
           <li><strong>With Your Consent:</strong> We may share data with third parties when you explicitly authorize us to do so.</li>
