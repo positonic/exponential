@@ -1,6 +1,4 @@
 {
-  "src/app/(home)/features/[slug]/page.tsx": 1,
-  "src/app/(home)/features/integrations/[slug]/page.tsx": 5,
   "src/app/(home)/learn/page.tsx": 1,
   "src/app/(home)/product-timeline/ProductTimeline.module.css": 1,
   "src/app/(published)/updates/_components/SubscribeForm.tsx": 2,

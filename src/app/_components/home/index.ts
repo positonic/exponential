@@ -10,6 +10,7 @@ export { SelfHostSection } from "./SelfHostSection";
 export { PricingSection } from "./PricingSection";
 export { FinalCTASection } from "./FinalCTASection";
 export { FooterSection } from "./FooterSection";
+export { MarketingHeader } from "./MarketingHeader";
 
 // Shared components
 export { SectionContainer } from "./shared/SectionContainer";

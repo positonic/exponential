@@ -1,17 +1,12 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
-import { Container } from "@mantine/core";
-import { IconArrowRight } from "@tabler/icons-react";
 import {
   getAllIntegrationSlugs,
   getIntegrationBySlug,
 } from "../_data/integrations";
 import { CTAButton } from "~/app/_components/home/shared/CTAButton";
-import { LogoDisplay } from "~/app/_components/layout/LogoDisplay";
-import { ThemeToggle } from "~/app/_components/ThemeToggle";
-import { themes } from "~/config/themes";
-import { getThemeDomain } from "~/config/site";
-import { FooterSection } from "~/app/_components/home";
+import { FooterSection, MarketingHeader } from "~/app/_components/home";
+import { Panel } from "~/app/_components/ui";
 import { PRODUCT_NAME } from "~/lib/brand";
 import { getPublicBaseUrlFromEnv } from "~/lib/urls";
 
@@ -60,8 +55,6 @@ export async function generateMetadata({ params }: IntegrationPageProps) {
 export default async function IntegrationPage({ params }: IntegrationPageProps) {
   const { slug } = await params;
   const integration = getIntegrationBySlug(slug);
-  const domain = getThemeDomain();
-  const theme = themes[domain];
 
   if (!integration) {
     notFound();
@@ -94,240 +87,194 @@ export default async function IntegrationPage({ params }: IntegrationPageProps) 
   ];
 
   return (
-    <div className="min-h-screen bg-background-primary text-text-primary">
+    <div className="mkt min-h-screen bg-background-primary text-text-primary">
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(structuredData) }}
       />
 
-      {/* Navigation */}
-      <header className="fixed top-0 left-0 right-0 z-50 bg-background-primary/80 backdrop-blur-md border-b border-border-primary">
-        <div className="container mx-auto px-4 md:px-8">
-          <div className="flex justify-between items-center py-4">
-            <div className="flex items-center">
-              <LogoDisplay theme={theme} href="/" className="text-xl" />
-            </div>
-
-            <nav className="hidden md:flex items-center space-x-8">
-              <Link
-                href="/#features"
-                className="text-text-secondary hover:text-text-primary transition-colors text-sm font-medium"
-              >
-                Features
-              </Link>
-              <Link
-                href="/docs"
-                className="text-text-secondary hover:text-text-primary transition-colors text-sm font-medium"
-              >
-                Docs
-              </Link>
-              <Link
-                href="/#pricing"
-                className="text-text-secondary hover:text-text-primary transition-colors text-sm font-medium"
-              >
-                Pricing
-              </Link>
-            </nav>
-
-            <div className="flex items-center gap-3">
-              <CTAButton href="/signin" size="default">
-                Try For Free
-              </CTAButton>
-              <ThemeToggle />
-            </div>
-          </div>
-        </div>
-      </header>
-
-      {/* Spacer for fixed header */}
-      <div className="h-16" />
+      <MarketingHeader />
 
       <main>
         {/* Hero */}
-        <section className="py-20 md:py-28">
-          <Container size="md">
-            <p className="text-accent-indigo font-medium mb-4">
-              {integration.icon} {integration.name} + {PRODUCT_NAME}
-            </p>
-            <h1 className="text-4xl md:text-5xl lg:text-6xl font-bold text-text-primary mb-6 leading-tight">
-              {integration.headline}
-            </h1>
-            <p className="text-lg md:text-xl text-text-secondary mb-8 leading-relaxed">
-              {integration.intro}
-            </p>
-            <div className="flex flex-wrap items-center gap-4">
-              <CTAButton href="/signin" variant="primary" size="large">
-                Get your API key
-              </CTAButton>
-              <Link
-                href={integration.docsHref}
-                className="inline-flex items-center gap-1 text-text-secondary hover:text-text-primary transition-colors font-medium"
-              >
-                Read the setup docs <IconArrowRight size={16} />
-              </Link>
+        <section className="pb-16 md:pb-24">
+          <div className="mkt-container pt-16 md:pt-24">
+            <div className="max-w-3xl">
+              <p className="mkt-eyebrow mkt-rise mb-6">
+                {integration.name} + {PRODUCT_NAME}
+              </p>
+              <h1 className="mkt-h1 mkt-rise mb-6">{integration.headline}</h1>
+              <p className="mkt-lead mkt-rise mb-10">{integration.intro}</p>
+              <div className="mkt-rise flex flex-wrap items-center gap-x-8 gap-y-5">
+                <CTAButton href="/signin" variant="pill" size="large">
+                  Get your API key
+                </CTAButton>
+                <CTAButton href={integration.docsHref} variant="text">
+                  Read the setup docs
+                </CTAButton>
+              </div>
             </div>
-          </Container>
+          </div>
         </section>
 
         {/* Example prompts */}
-        <section className="py-16 md:py-20 bg-surface-secondary">
-          <Container size="md">
-            <h2 className="text-2xl md:text-3xl font-bold text-text-primary mb-8">
+        <section className="mkt-section border-t border-border-primary">
+          <div className="mkt-container mkt-reveal">
+            <h2 className="mkt-h2 mb-10 max-w-3xl">
               What you can ask {integration.name}
             </h2>
-            <ul className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <ul className="grid grid-cols-1 gap-5 sm:grid-cols-2">
               {integration.examplePrompts.map((prompt) => (
-                <li
+                <Panel
+                  as="li"
                   key={prompt}
-                  className="bg-background-primary rounded-xl p-5 border border-border-primary text-text-primary"
+                  radius="xl"
+                  padding="none"
+                  className="p-6 text-[0.9375rem] leading-relaxed text-text-primary"
                 >
                   &ldquo;{prompt}&rdquo;
-                </li>
+                </Panel>
               ))}
             </ul>
-          </Container>
+          </div>
         </section>
 
         {/* Setup */}
-        <section className="py-16 md:py-20">
-          <Container size="md">
-            <h2 className="text-2xl md:text-3xl font-bold text-text-primary mb-8">
+        <section className="mkt-section border-t border-border-primary">
+          <div className="mkt-container mkt-reveal">
+            <h2 className="mkt-h2 mb-10 max-w-3xl">
               How to connect {integration.name} to {PRODUCT_NAME}
             </h2>
-            <ol className="space-y-8">
+            <ol className="max-w-3xl space-y-10">
               {integration.setupSteps.map((step, index) => (
                 <li key={step.title} className="flex gap-4">
-                  <span className="flex-shrink-0 w-8 h-8 rounded-full bg-surface-secondary border border-border-primary flex items-center justify-center text-sm font-semibold text-text-primary">
+                  <span className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full border border-border-strong text-sm font-semibold text-text-primary">
                     {index + 1}
                   </span>
                   <div className="min-w-0 flex-1">
-                    <h3 className="font-semibold text-text-primary mb-2">
-                      {step.title}
-                    </h3>
-                    <p className="text-text-secondary leading-relaxed">
-                      {step.body}
-                    </p>
+                    <h3 className="mkt-h3 mb-2">{step.title}</h3>
+                    <p className="mkt-body">{step.body}</p>
                     {step.code && (
-                      <pre className="mt-4 bg-background-secondary border border-border-primary rounded-lg p-4 overflow-x-auto text-sm text-text-primary">
+                      <Panel
+                        as="pre"
+                        padding="none"
+                        className="mt-5 overflow-x-auto p-5 font-mono text-sm leading-7 text-text-primary"
+                      >
                         <code>{step.code.content}</code>
-                      </pre>
+                      </Panel>
                     )}
                   </div>
                 </li>
               ))}
             </ol>
-          </Container>
+          </div>
         </section>
 
         {/* Tools */}
-        <section className="py-16 md:py-20 bg-surface-secondary">
-          <Container size="md">
-            <h2 className="text-2xl md:text-3xl font-bold text-text-primary mb-3">
-              The tools {integration.name} gets
-            </h2>
-            <p className="text-text-secondary mb-8">
-              Every tool the integration exposes, by the name {integration.name}{" "}
-              sees.
-            </p>
-            <dl className="divide-y divide-border-primary border border-border-primary rounded-xl bg-background-primary">
+        <section className="mkt-section border-t border-border-primary">
+          <div className="mkt-container mkt-reveal">
+            <div className="mb-10 max-w-3xl">
+              <h2 className="mkt-h2 mb-4">The tools {integration.name} gets</h2>
+              <p className="mkt-body">
+                Every tool the integration exposes, by the name{" "}
+                {integration.name} sees.
+              </p>
+            </div>
+            <Panel
+              as="dl"
+              radius="xl"
+              padding="none"
+              className="divide-y divide-border-primary"
+            >
               {integration.tools.map((tool) => (
                 <div
                   key={tool.names.join(",")}
-                  className="grid grid-cols-1 md:grid-cols-[minmax(0,2fr)_minmax(0,3fr)] gap-2 md:gap-6 p-5"
+                  className="grid grid-cols-1 gap-2 p-5 md:grid-cols-[minmax(0,2fr)_minmax(0,3fr)] md:gap-6"
                 >
                   <dt className="flex flex-wrap gap-2">
                     {tool.names.map((name) => (
                       <code
                         key={name}
-                        className="text-sm text-accent-indigo break-all"
+                        className="break-all font-mono text-sm text-text-primary"
                       >
                         {name}
                       </code>
                     ))}
                   </dt>
-                  <dd className="text-text-secondary">{tool.description}</dd>
+                  <dd className="text-[0.9375rem] leading-relaxed text-text-muted">
+                    {tool.description}
+                  </dd>
                 </div>
               ))}
-            </dl>
-          </Container>
+            </Panel>
+          </div>
         </section>
 
         {/* Reasons */}
-        <section className="py-16 md:py-20">
-          <Container size="md">
-            <h2 className="text-2xl md:text-3xl font-bold text-text-primary mb-8">
+        <section className="mkt-section border-t border-border-primary">
+          <div className="mkt-container mkt-reveal">
+            <h2 className="mkt-h2 mb-10 max-w-3xl">
               Why connect {integration.name} to {PRODUCT_NAME}
             </h2>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
               {integration.reasons.map((reason) => (
-                <div
+                <Panel
                   key={reason.title}
-                  className="rounded-xl p-6 border border-border-primary bg-surface-secondary"
+                  radius="xl"
+                  padding="none"
+                  className="p-7"
                 >
-                  <h3 className="font-semibold text-text-primary mb-2">
-                    {reason.title}
-                  </h3>
-                  <p className="text-text-secondary leading-relaxed">
+                  <h3 className="mkt-h3 mb-2">{reason.title}</h3>
+                  <p className="text-[0.9375rem] leading-relaxed text-text-muted">
                     {reason.body}
                   </p>
-                </div>
+                </Panel>
               ))}
             </div>
-          </Container>
+          </div>
         </section>
 
         {/* FAQ */}
-        <section className="py-16 md:py-20 bg-surface-secondary">
-          <Container size="md">
-            <h2 className="text-2xl md:text-3xl font-bold text-text-primary mb-8">
+        <section className="mkt-section border-t border-border-primary">
+          <div className="mkt-container mkt-reveal">
+            <h2 className="mkt-h2 mb-10 max-w-3xl">
               {integration.name} integration FAQ
             </h2>
-            <div className="space-y-6">
+            <div className="max-w-3xl space-y-8">
               {integration.faqs.map((faq) => (
                 <div key={faq.question}>
-                  <h3 className="font-semibold text-text-primary mb-2">
-                    {faq.question}
-                  </h3>
-                  <p className="text-text-secondary leading-relaxed">
-                    {faq.answer}
-                  </p>
+                  <h3 className="mkt-h3 mb-2">{faq.question}</h3>
+                  <p className="mkt-body">{faq.answer}</p>
                 </div>
               ))}
             </div>
 
-            <h2 className="text-xl font-bold text-text-primary mt-14 mb-4">
-              Related
-            </h2>
+            <h2 className="mkt-h3 mb-4 mt-16">Related</h2>
             <ul className="flex flex-wrap gap-3">
               {integration.related.map((link) => (
                 <li key={link.href}>
-                  <Link
-                    href={link.href}
-                    className="inline-block rounded-lg px-4 py-2 border border-border-primary bg-background-primary text-text-secondary hover:text-text-primary transition-colors text-sm"
-                  >
+                  <Link href={link.href} className="mkt-btn mkt-btn-ghost">
                     {link.label}
                   </Link>
                 </li>
               ))}
             </ul>
-          </Container>
+          </div>
         </section>
 
         {/* CTA */}
-        <section className="py-20 md:py-28 bg-cta-gradient">
-          <Container size="md">
-            <div className="text-center">
-              <h2 className="text-3xl md:text-4xl font-bold text-white mb-6">
-                Bring your workspace into {integration.name}
-              </h2>
-              <p className="text-xl text-white/80 mb-10 max-w-xl mx-auto">
-                Free to start. Open source. Set up in a couple of minutes.
-              </p>
-              <CTAButton href="/signin" variant="primary" size="large">
-                Try Now For Free
-              </CTAButton>
-            </div>
-          </Container>
+        <section className="mkt-section border-t border-border-primary">
+          <div className="mkt-container mkt-reveal text-center">
+            <h2 className="mkt-h2 mb-5">
+              Bring your workspace into {integration.name}
+            </h2>
+            <p className="mkt-body mx-auto mb-10 max-w-xl">
+              Free to start. Open source. Set up in a couple of minutes.
+            </p>
+            <CTAButton href="/signin" variant="pill" size="large">
+              Get started free
+            </CTAButton>
+          </div>
         </section>
       </main>
 

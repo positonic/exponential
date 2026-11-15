@@ -1,14 +1,21 @@
+import type { ComponentType } from "react";
 import { notFound } from "next/navigation";
-import Link from "next/link";
-import { Container } from "@mantine/core";
 import { IconCheck } from "@tabler/icons-react";
-import { getFeatureBySlug, getAllFeatureSlugs } from "../_data/features";
+import {
+  getFeatureBySlug,
+  getAllFeatureSlugs,
+  type FeatureScene,
+} from "../_data/features";
 import { CTAButton } from "~/app/_components/home/shared/CTAButton";
-import { LogoDisplay } from "~/app/_components/layout/LogoDisplay";
-import { ThemeToggle } from "~/app/_components/ThemeToggle";
-import { themes } from "~/config/themes";
-import { getThemeDomain } from "~/config/site";
-import { FooterSection } from "~/app/_components/home";
+import {
+  FinalCTASection,
+  FooterSection,
+  MarketingHeader,
+} from "~/app/_components/home";
+import { GoalsScene } from "~/app/_components/home/scenes/GoalsScene";
+import { AgentsScene } from "~/app/_components/home/scenes/AgentsScene";
+import { MeetingsScene } from "~/app/_components/home/scenes/MeetingsScene";
+import { Panel } from "~/app/_components/ui";
 import { PRODUCT_NAME } from "~/lib/brand";
 import { getPublicBaseUrlFromEnv } from "~/lib/urls";
 
@@ -54,159 +61,94 @@ export async function generateMetadata({ params }: FeaturePageProps) {
   };
 }
 
+const SCENES: Record<FeatureScene, ComponentType> = {
+  goals: GoalsScene,
+  agents: AgentsScene,
+  meetings: MeetingsScene,
+};
+
 export default async function FeaturePage({ params }: FeaturePageProps) {
   const { slug } = await params;
   const feature = getFeatureBySlug(slug);
-  const domain = getThemeDomain();
-  const theme = themes[domain];
 
   if (!feature) {
     notFound();
   }
 
+  const Scene = feature.scene ? SCENES[feature.scene] : null;
+
   return (
-    <div className="min-h-screen bg-background-primary text-text-primary">
-      {/* Navigation */}
-      <header className="fixed top-0 left-0 right-0 z-50 bg-background-primary/80 backdrop-blur-md border-b border-border-primary">
-        <div className="container mx-auto px-4 md:px-8">
-          <div className="flex justify-between items-center py-4">
-            <div className="flex items-center">
-              <LogoDisplay theme={theme} href="/" className="text-xl" />
-            </div>
-
-            <nav className="hidden md:flex items-center space-x-8">
-              <Link
-                href="/#features"
-                className="text-text-secondary hover:text-text-primary transition-colors text-sm font-medium"
-              >
-                Features
-              </Link>
-              <Link
-                href="/#how-it-works"
-                className="text-text-secondary hover:text-text-primary transition-colors text-sm font-medium"
-              >
-                How It Works
-              </Link>
-              <Link
-                href="/#pricing"
-                className="text-text-secondary hover:text-text-primary transition-colors text-sm font-medium"
-              >
-                Pricing
-              </Link>
-            </nav>
-
-            <div className="flex items-center gap-3">
-              <CTAButton href="/signin" size="default">
-                Try For Free
-              </CTAButton>
-              <ThemeToggle />
-            </div>
-          </div>
-        </div>
-      </header>
-
-      {/* Spacer for fixed header */}
-      <div className="h-16" />
+    <div className="mkt min-h-screen bg-background-primary text-text-primary">
+      <MarketingHeader />
 
       <main>
-        {/* Hero Section */}
-        <section className="py-20 md:py-28">
-          <Container size="xl">
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 lg:gap-20 items-center">
-              {/* Left: Content */}
-              <div>
-                <p className="text-accent-indigo font-medium mb-4">
-                  {feature.category}
-                </p>
-                <h1 className="text-4xl md:text-5xl lg:text-6xl font-bold text-text-primary mb-6 leading-tight">
-                  {feature.headline}
-                </h1>
-                <p className="text-lg md:text-xl text-text-secondary mb-8 leading-relaxed">
-                  {feature.description}
-                </p>
+        {/* Hero: the home page's, with this feature's copy. */}
+        <section className="relative overflow-hidden pb-16 md:pb-24">
+          <div className="mkt-container relative pt-16 md:pt-24">
+            <div className="mx-auto max-w-4xl text-center">
+              <p className="mkt-eyebrow mkt-rise mb-6">{feature.category}</p>
 
-                <CTAButton href="/signin" variant="primary" size="large">
-                  Try Now For Free
-                </CTAButton>
-                <p className="text-sm text-text-muted mt-4">
-                  No credit card required
-                </p>
-              </div>
+              <h1 className="mkt-h1 mkt-rise mb-6">{feature.headline}</h1>
 
-              {/* Right: Visual */}
-              <div className="relative">
-                <div
-                  className="rounded-2xl p-8 md:p-12 aspect-square flex items-center justify-center"
-                  style={{
-                    background:
-                      "linear-gradient(135deg, color-mix(in srgb, var(--color-accent-periwinkle) 10%, transparent) 0%, color-mix(in srgb, var(--color-accent-indigo) 15%, transparent) 100%)",
-                  }}
-                >
-                  {/* Feature Icon */}
-                  <div className="text-center">
-                    <span className="text-8xl md:text-9xl">{feature.icon}</span>
-                    <p className="text-text-muted mt-6 text-lg">
-                      {feature.title}
-                    </p>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </Container>
-        </section>
-
-        {/* Benefits Section */}
-        <section className="py-16 md:py-20 bg-surface-secondary">
-          <Container size="lg">
-            <div className="text-center mb-12">
-              <h2 className="text-2xl md:text-3xl font-bold text-text-primary">
-                Why you&apos;ll love {feature.title}
-              </h2>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 max-w-3xl mx-auto">
-              {feature.benefits.map((benefit, index) => (
-                <div
-                  key={index}
-                  className="flex items-start gap-4 bg-background-primary rounded-xl p-6 border border-border-primary"
-                >
-                  <div className="w-6 h-6 rounded-full bg-brand-success/20 flex items-center justify-center flex-shrink-0 mt-0.5">
-                    <IconCheck
-                      size={14}
-                      className="text-brand-success"
-                      stroke={2.5}
-                    />
-                  </div>
-                  <p className="text-text-primary font-medium">{benefit}</p>
-                </div>
-              ))}
-            </div>
-          </Container>
-        </section>
-
-        {/* CTA Section */}
-        <section className="py-20 md:py-28 bg-cta-gradient">
-          <Container size="md">
-            <div className="text-center">
-              <h2 className="text-3xl md:text-4xl font-bold text-white mb-6">
-                Ready to try {feature.title}?
-              </h2>
-              <p className="text-xl text-white/80 mb-10 max-w-xl mx-auto">
-                Join teams where humans and AI coordinate as one.
+              <p className="mkt-lead mkt-rise mx-auto mb-10 max-w-2xl">
+                {feature.description}
               </p>
-              <CTAButton
-                href="/signin"
-                variant="primary"
-                size="large"
-              >
-                Try Now For Free
-              </CTAButton>
+
+              <div className="mkt-rise flex flex-col items-center justify-center gap-x-8 gap-y-5 sm:flex-row">
+                <CTAButton href="/signin" variant="pill" size="large">
+                  Get started free
+                </CTAButton>
+                <CTAButton href="/#features" variant="text">
+                  See how it fits together
+                </CTAButton>
+              </div>
             </div>
-          </Container>
+
+            {/* The product itself, where a scene shows this feature. No
+                scene, no picture: a placeholder says nothing. */}
+            {Scene && (
+              <div className="mkt-rise relative mx-auto mt-16 max-w-5xl md:mt-20">
+                <Scene />
+              </div>
+            )}
+          </div>
         </section>
+
+        {/* Benefits */}
+        <section className="mkt-section border-t border-border-primary">
+          <div className="mkt-container mkt-reveal">
+            <div className="mb-14 max-w-2xl">
+              <p className="mkt-eyebrow mb-4">{feature.title}</p>
+              <h2 className="mkt-h2">What {feature.title} gives you</h2>
+            </div>
+
+            <ul className="grid grid-cols-1 gap-5 md:grid-cols-2">
+              {feature.benefits.map((benefit) => (
+                <Panel
+                  as="li"
+                  key={benefit}
+                  radius="xl"
+                  padding="none"
+                  className="flex items-start gap-3 p-6"
+                >
+                  <IconCheck
+                    size={18}
+                    stroke={2}
+                    aria-hidden="true"
+                    className="mt-0.5 shrink-0 text-text-muted"
+                  />
+                  <span className="text-[0.9375rem] leading-relaxed text-text-primary">
+                    {benefit}
+                  </span>
+                </Panel>
+              ))}
+            </ul>
+          </div>
+        </section>
+
+        <FinalCTASection />
       </main>
 
-      {/* Footer */}
       <FooterSection />
     </div>
   );

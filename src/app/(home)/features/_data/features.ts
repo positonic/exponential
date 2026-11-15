@@ -1,5 +1,12 @@
 import { PRODUCT_NAME } from "~/lib/brand";
 
+/**
+ * A product scene from the home page that shows this feature. Set it only
+ * where the scene really depicts the feature; a page without one has a
+ * text-only hero.
+ */
+export type FeatureScene = "goals" | "agents" | "meetings";
+
 export interface FeatureData {
   slug: string;
   category: string;
@@ -8,6 +15,7 @@ export interface FeatureData {
   description: string;
   benefits: string[];
   icon: string;
+  scene?: FeatureScene;
 }
 
 export const features: FeatureData[] = [
@@ -26,6 +34,7 @@ export const features: FeatureData[] = [
       "Know when to say no",
     ],
     icon: "📎",
+    scene: "goals",
   },
   {
     slug: "okrs",
@@ -41,6 +50,7 @@ export const features: FeatureData[] = [
       "Quarterly and annual planning",
     ],
     icon: "📈",
+    scene: "goals",
   },
   {
     slug: "weekly-plan",
@@ -74,6 +84,7 @@ export const features: FeatureData[] = [
       "Archive completed work",
     ],
     icon: "📋",
+    scene: "goals",
   },
   {
     slug: "actions",
@@ -89,6 +100,7 @@ export const features: FeatureData[] = [
       "Quick capture from anywhere",
     ],
     icon: "✓",
+    scene: "goals",
   },
   {
     slug: "today-view",
@@ -151,6 +163,7 @@ export const features: FeatureData[] = [
       "Decision tracking",
     ],
     icon: "🎙️",
+    scene: "meetings",
   },
   {
     slug: "smart-search",
