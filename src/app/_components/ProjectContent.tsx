@@ -269,10 +269,13 @@ export function ProjectContent({
       } else {
         params.set("tab", value);
       }
-      const newUrl = params.toString() ? `?${params.toString()}` : window.location.pathname;
-      router.push(newUrl, { scroll: false });
+      // Build from the router's pathname, never a bare `?tab=…`: Next resolves
+      // a relative href against window.location, which can still name the
+      // previous route (the projects list) and would send the click there.
+      const query = params.toString();
+      router.push(query ? `${pathname}?${query}` : pathname, { scroll: false });
     }
-  }, [router, searchParams]);
+  }, [router, searchParams, pathname]);
 
   // Check if project has active Fireflies workflow
   const hasFirefliesWorkflow = projectWorkflows?.some(

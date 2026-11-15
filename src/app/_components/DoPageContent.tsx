@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useMemo, useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Divider, Group, MultiSelect, Title, SegmentedControl, Modal, Text } from "@mantine/core";
 import { useDisclosure, useMediaQuery } from "@mantine/hooks";
 import { IconHash } from "@tabler/icons-react";
@@ -24,6 +24,7 @@ interface DoPageContentProps {
 export function DoPageContent({ initialFilter = "today" }: DoPageContentProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const pathname = usePathname();
   const { data: preferences } = api.navigationPreference.getPreferences.useQuery();
   const [breakdownOpened, { open: openBreakdown, close: closeBreakdown }] = useDisclosure(false);
   const [searchQuery, setSearchQuery] = useState("");
@@ -70,10 +71,10 @@ export function DoPageContent({ initialFilter = "today" }: DoPageContentProps) {
         params.set("filter", newFilter);
       }
 
-      const newUrl = params.toString() ? `?${params.toString()}` : window.location.pathname;
-      router.push(newUrl, { scroll: false });
+      const query = params.toString();
+      router.push(query ? `${pathname}?${query}` : pathname, { scroll: false });
     },
-    [router, searchParams]
+    [router, searchParams, pathname]
   );
 
   // Map filter to viewName for Actions component
