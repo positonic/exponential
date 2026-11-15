@@ -4,10 +4,11 @@
  * the hosted executor finishes it flips to "Worked for … · called N tools".
  *
  * Mastra is a stub started by this spec on the port the dev server was told
- * to use (playwright.config.ts webServer.env). The dispatcher is kicked
- * directly with the fixed cron secret rather than relying on the assign
- * mutation's after() hook, which under Playwright posts to whatever base URL
- * the env names, so the spec stays deterministic.
+ * to use (playwright.config.ts webServer.env). The spec also kicks the
+ * dispatcher itself with the fixed cron secret, so it doesn't depend on the
+ * assign mutation's after() hook, which posts to whatever base URL the env
+ * names. When that hook does reach this server, it races the spec's kick.
+ * The spec accepts either winner and asserts on the run's outcome.
  *
  * Fixture: `Aria` (the fixture user's Assistant) and an unassigned action.
  * See dev-docs/AGENT_VISUAL_TESTING.md.
@@ -101,6 +102,14 @@ test("assigning your Assistant starts a run: spinner, then the pill flips from Q
   // Kick the hosted executor exactly as the after() hook does, scoped to this
   // run: an unscoped dispatch claims only the oldest QUEUED run, which may be
   // one another spec (assign-to-assistant) left behind.
+  //
+  // The assign mutation's own after() kick races this one. With no
+  // NEXT_PUBLIC_APP_URL / NEXTAUTH_URL it posts to localhost:$PORT, which is
+  // this very server, and it usually claims the run first. The claim is
+  // atomic, so exactly one of the two runs it: either ours succeeded with this
+  // run, or ours claimed nothing and after() has it. Nothing else is
+  // acceptable. Which one won doesn't matter; the run reaching the stub
+  // exactly once and finishing SUCCEEDED, asserted below, is what this proves.
   const runId = await pill.getAttribute("data-run-id");
   expect(runId).toBeTruthy();
   const dispatch = await request.post(`/api/internal/agent-runs/dispatch?runId=${runId}`, {
@@ -109,9 +118,17 @@ test("assigning your Assistant starts a run: spinner, then the pill flips from Q
   expect(dispatch.ok()).toBe(true);
   const result = (await dispatch.json()) as { claimed: number; succeeded: string[]; failed: unknown[] };
   expect(result.failed).toEqual([]);
-  expect(result.succeeded).toEqual([runId]);
+  expect([
+    { claimed: 1, succeeded: [runId] }, // ours ran it
+    { claimed: 0, succeeded: [] }, // after() had already claimed it
+  ]).toContainEqual({ claimed: result.claimed, succeeded: result.succeeded });
 
-  // The stub was called as the Assistant's shadow user, with the persona and the brief.
+  // The pill polls every 2 s while live and flips once the run finished. When
+  // after() won, the run may still be in flight here, so wait for the flip
+  // before reading the stub's calls.
+  await expect(pill).toHaveAttribute("data-status", "SUCCEEDED", { timeout: 30_000 });
+
+  // The stub was called once, as the Assistant's shadow user, with the persona and the brief.
   type GenerateBody = { messages: Array<{ role: string; content: string }>; memory: { thread: { id: string } } };
   const ourCalls = stubCalls.filter(
     (c) =>
@@ -126,8 +143,6 @@ test("assigning your Assistant starts a run: spinner, then the pill flips from Q
   expect(body.messages[0]!.content).toContain(`Name: ${fixture.assistantName}`);
   expect(body.messages[1]!.content).toContain(fixture.agentRunActionName);
 
-  // The pill polls every 2 s while live and flips once the run finished.
-  await expect(pill).toHaveAttribute("data-status", "SUCCEEDED", { timeout: 10_000 });
   await expect(pill).toContainText(/Worked for .* · called 1 tool$/);
   await expect(page.getByTestId("action-running-ring")).toHaveCount(0);
   await expect(pill.getByRole("button", { name: "Cancel" })).toHaveCount(0);

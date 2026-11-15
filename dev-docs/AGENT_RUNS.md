@@ -113,7 +113,7 @@ The pill, the transcript and the Delegated tab read the same `AgentRun` rows, so
 ## Testing
 
 - Unit (mocked Prisma): `services/agentRuns/__tests__/*` (enqueue/coalescing/resume, dispatch claim + JWT + finish, events seq + runner batches, sweep, finish hook, include, `presentation` for waiting-for-runner), `routers/__tests__/mastraRunCallbacks.test.ts`, `agentRunCancel.test.ts`, `agentRunRunner.test.ts` (V2 runner surface), `agentRunListForAction.test.ts`, `notifications/emit/__tests__/agentRunNotification.test.ts`.
-- E2E: `e2e/agent-run.spec.ts` runs a Mastra **stub** on port 4199 (the Playwright dev server is started with `MASTRA_API_URL` pointing at it and `CRON_SECRET=e2e-cron-secret`, see `playwright.config.ts`), assigns the fixture Assistant, kicks the dispatcher, and asserts the ring, the pill flip, the stub's `reportProgress` callback and the transcript. `e2e/assign-to-assistant.spec.ts` covers the picker.
+- E2E: `e2e/agent-run.spec.ts` runs a Mastra **stub** on port 4199 (the Playwright dev server is started with `MASTRA_API_URL` pointing at it and `CRON_SECRET=e2e-cron-secret`, see `playwright.config.ts`), assigns the fixture Assistant, kicks the dispatcher, and asserts the ring. The assign mutation's own `after()` kick reaches the same server (`localhost:$PORT`) and usually claims the run first, so the spec accepts either dispatcher winning and asserts on the outcome. It then checks one stub call, `SUCCEEDED`, the pill flip, the stub's `reportProgress` callback and the transcript. `e2e/assign-to-assistant.spec.ts` covers the picker.
 - Not covered automatically: a run against a real Mastra.
 
 ## Extending
