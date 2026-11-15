@@ -36,7 +36,7 @@ Need to highlight something first? The built-in annotation tools let you draw ar
 Setup takes about two minutes:
 
 1. **Generate an API key** at [exponential.im/settings/api-keys](https://exponential.im/settings/api-keys)
-2. **Download the extension** from [GitHub](https://github.com/positonic/alpha-chrome-plugin)
+2. **Download the extension** from [GitHub](https://github.com/exponential-im/alpha-chrome-plugin)
 3. **Load it into Chrome:**
    - Open `chrome://extensions`
    - Enable **Developer mode** (toggle in the top right)

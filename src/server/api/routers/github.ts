@@ -476,7 +476,7 @@ export const githubRouter = createTRPCRouter({
 //       });
 
 //       try {
-//         const repoOwner = "positonic";
+//         const repoOwner = "exponential-im";
 //         const repoName = "ai-todo";
         
 //         // First check if we can access the repo

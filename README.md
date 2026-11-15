@@ -190,7 +190,7 @@ or in your shell. None is required:
 | `AUTH_LOG_SIGN_IN_CODES` | `true` | The instance admin's sign-in codes go to the app's log; nobody else gets one. Ignored once SMTP or Postmark is set. **Anyone who can read the log can sign in as the admin**; see the security note above. |
 | `SMTP_*`, `EMAIL_FROM`, `AUTH_POSTMARK_KEY`, `GOOGLE_CLIENT_*`, `AUTH_DISCORD_*` | unset | Other ways in, as in the table below. |
 | `POSTGRES_PASSWORD` | `exponential` | Letters and digits only. Set it before the first start: the database keeps the password it was created with. |
-| `MASTRA_BUILD_CONTEXT` | positonic/mastra `main` | Where the Assistant builds from. |
+| `MASTRA_BUILD_CONTEXT` | exponential-im/mastra `main` | Where the Assistant builds from. |
 
 **The Assistant is opt-in.** Mastra (chat, Assign to Assistant) needs an
 Anthropic key, so it sits behind the `assistant` profile:
@@ -201,7 +201,7 @@ ANTHROPIC_API_KEY=… OPENAI_API_KEY=… docker compose --profile assistant up -
 
 With the profile on, the app finds the `mastra` service and points
 `MASTRA_API_URL` at it; without it, the Assistant stays off. Mastra builds
-from [positonic/mastra](https://github.com/positonic/mastra)'s
+from [exponential-im/mastra](https://github.com/exponential-im/mastra)'s
 `docker/Dockerfile` and shares the database (schema `mastra`).
 
 **Memory.** Building the app image needs a Docker host with at least 10 GB of
@@ -267,7 +267,7 @@ docker build -f docker/scheduler.Dockerfile -t exponential-scheduler .      # th
   point `SCHEDULER_TARGET_URL` at the app's address on the network they share.
 
 A full install is four services: Postgres with pgvector, the app, the
-scheduler, and the [Mastra agent service](https://github.com/positonic/mastra)
+scheduler, and the [Mastra agent service](https://github.com/exponential-im/mastra)
 (agent runs and chat; optional, like every AI key). The scheduler and Mastra reach the app over the
 private network; only the app needs a public address.
 

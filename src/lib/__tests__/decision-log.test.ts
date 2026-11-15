@@ -28,7 +28,7 @@ const adr = (overrides: Partial<AdrRowInput> = {}): AdrRowInput => ({
   status: "ACCEPTED",
   decidedAt: "2026-06-01T00:00:00.000Z",
   repositoryId: "repo-1",
-  repositoryFullName: "positonic/exponential",
+  repositoryFullName: "exponential-im/exponential",
   productId: "prod-1",
   ...overrides,
 });
@@ -54,7 +54,7 @@ describe("row mapping", () => {
       kind: "adr",
       source: "code",
       label: "API-0003",
-      group: { kind: "repository", key: "repo:repo-1", name: "positonic/exponential" },
+      group: { kind: "repository", key: "repo:repo-1", name: "exponential-im/exponential" },
       href: "/w/acme/decisions/adr-1",
     });
   });

@@ -28,10 +28,10 @@
 #                            (it goes into a URL). Postgres is not published
 #                            on the host. Set it before the first start: the
 #                            database keeps the password it was created with.
-#   MASTRA_BUILD_CONTEXT     where Mastra builds from (default positonic/mastra main)
+#   MASTRA_BUILD_CONTEXT     where Mastra builds from (default exponential-im/mastra main)
 #
 # Images build locally from this checkout (the app from ./Dockerfile, the
-# scheduler from docker/scheduler.Dockerfile) and from positonic/mastra's
+# scheduler from docker/scheduler.Dockerfile) and from exponential-im/mastra's
 # docker/Dockerfile. Building the app needs a Docker host with at least 10 GB
 # of memory. To run published images instead, see the README.
 
@@ -147,7 +147,7 @@ services:
     <<: *with-secrets
     profiles: ["assistant"]
     build:
-      context: ${MASTRA_BUILD_CONTEXT:-https://github.com/positonic/mastra.git#main}
+      context: ${MASTRA_BUILD_CONTEXT:-https://github.com/exponential-im/mastra.git#main}
       dockerfile: docker/Dockerfile
     command: ["node", ".mastra/output/index.mjs"]
     environment:

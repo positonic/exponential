@@ -144,15 +144,15 @@ describe("getActivityFeed — channel summaries + source filter", () => {
         // Two-digit PR number on purpose: the repo's hardcoded-colour
         // pre-commit check reads a hash followed by 3-8 hex digits as a colour
         // literal, so a three-digit PR ref here would fail the commit.
-        entityId: "positonic/exponential#64",
+        entityId: "exponential-im/exponential#64",
         action: "completed",
         metadata: {
           title: "feat: grant agents access to multiple workspaces at once",
-          repoFullName: "positonic/exponential",
-          repoUrl: "https://github.com/positonic/exponential",
+          repoFullName: "exponential-im/exponential",
+          repoUrl: "https://github.com/exponential-im/exponential",
           branchName: "feat/agent-workspaces",
           prNumber: 497,
-          prUrl: "https://github.com/positonic/exponential/pull/497",
+          prUrl: "https://github.com/exponential-im/exponential/pull/497",
           author: "positonic",
           merged: true,
         },
@@ -167,7 +167,7 @@ describe("getActivityFeed — channel summaries + source filter", () => {
     expect(events[0]!.github).toEqual(
       expect.objectContaining({
         kind: "pull_request",
-        repoFullName: "positonic/exponential",
+        repoFullName: "exponential-im/exponential",
         prNumber: 497,
         author: "positonic",
         merged: true,

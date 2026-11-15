@@ -6,7 +6,7 @@ import {
 } from "../githubFeedEvent";
 import { deriveActivitySource } from "../deriveActivitySource";
 
-const repo = "positonic/exponential";
+const repo = "exponential-im/exponential";
 
 function prInput(overrides: Record<string, unknown> = {}) {
   return {
@@ -67,7 +67,7 @@ describe("toGitHubFeedEvent — pull requests", () => {
 
   it("is keyed per repo+PR so two repos' #1 don't collide", () => {
     const a = toGitHubFeedEvent(prInput());
-    const b = toGitHubFeedEvent(prInput({ repoFullName: "positonic/mastra" }));
+    const b = toGitHubFeedEvent(prInput({ repoFullName: "exponential-im/mastra" }));
     expect(a!.entityId).not.toBe(b!.entityId);
   });
 });
@@ -116,7 +116,7 @@ describe("toGitHubFeedEvent — pushes", () => {
 
     const otherRepo = toGitHubFeedEvent({
       ...pushInput(1),
-      repoFullName: "positonic/mastra",
+      repoFullName: "exponential-im/mastra",
       headCommitSha: full,
     });
     expect(otherRepo!.entityId).not.toBe(live!.entityId);

@@ -64,7 +64,7 @@ const ONE_COMMIT = {
       message: "feat: something shipped",
       author: "someone",
       date: "2026-08-04T21:44:22Z",
-      url: "https://github.com/positonic/exponential/commit/abc1234",
+      url: "https://github.com/exponential-im/exponential/commit/abc1234",
       avatarUrl: null,
     },
   ],

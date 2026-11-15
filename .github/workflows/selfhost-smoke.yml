@@ -15,7 +15,7 @@
 # locally (see its header).
 #
 # Mastra (the `assistant` profile) is not booted here: it is optional, and it
-# builds from another repo (positonic/mastra), which has its own boot check.
+# builds from another repo (exponential-im/mastra), which has its own boot check.
 #
 # NEVER A REQUIRED CHECK. It is path-filtered on pull requests, and a
 # path-filtered required check that is skipped stays "pending" forever and
