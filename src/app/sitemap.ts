@@ -93,13 +93,21 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     priority: 0.7,
   }));
 
-  // Integration pages
-  const integrationPages: MetadataRoute.Sitemap = getAllIntegrationSlugs().map((slug) => ({
-    url: `${baseUrl}/features/integrations/${slug}`,
-    lastModified: new Date(),
-    changeFrequency: 'monthly' as const,
-    priority: 0.7,
-  }));
+  // Integration pages, and the index that lists them
+  const integrationPages: MetadataRoute.Sitemap = [
+    {
+      url: `${baseUrl}/features/integrations`,
+      lastModified: new Date(),
+      changeFrequency: 'monthly' as const,
+      priority: 0.7,
+    },
+    ...getAllIntegrationSlugs().map((slug) => ({
+      url: `${baseUrl}/features/integrations/${slug}`,
+      lastModified: new Date(),
+      changeFrequency: 'monthly' as const,
+      priority: 0.7,
+    })),
+  ];
 
   // Doc pages
   const docSlugs = await getAllDocSlugs();

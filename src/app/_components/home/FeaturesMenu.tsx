@@ -5,6 +5,7 @@ import Link from "next/link";
 import {
   IconBolt,
   IconBrandGithub,
+  IconBrandOpenai,
   IconBriefcase,
   IconCalendar,
   IconCalendarStats,
@@ -12,6 +13,8 @@ import {
   IconChartLine,
   IconCheck,
   IconChevronDown,
+  IconCode,
+  IconCursorText,
   IconFolder,
   IconInbox,
   IconMessageCircle,
@@ -21,6 +24,7 @@ import {
   IconRobot,
   IconSearch,
   IconTarget,
+  IconTerminal2,
   IconUsers,
   type Icon,
 } from "@tabler/icons-react";
@@ -157,6 +161,10 @@ const featureColumns: FeatureColumn[] = [
 
 const integrations: { icon: Icon; name: string; href?: string }[] = [
   { icon: IconRobot, name: "Claude", href: "/features/integrations/claude" },
+  { icon: IconCursorText, name: "Cursor", href: "/features/integrations/cursor" },
+  { icon: IconBrandOpenai, name: "Codex", href: "/features/integrations/codex" },
+  { icon: IconTerminal2, name: "CLI", href: "/features/integrations/cli" },
+  { icon: IconCode, name: "SDK", href: "/features/integrations/sdk" },
   { icon: IconMessageCircle, name: "Slack" },
   { icon: IconNotes, name: "Notion" },
   { icon: IconBrandGithub, name: "GitHub" },
@@ -234,7 +242,7 @@ export function FeaturesMenu() {
                 <span className="text-xs font-semibold text-text-muted uppercase tracking-wider">
                   Integrations
                 </span>
-                <div className="flex items-center gap-4">
+                <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
                   {integrations.map((integration) =>
                     integration.href ? (
                       <Link
@@ -255,9 +263,12 @@ export function FeaturesMenu() {
                       </span>
                     ),
                   )}
-                  <span className="text-text-muted text-sm italic">
-                    More coming...
-                  </span>
+                  <Link
+                    href="/features/integrations"
+                    className="text-text-muted text-sm hover:text-text-primary transition-colors"
+                  >
+                    All integrations →
+                  </Link>
                 </div>
               </div>
             </div>

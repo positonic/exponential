@@ -61,6 +61,9 @@ export default async function IntegrationPage({ params }: IntegrationPageProps) 
   }
 
   const baseUrl = getPublicBaseUrlFromEnv();
+  const isDeveloper = integration.kind === "developer";
+  // "the CLI" reads better than "CLI" in running text.
+  const displayName = isDeveloper ? `the ${integration.name}` : integration.name;
   const structuredData = [
     {
       "@context": "https://schema.org",
@@ -79,6 +82,12 @@ export default async function IntegrationPage({ params }: IntegrationPageProps) 
         {
           "@type": "ListItem",
           position: 2,
+          name: "Integrations",
+          item: `${baseUrl}/features/integrations`,
+        },
+        {
+          "@type": "ListItem",
+          position: 3,
           name: `${integration.name} integration`,
           item: `${baseUrl}/features/integrations/${integration.slug}`,
         },
@@ -101,13 +110,15 @@ export default async function IntegrationPage({ params }: IntegrationPageProps) 
           <div className="mkt-container pt-16 md:pt-24">
             <div className="max-w-3xl">
               <p className="mkt-eyebrow mkt-rise mb-6">
-                {integration.name} + {PRODUCT_NAME}
+                {isDeveloper
+                  ? `${PRODUCT_NAME} ${integration.name}`
+                  : `${integration.name} + ${PRODUCT_NAME}`}
               </p>
               <h1 className="mkt-h1 mkt-rise mb-6">{integration.headline}</h1>
               <p className="mkt-lead mkt-rise mb-10">{integration.intro}</p>
               <div className="mkt-rise flex flex-wrap items-center gap-x-8 gap-y-5">
                 <CTAButton href="/signin" variant="pill" size="large">
-                  Get your API key
+                  {isDeveloper ? "Get an API token" : "Get your API key"}
                 </CTAButton>
                 <CTAButton href={integration.docsHref} variant="text">
                   Read the setup docs
@@ -121,20 +132,36 @@ export default async function IntegrationPage({ params }: IntegrationPageProps) 
         <section className="mkt-section border-t border-border-primary">
           <div className="mkt-container mkt-reveal">
             <h2 className="mkt-h2 mb-10 max-w-3xl">
-              What you can ask {integration.name}
+              {isDeveloper
+                ? `What you can do with ${displayName}`
+                : `What you can ask ${integration.name}`}
             </h2>
             <ul className="grid grid-cols-1 gap-5 sm:grid-cols-2">
-              {integration.examplePrompts.map((prompt) => (
-                <Panel
-                  as="li"
-                  key={prompt}
-                  radius="xl"
-                  padding="none"
-                  className="p-6 text-[0.9375rem] leading-relaxed text-text-primary"
-                >
-                  &ldquo;{prompt}&rdquo;
-                </Panel>
-              ))}
+              {integration.examplePrompts.map((prompt) =>
+                isDeveloper ? (
+                  <Panel
+                    as="li"
+                    key={prompt}
+                    radius="xl"
+                    padding="none"
+                    className="overflow-x-auto p-6"
+                  >
+                    <code className="whitespace-pre-wrap break-words font-mono text-sm leading-relaxed text-text-primary [font-variant-ligatures:none]">
+                      {prompt}
+                    </code>
+                  </Panel>
+                ) : (
+                  <Panel
+                    as="li"
+                    key={prompt}
+                    radius="xl"
+                    padding="none"
+                    className="p-6 text-[0.9375rem] leading-relaxed text-text-primary"
+                  >
+                    &ldquo;{prompt}&rdquo;
+                  </Panel>
+                ),
+              )}
             </ul>
           </div>
         </section>
@@ -143,7 +170,9 @@ export default async function IntegrationPage({ params }: IntegrationPageProps) 
         <section className="mkt-section border-t border-border-primary">
           <div className="mkt-container mkt-reveal">
             <h2 className="mkt-h2 mb-10 max-w-3xl">
-              How to connect {integration.name} to {PRODUCT_NAME}
+              {isDeveloper
+                ? `How to set up ${displayName}`
+                : `How to connect ${integration.name} to ${PRODUCT_NAME}`}
             </h2>
             <ol className="max-w-3xl space-y-10">
               {integration.setupSteps.map((step, index) => (
@@ -158,7 +187,7 @@ export default async function IntegrationPage({ params }: IntegrationPageProps) 
                       <Panel
                         as="pre"
                         padding="none"
-                        className="mt-5 overflow-x-auto p-5 font-mono text-sm leading-7 text-text-primary"
+                        className="mt-5 overflow-x-auto p-5 font-mono text-sm leading-7 text-text-primary [font-variant-ligatures:none]"
                       >
                         <code>{step.code.content}</code>
                       </Panel>
@@ -174,10 +203,13 @@ export default async function IntegrationPage({ params }: IntegrationPageProps) 
         <section className="mkt-section border-t border-border-primary">
           <div className="mkt-container mkt-reveal">
             <div className="mb-10 max-w-3xl">
-              <h2 className="mkt-h2 mb-4">The tools {integration.name} gets</h2>
+              <h2 className="mkt-h2 mb-4">
+                {integration.toolsHeading ??
+                  `The tools ${integration.name} gets`}
+              </h2>
               <p className="mkt-body">
-                Every tool the integration exposes, by the name{" "}
-                {integration.name} sees.
+                {integration.toolsIntro ??
+                  `Every tool the integration exposes, by the name ${integration.name} sees.`}
               </p>
             </div>
             <Panel
@@ -214,7 +246,9 @@ export default async function IntegrationPage({ params }: IntegrationPageProps) 
         <section className="mkt-section border-t border-border-primary">
           <div className="mkt-container mkt-reveal">
             <h2 className="mkt-h2 mb-10 max-w-3xl">
-              Why connect {integration.name} to {PRODUCT_NAME}
+              {isDeveloper
+                ? `Why use ${displayName}`
+                : `Why connect ${integration.name} to ${PRODUCT_NAME}`}
             </h2>
             <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
               {integration.reasons.map((reason) => (
@@ -238,7 +272,9 @@ export default async function IntegrationPage({ params }: IntegrationPageProps) 
         <section className="mkt-section border-t border-border-primary">
           <div className="mkt-container mkt-reveal">
             <h2 className="mkt-h2 mb-10 max-w-3xl">
-              {integration.name} integration FAQ
+              {isDeveloper
+                ? `${PRODUCT_NAME} ${integration.name} FAQ`
+                : `${integration.name} integration FAQ`}
             </h2>
             <div className="max-w-3xl space-y-8">
               {integration.faqs.map((faq) => (
@@ -266,7 +302,9 @@ export default async function IntegrationPage({ params }: IntegrationPageProps) 
         <section className="mkt-section border-t border-border-primary">
           <div className="mkt-container mkt-reveal text-center">
             <h2 className="mkt-h2 mb-5">
-              Bring your workspace into {integration.name}
+              {isDeveloper
+                ? `Get started with ${displayName}`
+                : `Bring your workspace into ${integration.name}`}
             </h2>
             <p className="mkt-body mx-auto mb-10 max-w-xl">
               Free to start. Open source. Set up in a couple of minutes.
