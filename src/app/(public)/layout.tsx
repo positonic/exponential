@@ -6,6 +6,7 @@ import "@mantine/core/styles.css";
 import { ThemeProvider } from "~/providers/ThemeProvider";
 import { mantineThemes } from "~/config/themes";
 import { getThemeDomain } from "~/config/site";
+import { PublicAnalytics } from "~/app/_components/layout/PublicAnalytics";
 
 /**
  * Bare shell for public, unauthenticated pages (the Forms renderer at /f/[slug]).
@@ -37,6 +38,7 @@ export default async function PublicLayout({
           <MantineProvider defaultColorScheme="dark" theme={mantineTheme}>
             {children}
           </MantineProvider>
+          <PublicAnalytics />
         </ThemeProvider>
       </body>
     </html>

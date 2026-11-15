@@ -5,6 +5,7 @@ import "@mantine/core/styles.css";
 import { ThemeProvider } from "~/providers/ThemeProvider";
 import { mantineThemes } from "~/config/themes";
 import { getThemeDomain } from "~/config/site";
+import { PublicAnalytics } from "~/app/_components/layout/PublicAnalytics";
 
 /**
  * Bare shell for Published pages (`/p/[slugId]`, ADR-0038) — no sidemenu, no
@@ -34,6 +35,7 @@ export default function PublishedLayout({
           <MantineProvider defaultColorScheme="auto" theme={mantineTheme}>
             {children}
           </MantineProvider>
+          <PublicAnalytics />
         </ThemeProvider>
       </body>
     </html>
