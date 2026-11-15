@@ -9,31 +9,31 @@ import { api } from '~/trpc/react';
 interface AxisPoint {
   label: string;
   value: number; // 1–10
-  color: string; // CSS color reference (e.g. var(--ch-accent-meetings))
+  color: string; // CSS color reference (e.g. var(--accent-meetings))
 }
 
-// Maps a LifeDomain.color semantic key to a coaching-home scoped CSS var.
+// Maps a LifeDomain.color semantic key to a shared accent token.
 function lifeDomainAccent(color: string | null | undefined): string {
-  if (!color) return 'var(--ch-accent)';
+  if (!color) return 'var(--accent-meetings)';
   const map: Record<string, string> = {
-    'brand-primary': 'var(--ch-brand-400)',
-    blue: 'var(--ch-brand-400)',
-    indigo: 'var(--ch-accent-ritual)',
-    green: 'var(--ch-accent-crm)',
-    teal: 'var(--ch-accent-knowledge)',
-    cyan: 'var(--ch-accent-knowledge)',
-    yellow: 'var(--ch-accent-okr)',
-    amber: 'var(--ch-accent-okr)',
-    orange: 'var(--ch-accent-okr)',
-    red: 'var(--ch-accent-due)',
-    pink: 'var(--ch-accent-due)',
-    violet: 'var(--ch-accent-meetings)',
-    purple: 'var(--ch-accent-meetings)',
-    grape: 'var(--ch-accent-meetings)',
-    gray: 'var(--ch-accent-neutral)',
-    neutral: 'var(--ch-accent-neutral)',
+    'brand-primary': 'var(--brand-400)',
+    blue: 'var(--brand-400)',
+    indigo: 'var(--accent-ritual)',
+    green: 'var(--accent-crm)',
+    teal: 'var(--accent-quick)',
+    cyan: 'var(--accent-quick)',
+    yellow: 'var(--accent-okr)',
+    amber: 'var(--accent-okr)',
+    orange: 'var(--accent-okr)',
+    red: 'var(--accent-due)',
+    pink: 'var(--accent-due)',
+    violet: 'var(--accent-meetings)',
+    purple: 'var(--accent-meetings)',
+    grape: 'var(--accent-meetings)',
+    gray: 'var(--accent-low)',
+    neutral: 'var(--accent-low)',
   };
-  return map[color.toLowerCase()] ?? 'var(--ch-accent)';
+  return map[color.toLowerCase()] ?? 'var(--accent-meetings)';
 }
 
 const CENTER = 110;
@@ -77,8 +77,8 @@ function MiniRadar({ axes }: { axes: AxisPoint[] }) {
     <svg viewBox="0 0 220 220" className="ch-wheel" aria-label="Wheel of life radar">
       <defs>
         <radialGradient id={gradId} cx="50%" cy="50%" r="55%">
-          <stop offset="0%" stopColor="var(--ch-accent-violet-45)" />
-          <stop offset="100%" stopColor="var(--ch-accent-blue-18)" />
+          <stop offset="0%" stopColor="rgb(var(--accent-meetings-rgb) / 0.45)" />
+          <stop offset="100%" stopColor="rgb(var(--brand-400-rgb) / 0.18)" />
         </radialGradient>
       </defs>
 
@@ -122,7 +122,7 @@ function MiniRadar({ axes }: { axes: AxisPoint[] }) {
             cy={y.toFixed(2)}
             r={3.6}
             fill={a.color}
-            stroke="var(--ch-bg-elevated)"
+            stroke="var(--color-bg-elevated)"
             strokeWidth={1.6}
           />
         );
@@ -190,7 +190,7 @@ export function CoachingHeaderWheel() {
           </span>
         </div>
         <div className="ch-wheel-card__empty">
-          <p style={{ fontSize: 12, color: 'var(--ch-text-secondary)' }}>
+          <p style={{ fontSize: 12, color: 'var(--color-text-secondary)' }}>
             Score your Wheel of Life to anchor your coaching focus.
           </p>
           <Link className="ch-wheel-card__cta" href="/wheel-of-life/assessment">

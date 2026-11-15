@@ -36,29 +36,29 @@ const HEALTH_CLASSES: Record<Exclude<Health, null>, string> = {
   'no-update': 'ch-goal-card__health--no-update',
 };
 
-// Maps a LifeDomain.color semantic key to a coaching-home scoped CSS var.
+// Maps a LifeDomain.color semantic key to a shared accent token.
 // Falls back to the page accent if the key isn't recognised.
 function lifeDomainAccent(color: string | null | undefined): string {
-  if (!color) return 'var(--ch-accent)';
+  if (!color) return 'var(--accent-meetings)';
   const map: Record<string, string> = {
-    'brand-primary': 'var(--ch-brand-400)',
-    blue: 'var(--ch-brand-400)',
-    indigo: 'var(--ch-accent-ritual)',
-    green: 'var(--ch-accent-crm)',
-    teal: 'var(--ch-accent-knowledge)',
-    cyan: 'var(--ch-accent-knowledge)',
-    yellow: 'var(--ch-accent-okr)',
-    amber: 'var(--ch-accent-okr)',
-    orange: 'var(--ch-accent-okr)',
-    red: 'var(--ch-accent-due)',
-    pink: 'var(--ch-accent-due)',
-    violet: 'var(--ch-accent-meetings)',
-    purple: 'var(--ch-accent-meetings)',
-    grape: 'var(--ch-accent-meetings)',
-    gray: 'var(--ch-accent-neutral)',
-    neutral: 'var(--ch-accent-neutral)',
+    'brand-primary': 'var(--brand-400)',
+    blue: 'var(--brand-400)',
+    indigo: 'var(--accent-ritual)',
+    green: 'var(--accent-crm)',
+    teal: 'var(--accent-quick)',
+    cyan: 'var(--accent-quick)',
+    yellow: 'var(--accent-okr)',
+    amber: 'var(--accent-okr)',
+    orange: 'var(--accent-okr)',
+    red: 'var(--accent-due)',
+    pink: 'var(--accent-due)',
+    violet: 'var(--accent-meetings)',
+    purple: 'var(--accent-meetings)',
+    grape: 'var(--accent-meetings)',
+    gray: 'var(--accent-low)',
+    neutral: 'var(--accent-low)',
   };
-  return map[color.toLowerCase()] ?? 'var(--ch-accent)';
+  return map[color.toLowerCase()] ?? 'var(--accent-meetings)';
 }
 
 function HealthPill({ health }: { health: Health }) {

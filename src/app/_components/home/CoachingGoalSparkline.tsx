@@ -4,7 +4,7 @@ import { useId } from 'react';
 
 interface CoachingGoalSparklineProps {
   points: { progress: number }[];
-  /** CSS color reference, e.g. `var(--ch-accent-crm)`. */
+  /** CSS color reference, e.g. `var(--accent-crm)`. */
   color: string;
   ariaLabel?: string;
 }
