@@ -128,6 +128,10 @@ const config = {
         destination: "/features/team-weekly-review",
         permanent: true,
       },
+      // The public bounty board was retired (Nov 2026). Its pages and blog post
+      // were indexed, so send visitors somewhere useful instead of a 404.
+      { source: "/explore/:path*", destination: "/", permanent: true },
+      { source: "/blog/bounty-board-machine-readable", destination: "/blog", permanent: true },
     ];
   },
 

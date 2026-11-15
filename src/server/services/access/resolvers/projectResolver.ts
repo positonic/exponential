@@ -140,9 +140,9 @@ export function hasProjectAccess(access: ProjectAccess): boolean {
  * sibling projects, workspace settings. Public visibility grants the project,
  * never the workspace behind it.
  *
- * Concretely: bounty action ids for public projects are served by the
- * unauthenticated `/api/bounties` feed, and public projects are SEO-indexed via
- * the sitemap. So "caller passed hasProjectAccess" can mean nothing more than
+ * Concretely: public projects are SEO-indexed via the sitemap (and, until Nov
+ * 2026, their action ids were served by the unauthenticated bounty feed). So
+ * "caller passed hasProjectAccess" can mean nothing more than
  * "caller read a public URL and signed up".
  *
  * This is `hasProjectAccess` minus the `isPublic` short-circuit.

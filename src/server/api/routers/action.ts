@@ -1864,10 +1864,9 @@ export const actionRouter = createTRPCRouter({
       //    (they are escape-hatch project editors).
       //
       //    Gated on `isProjectInsider`, NOT `canViewAction`: a public project
-      //    satisfies the view gate for any authenticated caller, and bounty
-      //    action ids for public projects are published by the unauthenticated
-      //    /api/bounties feed. Public visibility grants the project, never the
-      //    workspace roster behind it.
+      //    satisfies the view gate for any authenticated caller, and action ids
+      //    in public projects are discoverable from its public pages. Public
+      //    visibility grants the project, never the workspace roster behind it.
       //
       //    An action with a workspace but no project (a loose workspace
       //    action) takes its roster from its own workspace instead — the same

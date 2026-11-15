@@ -35,7 +35,7 @@ export function buildLlmsIndex(opts: {
   baseUrl: string;
   pages?: DocPage[];
   nav?: DocNavSection[];
-  /** Extra sections appended verbatim (Markdown), e.g. the bounty API. */
+  /** Extra sections appended verbatim (Markdown), e.g. the blog feed. */
   appendix?: string;
 }): string {
   const pages = opts.pages ?? listDocPages();

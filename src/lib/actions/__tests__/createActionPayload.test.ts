@@ -30,7 +30,7 @@ describe("buildCreateActionPayload", () => {
       assigneeIds: ["u2"],
       sprintListId: "s1",
     });
-    expect(payload).not.toHaveProperty("isBounty");
+    expect(createInput.safeParse(payload).success).toBe(true);
   });
 
   it("omits cleared attachments and unset fields rather than sending null or empty", () => {
@@ -67,24 +67,6 @@ describe("buildCreateActionPayload", () => {
     expect(payload).not.toHaveProperty("sprintListId");
   });
 
-  it("carries the bounty group only when the toggle is on", () => {
-    const deadline = new Date("2026-10-01T00:00:00.000Z");
-    const payload = buildCreateActionPayload({
-      name: "Bounty",
-      bounty: { amount: 50, token: "USDC", difficulty: "advanced", skills: ["rust"], deadline, maxClaimants: 2 },
-    });
-
-    expect(payload).toMatchObject({
-      isBounty: true,
-      bountyAmount: 50,
-      bountyToken: "USDC",
-      bountyDifficulty: "advanced",
-      bountySkills: ["rust"],
-      bountyDeadline: deadline,
-      bountyMaxClaimants: 2,
-    });
-  });
-
   it("passes an explicit status and copies attachment arrays", () => {
     const tagIds = ["t1"];
     const payload = buildCreateActionPayload({ name: "x", status: "ACTIVE", tagIds });
@@ -105,7 +87,6 @@ describe("buildCreateActionPayload", () => {
       tagIds: ["t1"],
       assigneeIds: ["u2"],
       sprintListId: "s1",
-      bounty: { amount: 10, token: "USDC", maxClaimants: 1 },
     });
 
     const parsed = createInput.safeParse(payload);
@@ -114,7 +95,6 @@ describe("buildCreateActionPayload", () => {
       tagIds: ["t1"],
       assigneeIds: ["u2"],
       sprintListId: "s1",
-      isBounty: true,
     });
   });
 

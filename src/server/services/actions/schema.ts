@@ -46,15 +46,6 @@ export const actionWriteSchema = z.object({
    * leaves it untouched.
    */
   blockedByIds: z.array(z.string()).optional(),
-  // Bounty fields
-  isBounty: z.boolean().optional(),
-  bountyAmount: z.number().positive().optional(),
-  bountyToken: z.string().optional(),
-  bountyDifficulty: z.enum(["beginner", "intermediate", "advanced"]).optional(),
-  bountySkills: z.array(z.string()).optional(),
-  bountyDeadline: z.date().optional(),
-  bountyMaxClaimants: z.number().int().min(1).optional(),
-  bountyExternalUrl: z.string().url().optional(),
 });
 
 export type ActionWriteInput = z.input<typeof actionWriteSchema>;
@@ -142,7 +133,7 @@ export type CreateActionInput = z.input<typeof createActionInputSchema>;
 /**
  * The one patch shape for updating an Action: `actionWriteSchema.partial()`
  * with the columns an update may also clear made nullable, plus the
- * update-only fields (kanban column and order, ticket link, bounty status,
+ * update-only fields (kanban column and order, ticket link,
  * last-write stamp). `applyActionUpdate` takes it; `action.update` exposes
  * it minus the fields it never accepted.
  */
@@ -172,15 +163,6 @@ export const actionUpdatePatchSchema = actionWriteSchema
   /** Link to a Ticket whose product lives in the action's workspace; null unlinks. */
   ticketId: z.string().nullable().optional(),
   effortEstimate: z.number().min(0).nullable().optional(),
-  bountyAmount: z.number().positive().nullable().optional(),
-  bountyToken: z.string().nullable().optional(),
-  bountyStatus: z
-    .enum(["OPEN", "IN_PROGRESS", "IN_REVIEW", "COMPLETED", "CANCELLED"])
-    .nullable()
-    .optional(),
-  bountyDifficulty: z.enum(["beginner", "intermediate", "advanced"]).nullable().optional(),
-  bountyDeadline: z.coerce.date().nullable().optional(),
-  bountyExternalUrl: z.string().url().nullable().optional(),
   /** Source attribution set by agents and integrations: which channel last touched the action. */
   lastUpdatedBy: z.enum(["AGENT", "USER_EMAIL", "USER_WHATSAPP", "USER_UI"]).optional(),
   lastUpdatedSource: z.string().optional(),

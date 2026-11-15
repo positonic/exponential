@@ -494,12 +494,11 @@ export const projectRouter = createTRPCRouter({
         isPublic: z.boolean().optional(),
         isRestricted: z.boolean().optional(),
         enableDetailedActions: z.boolean().nullable().optional(),
-        enableBounties: z.boolean().nullable().optional(),
         ceremonyIds: z.array(z.string()).optional(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      const { id, goalIds, keyResultIds, lifeDomainIds, workspaceId, driId, productId, isPublic, isRestricted, enableDetailedActions, enableBounties, ceremonyIds, ...updateData } = input;
+      const { id, goalIds, keyResultIds, lifeDomainIds, workspaceId, driId, productId, isPublic, isRestricted, enableDetailedActions, ceremonyIds, ...updateData } = input;
 
       // Generate a unique slug, excluding the current project
       const baseSlug = slugify(updateData.name);
@@ -602,8 +601,6 @@ export const projectRouter = createTRPCRouter({
             ...(isRestricted !== undefined ? { isRestricted } : {}),
             // Handle detailed actions override (null = inherit from workspace)
             ...(enableDetailedActions !== undefined ? { enableDetailedActions } : {}),
-            // Handle bounties override (null = inherit from workspace)
-            ...(enableBounties !== undefined ? { enableBounties } : {}),
           },
         });
 

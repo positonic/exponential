@@ -231,7 +231,6 @@ describe('middleware matcher', () => {
       '/docs/getting-started',
       '/docs/features/fireflies',
       '/blog',
-      '/explore',
       '/features/some-marketing-page',
       '/p/published-page',
       '/updates/acme',
@@ -269,7 +268,6 @@ describe('middleware matcher', () => {
     it.each([
       ['/docs', '/docs/features/fireflies'],
       ['/blog', '/blog/some-post'],
-      ['/explore', '/explore/a-project/bounties/1'],
       ['/learn', '/learn/a-lesson'],
     ])('%s opens itself and %s', (index, child) => {
       expect(isPublicPath(index)).toBe(true);

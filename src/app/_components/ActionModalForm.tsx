@@ -1,6 +1,6 @@
-import { Textarea, Button, Group, Select, ActionIcon, Popover, Text, NumberInput, Stack, Switch, Tooltip, Divider, TagsInput, SegmentedControl, TextInput, Image, Modal } from '@mantine/core';
-import { TimeInput, DateInput } from '@mantine/dates';
-import { IconPlus, IconClock, IconX, IconRobot, IconAlertCircle, IconInfoCircle, IconCoin, IconPhoto } from '@tabler/icons-react';
+import { Textarea, Button, Group, Select, ActionIcon, Popover, Text, NumberInput, Stack, Switch, Tooltip, Divider, Image, Modal } from '@mantine/core';
+import { TimeInput } from '@mantine/dates';
+import { IconPlus, IconClock, IconX, IconRobot, IconAlertCircle, IconInfoCircle, IconPhoto } from '@tabler/icons-react';
 import { type ActionPriority, PRIORITY_OPTIONS } from "~/types/action";
 import type { EffortUnit } from "~/types/effort";
 import { api } from "~/trpc/react";
@@ -15,7 +15,6 @@ import { EpicSelector } from './EpicSelector';
 import { EffortEstimateInput } from './EffortEstimateInput';
 import { DependencyPicker } from './DependencyPicker';
 import { useRef, useState, useCallback, type ReactNode } from 'react';
-import { useBountiesEnabled } from '~/hooks/useBountiesEnabled';
 
 export interface PastedScreenshot {
   id: string;
@@ -65,23 +64,6 @@ interface ActionModalFormProps {
   effortUnit?: EffortUnit;
   blockedByIds?: string[];
   setBlockedByIds?: (ids: string[]) => void;
-  // Bounty fields
-  isBounty?: boolean;
-  setIsBounty?: (value: boolean) => void;
-  bountyAmount?: number | null;
-  setBountyAmount?: (value: number | null) => void;
-  bountyToken?: string | null;
-  setBountyToken?: (value: string | null) => void;
-  bountyDifficulty?: string | null;
-  setBountyDifficulty?: (value: string | null) => void;
-  bountySkills?: string[];
-  setBountySkills?: (value: string[]) => void;
-  bountyDeadline?: Date | null;
-  setBountyDeadline?: (value: Date | null) => void;
-  bountyMaxClaimants?: number;
-  setBountyMaxClaimants?: (value: number) => void;
-  bountyExternalUrl?: string | null;
-  setBountyExternalUrl?: (value: string | null) => void;
   // Screenshot paste support
   pastedScreenshots?: PastedScreenshot[];
   onScreenshotPaste?: (screenshot: PastedScreenshot) => void;
@@ -130,22 +112,6 @@ export function ActionModalForm({
   effortUnit,
   blockedByIds,
   setBlockedByIds,
-  isBounty,
-  setIsBounty,
-  bountyAmount,
-  setBountyAmount,
-  bountyToken,
-  setBountyToken,
-  bountyDifficulty,
-  setBountyDifficulty,
-  bountySkills,
-  setBountySkills,
-  bountyDeadline,
-  setBountyDeadline,
-  bountyMaxClaimants,
-  setBountyMaxClaimants,
-  bountyExternalUrl,
-  setBountyExternalUrl,
   pastedScreenshots,
   onScreenshotPaste,
   onScreenshotRemove,
@@ -164,7 +130,6 @@ export function ActionModalForm({
   const [schedulePopoverOpened, setSchedulePopoverOpened] = useState(false);
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
   const timeInputRef = useRef<HTMLInputElement>(null);
-  const bountiesEnabled = useBountiesEnabled(projectId);
 
   // Handle paste events for screenshots
   const handlePaste = useCallback((e: React.ClipboardEvent) => {
@@ -594,168 +559,6 @@ export function ActionModalForm({
           )}
         </Group>
       )}
-
-      {/* Bounty section - only show when setIsBounty is provided and project is public */}
-      {setIsBounty && (() => {
-        const selectedProjectIsPublic = projects.data?.find(p => p.id === projectId)?.isPublic ?? false;
-        if (!selectedProjectIsPublic || !bountiesEnabled) return null;
-        return (
-          <div className="border-t border-border-primary mt-4 pt-4 px-4">
-            <Group justify="space-between" align="center">
-              <Group gap="xs">
-                <IconCoin size={16} className="text-text-muted" />
-                <Text size="sm" fw={500}>Bounty</Text>
-              </Group>
-              <Switch
-                checked={isBounty ?? false}
-                onChange={(e) => setIsBounty(e.currentTarget.checked)}
-                size="sm"
-              />
-            </Group>
-
-            {isBounty && (
-              <Stack gap="sm" mt="sm">
-                <Group gap="sm" grow>
-                  {setBountyAmount && (
-                    <NumberInput
-                      label="Reward amount"
-                      placeholder="100"
-                      value={bountyAmount ?? ''}
-                      onChange={(value) => setBountyAmount(typeof value === 'number' ? value : null)}
-                      min={0}
-                      decimalScale={2}
-                      styles={{
-                        input: {
-                          backgroundColor: 'var(--color-surface-secondary)',
-                          color: 'var(--color-text-primary)',
-                          borderColor: 'var(--color-border-primary)',
-                        },
-                        label: { color: 'var(--color-text-secondary)' },
-                      }}
-                    />
-                  )}
-                  {setBountyToken && (
-                    <Select
-                      label="Token"
-                      placeholder="Select token"
-                      value={bountyToken ?? null}
-                      onChange={(value) => setBountyToken(value)}
-                      data={[
-                        { value: 'USDC', label: 'USDC' },
-                        { value: 'ETH', label: 'ETH' },
-                        { value: 'SOL', label: 'SOL' },
-                        { value: 'MATIC', label: 'MATIC' },
-                      ]}
-                      styles={{
-                        input: {
-                          backgroundColor: 'var(--color-surface-secondary)',
-                          color: 'var(--color-text-primary)',
-                          borderColor: 'var(--color-border-primary)',
-                        },
-                        label: { color: 'var(--color-text-secondary)' },
-                        dropdown: {
-                          backgroundColor: 'var(--color-surface-secondary)',
-                          borderColor: 'var(--color-border-primary)',
-                        },
-                      }}
-                    />
-                  )}
-                </Group>
-
-                {setBountyDifficulty && (
-                  <div>
-                    <Text size="sm" mb={4} className="text-text-secondary">Difficulty</Text>
-                    <SegmentedControl
-                      value={bountyDifficulty ?? 'beginner'}
-                      onChange={(value) => setBountyDifficulty(value)}
-                      data={[
-                        { value: 'beginner', label: 'Beginner' },
-                        { value: 'intermediate', label: 'Intermediate' },
-                        { value: 'advanced', label: 'Advanced' },
-                      ]}
-                      size="xs"
-                      fullWidth
-                    />
-                  </div>
-                )}
-
-                {setBountySkills && (
-                  <TagsInput
-                    label="Required skills"
-                    placeholder="Type a skill and press Enter"
-                    value={bountySkills ?? []}
-                    onChange={setBountySkills}
-                    styles={{
-                      input: {
-                        backgroundColor: 'var(--color-surface-secondary)',
-                        color: 'var(--color-text-primary)',
-                        borderColor: 'var(--color-border-primary)',
-                      },
-                      label: { color: 'var(--color-text-secondary)' },
-                    }}
-                  />
-                )}
-
-                <Group gap="sm" grow>
-                  {setBountyDeadline && (
-                    <DateInput
-                      label="Deadline"
-                      placeholder="Select deadline"
-                      value={bountyDeadline ?? null}
-                      onChange={setBountyDeadline}
-                      clearable
-                      minDate={new Date()}
-                      styles={{
-                        input: {
-                          backgroundColor: 'var(--color-surface-secondary)',
-                          color: 'var(--color-text-primary)',
-                          borderColor: 'var(--color-border-primary)',
-                        },
-                        label: { color: 'var(--color-text-secondary)' },
-                      }}
-                    />
-                  )}
-                  {setBountyMaxClaimants && (
-                    <NumberInput
-                      label="Max claimants"
-                      placeholder="1"
-                      value={bountyMaxClaimants ?? 1}
-                      onChange={(value) => setBountyMaxClaimants(typeof value === 'number' ? value : 1)}
-                      min={1}
-                      max={100}
-                      styles={{
-                        input: {
-                          backgroundColor: 'var(--color-surface-secondary)',
-                          color: 'var(--color-text-primary)',
-                          borderColor: 'var(--color-border-primary)',
-                        },
-                        label: { color: 'var(--color-text-secondary)' },
-                      }}
-                    />
-                  )}
-                </Group>
-
-                {setBountyExternalUrl && (
-                  <TextInput
-                    label="External spec URL"
-                    placeholder="https://..."
-                    value={bountyExternalUrl ?? ''}
-                    onChange={(e) => setBountyExternalUrl(e.currentTarget.value || null)}
-                    styles={{
-                      input: {
-                        backgroundColor: 'var(--color-surface-secondary)',
-                        color: 'var(--color-text-primary)',
-                        borderColor: 'var(--color-border-primary)',
-                      },
-                      label: { color: 'var(--color-text-secondary)' },
-                    }}
-                  />
-                )}
-              </Stack>
-            )}
-          </div>
-        );
-      })()}
 
       {extraSection}
 

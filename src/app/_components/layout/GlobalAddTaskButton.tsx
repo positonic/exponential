@@ -136,7 +136,8 @@ export function GlobalAddTaskButton({ variant = "icon" }: { variant?: "icon" | "
         createdAt: new Date(),
         epicId: newAction.epicId ?? null,
         effortEstimate: newAction.effortEstimate ?? null,
-        // Bounty fields (defaults for non-bounty actions)
+        // Retired bounty columns: still on the Action row until the follow-up
+        // drop migration (chore/drop-bounty-schema) lands; delete with it.
         isBounty: false,
         bountyAmount: null,
         bountyToken: null,

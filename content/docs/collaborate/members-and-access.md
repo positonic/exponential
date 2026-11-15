@@ -40,7 +40,7 @@ Change a role or remove a member from the same table (**Edit role**, **Remove me
 
 On the project's **Access** tab:
 
-- **Public project** — anyone with the link can view the project and create actions in it, signed in or not. Use it for community projects and bounties.
+- **Public project** — anyone with the link can view the project and create actions in it once they sign in; they don't need to be a workspace or project member. Use it for community projects.
 - **Restricted project** — only the project's creator, the people added as project members (with a project role of admin, editor or viewer), and workspace owners and admins can see it, including its meetings. Members of a team the project is shared with do **not** get in; add them as project members instead. Turning restriction on takes access away from ordinary workspace and team members immediately.
 
 Both switches can be on: the project is publicly viewable, and within the workspace only its members work on it. Meetings keep one exception: a meeting assigned to a restricted project is visible only to that project's members and admins, whatever its own setting.

@@ -56,7 +56,6 @@ export const PUBLIC_PREFIXES = [
   '/team-invite/',
   // Marketing pages from the (home) route group.
   '/blog',
-  '/explore',
   '/learn',
   '/product-timeline',
   '/features/', // marketing feature pages — bare /features is the app's

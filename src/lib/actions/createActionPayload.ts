@@ -26,16 +26,6 @@ export interface CreateActionFormValues {
   sprintListId?: string | null;
   assigneeIds?: string[];
   tagIds?: string[];
-  /** Present only when the form's bounty toggle is on. */
-  bounty?: {
-    amount?: number | null;
-    token?: string | null;
-    difficulty?: CreateActionPayload["bountyDifficulty"];
-    skills?: string[];
-    deadline?: Date | null;
-    maxClaimants?: number;
-    externalUrl?: string | null;
-  } | null;
 }
 
 /**
@@ -67,7 +57,6 @@ export function buildCreateActionPayload(
     sprintListId,
     assigneeIds,
     tagIds,
-    bounty,
   } = values;
 
   return {
@@ -86,17 +75,5 @@ export function buildCreateActionPayload(
     ...(tagIds && tagIds.length > 0 ? { tagIds: [...tagIds] } : {}),
     ...(assigneeIds && assigneeIds.length > 0 ? { assigneeIds: [...assigneeIds] } : {}),
     ...(sprintListId ? { sprintListId } : {}),
-    ...(bounty
-      ? {
-          isBounty: true,
-          bountyAmount: bounty.amount ?? undefined,
-          bountyToken: bounty.token ?? undefined,
-          bountyDifficulty: bounty.difficulty,
-          bountySkills: bounty.skills && bounty.skills.length > 0 ? bounty.skills : undefined,
-          bountyDeadline: bounty.deadline ?? undefined,
-          bountyMaxClaimants: bounty.maxClaimants,
-          bountyExternalUrl: bounty.externalUrl ?? undefined,
-        }
-      : {}),
   };
 }

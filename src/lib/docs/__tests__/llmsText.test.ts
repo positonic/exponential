@@ -18,7 +18,7 @@ describe("buildLlmsIndex", () => {
   });
 
   it("appends extra sections verbatim", () => {
-    expect(buildLlmsIndex({ ...opts, appendix: "## Bounty API\n\nGET /api/bounties" })).toContain("## Bounty API");
+    expect(buildLlmsIndex({ ...opts, appendix: "## Blog RSS Feed\n\n/blog/feed.xml" })).toContain("## Blog RSS Feed");
   });
 });
 

@@ -38,15 +38,6 @@ export function CreateActionModal({ viewName, projectId: propProjectId, children
   const [epicId, setEpicId] = useState<string | null>(null);
   const [effortEstimate, setEffortEstimate] = useState<number | null>(null);
   const [blockedByIds, setBlockedByIds] = useState<string[]>([]);
-  // Bounty fields
-  const [isBounty, setIsBounty] = useState(false);
-  const [bountyAmount, setBountyAmount] = useState<number | null>(null);
-  const [bountyToken, setBountyToken] = useState<string | null>(null);
-  const [bountyDifficulty, setBountyDifficulty] = useState<string | null>('beginner');
-  const [bountySkills, setBountySkills] = useState<string[]>([]);
-  const [bountyDeadline, setBountyDeadline] = useState<Date | null>(null);
-  const [bountyMaxClaimants, setBountyMaxClaimants] = useState(1);
-  const [bountyExternalUrl, setBountyExternalUrl] = useState<string | null>(null);
   // Screenshot paste state
   const [pastedScreenshots, setPastedScreenshots] = useState<PastedScreenshot[]>([]);
 
@@ -138,16 +129,6 @@ export function CreateActionModal({ viewName, projectId: propProjectId, children
         createdAt: new Date(),
         epicId: newAction.epicId ?? null,
         effortEstimate: newAction.effortEstimate ?? null,
-        // Bounty fields
-        isBounty: newAction.isBounty ?? false,
-        bountyAmount: newAction.bountyAmount ?? null,
-        bountyToken: newAction.bountyToken ?? null,
-        bountyStatus: newAction.isBounty ? "OPEN" : null,
-        bountyDifficulty: newAction.bountyDifficulty ?? null,
-        bountySkills: newAction.bountySkills ?? [],
-        bountyDeadline: newAction.bountyDeadline ? new Date(newAction.bountyDeadline) : null,
-        bountyMaxClaimants: newAction.bountyMaxClaimants ?? 1,
-        bountyExternalUrl: newAction.bountyExternalUrl ?? null,
         epic: null,
         project: newAction.projectId
           ? previousState.projects?.find(p => p.id === newAction.projectId) ?? null
@@ -161,7 +142,7 @@ export function CreateActionModal({ viewName, projectId: propProjectId, children
       };
 
       // Helper function to add action to a list
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- optimistic action uses number for bountyAmount vs Prisma Decimal
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- optimistic action is a hand-built row, not the query's inferred type
       const typedOptimisticAction = optimisticAction as any;
       const addActionToList = (list: typeof previousState.actions) => {
         if (!list) return [typedOptimisticAction];
@@ -321,17 +302,6 @@ export function CreateActionModal({ viewName, projectId: propProjectId, children
       sprintListId,
       assigneeIds: selectedAssigneeIds,
       tagIds: selectedTagIds,
-      bounty: isBounty
-        ? {
-            amount: bountyAmount,
-            token: bountyToken,
-            difficulty: bountyDifficulty as "beginner" | "intermediate" | "advanced" | undefined,
-            skills: bountySkills,
-            deadline: bountyDeadline,
-            maxClaimants: bountyMaxClaimants,
-            externalUrl: bountyExternalUrl,
-          }
-        : null,
     });
 
     // Reset form immediately (moved from onSuccess)
@@ -352,15 +322,6 @@ export function CreateActionModal({ viewName, projectId: propProjectId, children
     setEpicId(null);
     setEffortEstimate(null);
     setBlockedByIds([]);
-    // Reset bounty fields
-    setIsBounty(false);
-    setBountyAmount(null);
-    setBountyToken(null);
-    setBountyDifficulty('beginner');
-    setBountySkills([]);
-    setBountyDeadline(null);
-    setBountyMaxClaimants(1);
-    setBountyExternalUrl(null);
     setPastedScreenshots([]);
 
     // Tags, assignees and sprint travel in the create request above; only
@@ -472,22 +433,6 @@ export function CreateActionModal({ viewName, projectId: propProjectId, children
             blockedByIds,
             setBlockedByIds,
           } : {})}
-          isBounty={isBounty}
-          setIsBounty={setIsBounty}
-          bountyAmount={bountyAmount}
-          setBountyAmount={setBountyAmount}
-          bountyToken={bountyToken}
-          setBountyToken={setBountyToken}
-          bountyDifficulty={bountyDifficulty}
-          setBountyDifficulty={setBountyDifficulty}
-          bountySkills={bountySkills}
-          setBountySkills={setBountySkills}
-          bountyDeadline={bountyDeadline}
-          setBountyDeadline={setBountyDeadline}
-          bountyMaxClaimants={bountyMaxClaimants}
-          setBountyMaxClaimants={setBountyMaxClaimants}
-          bountyExternalUrl={bountyExternalUrl}
-          setBountyExternalUrl={setBountyExternalUrl}
           pastedScreenshots={pastedScreenshots}
           onScreenshotPaste={(screenshot) => setPastedScreenshots(prev => [...prev, screenshot])}
           onScreenshotRemove={(id) => setPastedScreenshots(prev => prev.filter(s => s.id !== id))}

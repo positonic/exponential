@@ -29,15 +29,6 @@ export type Action = {
   tags?: Array<{ tag: { id: string; name: string; color: string } }>;
   assignees?: Array<{ user: { id: string; name: string | null; email: string | null; image: string | null } }>;
   lists?: Array<{ list: { id: string; name: string; listType: string } }>;
-  // Bounty fields
-  isBounty?: boolean;
-  bountyAmount?: { toNumber?: () => number } | number | null;
-  bountyToken?: string | null;
-  bountyDifficulty?: string | null;
-  bountySkills?: string[];
-  bountyDeadline?: Date | null;
-  bountyMaxClaimants?: number;
-  bountyExternalUrl?: string | null;
   [key: string]: unknown;
 };
 
@@ -79,15 +70,6 @@ export function EditActionModal({
   const [epicId, setEpicId] = useState<string | null>(null);
   const [effortEstimate, setEffortEstimate] = useState<number | null>(null);
   const [blockedByIds, setBlockedByIds] = useState<string[]>([]);
-  // Bounty fields
-  const [isBounty, setIsBounty] = useState(false);
-  const [bountyAmount, setBountyAmount] = useState<number | null>(null);
-  const [bountyToken, setBountyToken] = useState<string | null>(null);
-  const [bountyDifficulty, setBountyDifficulty] = useState<string | null>('beginner');
-  const [bountySkills, setBountySkills] = useState<string[]>([]);
-  const [bountyDeadline, setBountyDeadline] = useState<Date | null>(null);
-  const [bountyMaxClaimants, setBountyMaxClaimants] = useState(1);
-  const [bountyExternalUrl, setBountyExternalUrl] = useState<string | null>(null);
 
   // Screenshot state - for newly pasted screenshots during edit
   const [pastedScreenshots, setPastedScreenshots] = useState<PastedScreenshot[]>([]);
@@ -204,21 +186,6 @@ export function EditActionModal({
       }
       // Reset newly pasted screenshots when switching actions
       setPastedScreenshots([]);
-      // Load bounty fields
-      setIsBounty(currentAction.isBounty ?? false);
-      const rawAmount = currentAction.bountyAmount;
-      setBountyAmount(
-        rawAmount == null ? null
-          : typeof rawAmount === 'number' ? rawAmount
-          : typeof rawAmount === 'object' && rawAmount && 'toNumber' in rawAmount ? (rawAmount as { toNumber: () => number }).toNumber()
-          : Number(rawAmount) || null
-      );
-      setBountyToken(currentAction.bountyToken ?? null);
-      setBountyDifficulty(currentAction.bountyDifficulty ?? 'beginner');
-      setBountySkills(currentAction.bountySkills ?? []);
-      setBountyDeadline(currentAction.bountyDeadline ? new Date(currentAction.bountyDeadline) : null);
-      setBountyMaxClaimants(currentAction.bountyMaxClaimants ?? 1);
-      setBountyExternalUrl(currentAction.bountyExternalUrl ?? null);
     }
   }, [currentAction?.id, opened]);
 
@@ -236,9 +203,7 @@ export function EditActionModal({
         if (!old) return old;
         return old.map(action => {
           if (action.id !== updatedAction.id) return action;
-          // Spread update but preserve original bountyAmount (Decimal type)
-          // to avoid type mismatch with optimistic number values
-          return { ...action, ...updatedAction, bountyAmount: action.bountyAmount };
+          return { ...action, ...updatedAction };
         });
       });
 
@@ -369,14 +334,6 @@ export function EditActionModal({
       epicId,
       effortEstimate,
       blockedByIds,
-      isBounty,
-      bountyAmount,
-      bountyToken,
-      bountyDifficulty: bountyDifficulty as "beginner" | "intermediate" | "advanced" | null | undefined,
-      bountySkills,
-      bountyDeadline,
-      bountyMaxClaimants,
-      bountyExternalUrl,
     };
 
     // Close modal immediately for better UX
@@ -454,22 +411,6 @@ export function EditActionModal({
           blockedByIds,
           setBlockedByIds,
         } : {})}
-        isBounty={isBounty}
-        setIsBounty={setIsBounty}
-        bountyAmount={bountyAmount}
-        setBountyAmount={setBountyAmount}
-        bountyToken={bountyToken}
-        setBountyToken={setBountyToken}
-        bountyDifficulty={bountyDifficulty}
-        setBountyDifficulty={setBountyDifficulty}
-        bountySkills={bountySkills}
-        setBountySkills={setBountySkills}
-        bountyDeadline={bountyDeadline}
-        setBountyDeadline={setBountyDeadline}
-        bountyMaxClaimants={bountyMaxClaimants}
-        setBountyMaxClaimants={setBountyMaxClaimants}
-        bountyExternalUrl={bountyExternalUrl}
-        setBountyExternalUrl={setBountyExternalUrl}
         pastedScreenshots={allScreenshots}
         onScreenshotPaste={(screenshot) => setPastedScreenshots(prev => [...prev, screenshot])}
         onScreenshotRemove={(id) => {

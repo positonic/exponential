@@ -61,7 +61,6 @@ How the team sizes work, shown only when Advanced Action Features is on: **Story
 | Feature | What it does |
 |---|---|
 | **Detailed Action Pages** | Full pages for actions with an activity thread, comments and a properties sidebar. Projects can override. |
-| **Bounties** | Bounty rewards on actions in public projects. Projects can override. |
 | **Daily Plan Banner** and **Weekly Plan Banner** | Reminders on the home page until the plan is done. |
 | **Email Notifications** | Emails on assignments and mentions. Members can turn theirs off. |
 | **Auto-enrich Contacts** | When a CRM contact is created, run a background search to fill in email, LinkedIn, bio and organisation. |
@@ -124,7 +123,7 @@ Owners only: delete the workspace and everything in it. There is no undo.
 - **Members and access** — roles, invitations and guests in detail: [Members, roles & access](/docs/collaborate/members-and-access).
 
 - **Your settings** — navigation, appearance, notifications and API keys are personal: [Your settings](/docs/reference/your-settings).
-- **Projects** — several features (detailed pages, bounties, restricted access) can be overridden per project: [Projects](/docs/do/projects).
+- **Projects** — several features (detailed pages, restricted access) can be overridden per project: [Projects](/docs/do/projects).
 
 ## FAQ
 

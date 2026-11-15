@@ -202,7 +202,6 @@ export async function createAction(
         ...columns,
         workspaceId: targetWorkspaceId ?? undefined,
         createdById: actor.userId,
-        ...(columns.isBounty ? { bountyStatus: "OPEN" } : {}),
         source,
         ...(kanbanSeed ?? {}),
       },

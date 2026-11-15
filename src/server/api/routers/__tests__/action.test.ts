@@ -1209,9 +1209,9 @@ describe("action router (mocked)", () => {
     });
 
     it("withholds the workspace roster on a merely-public project", async () => {
-      // A stranger holding a bounty action id from the unauthenticated
-      // /api/bounties feed passes canViewAction via `isPublic`. They must not
-      // inherit the workspace's member list (names + emails) with it.
+      // A stranger holding an action id from a public project passes
+      // canViewAction via `isPublic`. They must not inherit the workspace's
+      // member list (names + emails) with it.
       dbMock.action.findUnique.mockResolvedValue({
         id: "a1",
         createdById: "someone-else",
@@ -1219,7 +1219,7 @@ describe("action router (mocked)", () => {
         assignees: [],
         project: {
           id: "p1",
-          name: "Public bounty project",
+          name: "Public project",
           workspaceId: "w1",
           isRestricted: false,
           createdById: "someone-else",

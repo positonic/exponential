@@ -30,7 +30,6 @@ import {
   IconRocket,
   IconMail,
   IconPlugConnected,
-  IconCoin,
   IconSun,
   IconCalendarCheck,
   IconBrandGithub,
@@ -185,7 +184,6 @@ export default function WorkspaceSettingsPage() {
   const currentEffortUnit = (workspaceData?.effortUnit as EffortUnit | undefined) ?? 'STORY_POINTS';
   const advancedActionsEnabled = workspaceData?.enableAdvancedActions ?? false;
   const detailedActionsEnabled = workspaceData?.enableDetailedActions ?? false;
-  const bountiesEnabled = workspaceData?.enableBounties ?? false;
   const dailyPlanBannerEnabled = workspaceData?.enableDailyPlanBanner ?? true;
   const weeklyReviewBannerEnabled = workspaceData?.enableWeeklyReviewBanner ?? true;
   const emailNotificationsEnabled = workspaceData?.enableEmailNotifications ?? true;
@@ -255,11 +253,6 @@ export default function WorkspaceSettingsPage() {
       detailedActionsEnabled
         ? 'Detailed action pages have been disabled'
         : 'Detailed action pages have been enabled'
-    ),
-  });
-  const updateBountiesMutation = api.workspace.update.useMutation({
-    onSuccess: featureSuccess(
-      bountiesEnabled ? 'Bounties have been disabled' : 'Bounties have been enabled'
     ),
   });
   const updateDailyPlanBannerMutation = api.workspace.update.useMutation({
@@ -698,7 +691,6 @@ export default function WorkspaceSettingsPage() {
   const featureList = [
     advancedActionsEnabled,
     detailedActionsEnabled,
-    bountiesEnabled,
     keyResultsEnabled,
     dailyPlanBannerEnabled,
     weeklyReviewBannerEnabled,
@@ -1296,18 +1288,6 @@ export default function WorkspaceSettingsPage() {
                   workspaceId,
                   enableDetailedActions: checked,
                 });
-              }}
-            />
-            <FeatureRow
-              icon={IconCoin}
-              tag="Product"
-              title="Bounties"
-              description="Enable bounty rewards on actions in public projects. Projects can override."
-              enabled={bountiesEnabled}
-              disabled={!canEdit || updateBountiesMutation.isPending}
-              onToggle={(checked) => {
-                if (!workspaceId) return;
-                updateBountiesMutation.mutate({ workspaceId, enableBounties: checked });
               }}
             />
             <FeatureRow

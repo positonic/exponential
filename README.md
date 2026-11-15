@@ -20,7 +20,6 @@ Run your own copy in one click (see [Self-hosting](#self-hosting)):
 - **Meetings** - Calendar integration with transcription and auto-generated action items
 - **CRM** - Contact/organization management, deal pipeline (Kanban), Gmail/Calendar import
 - **Workspaces** - Organize everything by team or client (personal, team, organization)
-- **Bounty System** - Attach bounties to actions for open-source contributors *(coming soon)*
 
 <img width="1709" alt="image" src="https://github.com/user-attachments/assets/bbc16660-53c9-4bf1-ac87-af756ad3ec8c" />
 
@@ -397,14 +396,6 @@ npx clawhub install exponential
 
 Your agent can then create tasks, manage kanban boards, and track projects through natural conversation.
 
-### Bounty API
-
-All bounties are machine-readable — no auth required to browse:
-
-- **REST API:** [`GET /api/bounties`](https://www.exponential.im/api/bounties)
-- **LLMs.txt:** [`/llms.txt`](https://www.exponential.im/llms.txt)
-- **RSS Feed:** [`/api/bounties/feed.xml`](https://www.exponential.im/api/bounties/feed.xml)
-
 ## Contributing
 
 We welcome contributions! Please read our [Contributing Guide](CONTRIBUTING.md) for details on:
@@ -412,7 +403,6 @@ We welcome contributions! Please read our [Contributing Guide](CONTRIBUTING.md) 
 - Development setup
 - Code style and linting rules
 - Pull request process
-- Claiming bounties
 - Database migration safety
 
 Please also review our [Code of Conduct](CODE_OF_CONDUCT.md).
