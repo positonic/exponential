@@ -121,7 +121,7 @@
 .pr-step.is-done .pr-step__num {
   background: transparent;
   border-color: var(--accent-crm);
-  color: var(--accent-crm);
+  color: var(--accent-crm-text);
 }
 .pr-step__label {
   font-size: 11px; font-weight: 600; letter-spacing: 0.05em;
@@ -266,7 +266,7 @@
 }
 .pr-quarter-glance__sub { font-size: 11px; color: var(--color-text-muted); }
 .pr-quarter-glance__alert-num { font-size: 18px; font-weight: 600; color: var(--color-text-primary); }
-.pr-quarter-glance__alert-label { color: var(--accent-due); }
+.pr-quarter-glance__alert-label { color: var(--accent-due-text); }
 
 /* Stat strip */
 .pr-intro-stats {
@@ -401,7 +401,7 @@
 }
 .pr-ws__okr-head strong { color: var(--color-text-primary); font-weight: 500; }
 .pr-ws__okr-flag {
-  font-size: 11px; color: var(--accent-okr);
+  font-size: 11px; color: var(--accent-okr-text);
   display: inline-flex; align-items: center; gap: 4px; margin-top: 2px;
 }
 .pr-ws__okr-flag--info { color: var(--color-text-muted); }
@@ -438,8 +438,8 @@
   padding: 2px 6px; border-radius: 4px;
   display: inline-flex; align-items: center;
 }
-.pr-pace--ahead { color: var(--accent-crm); background: var(--color-surface-muted); }
-.pr-pace--behind { color: var(--accent-due); background: var(--color-surface-muted); }
+.pr-pace--ahead { color: var(--accent-crm-text); background: var(--color-surface-muted); }
+.pr-pace--behind { color: var(--accent-due-text); background: var(--color-surface-muted); }
 .pr-pace--flat { color: var(--color-text-muted); background: var(--color-surface-muted); }
 
 .pr-ws__last {
@@ -776,7 +776,7 @@
 .pr-tier--top .pr-tier__title { color: var(--brand-400); }
 .pr-tier__cap { font-size: 11px; font-variant-numeric: tabular-nums; color: var(--color-text-muted); }
 .pr-tier__cap strong { color: var(--color-text-primary); font-weight: 500; }
-.pr-tier__cap--over strong { color: var(--accent-due); }
+.pr-tier__cap--over strong { color: var(--accent-due-text); }
 .pr-tier__body { padding: 6px; min-height: 56px; }
 .pr-tier__body--empty {
   display: grid; place-items: center;
@@ -894,7 +894,7 @@
   color: var(--color-text-secondary);
 }
 .pr-proj__kr-dot { width: 5px; height: 5px; border-radius: 50%; }
-.pr-proj__kr--orphan { font-size: 10.5px; color: var(--accent-okr); font-style: italic; }
+.pr-proj__kr--orphan { font-size: 10.5px; color: var(--accent-okr-text); font-style: italic; }
 .pr-proj__progress-text {
   font-family: var(--font-mono); font-size: 11px;
   color: var(--color-text-muted); font-variant-numeric: tabular-nums;
@@ -921,7 +921,7 @@
   background: var(--color-bg-elevated);
   border: 1px solid var(--color-border-strong);
   display: grid; place-items: center;
-  color: var(--accent-crm); margin: 0 auto 22px;
+  color: var(--accent-crm-text); margin: 0 auto 22px;
 }
 .pr-done__title {
   font-size: 30px; font-weight: 500; letter-spacing: -0.015em;
@@ -941,7 +941,7 @@
   font-size: 13px; color: var(--color-text-primary);
 }
 .pr-done__streak strong {
-  color: var(--accent-okr); font-weight: 600; font-variant-numeric: tabular-nums;
+  color: var(--accent-okr-text); font-weight: 600; font-variant-numeric: tabular-nums;
 }
 
 .pr-drill-head {
@@ -990,7 +990,7 @@
 }
 .pr-drill:hover .pr-drill__cta { color: var(--brand-400); }
 .pr-drill--done { opacity: 0.7; }
-.pr-drill--done .pr-drill__cta { color: var(--accent-crm); }
+.pr-drill--done .pr-drill__cta { color: var(--accent-crm-text); }
 
 /* Empty state shared */
 .pr-empty {
@@ -1264,7 +1264,7 @@
 .pr-focus-recap__linked--empty {
   background: transparent;
   border: 1px dashed var(--accent-okr);
-  color: var(--accent-okr);
+  color: var(--accent-okr-text);
 }
 
 /* Inline actions area: pills of linked projects + add button + popover anchor. */
@@ -1316,7 +1316,7 @@
 }
 .pr-focus-recap__project-unlink:hover {
   background: var(--color-bg-hover);
-  color: var(--accent-due);
+  color: var(--accent-due-text);
 }
 
 /* "+ Add project" button — mirrors .pr-kr-add-btn for visual consistency. */

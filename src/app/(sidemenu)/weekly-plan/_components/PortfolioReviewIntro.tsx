@@ -100,7 +100,7 @@ export function PortfolioReviewIntro({ data, onStart }: Props) {
 
       <div className="pr-intro__streak">
         <span className="pr-streak-item">
-          <IconBolt size={14} style={{ color: "var(--accent-okr)" }} />
+          <IconBolt size={14} style={{ color: "var(--accent-okr-text)" }} />
           <span className="pr-streak-item__num">{data.streak.currentStreak}</span>
           -week streak
         </span>

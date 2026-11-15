@@ -106,7 +106,7 @@ export function PortfolioReviewCompletion({
       </p>
 
       <div className="pr-done__streak">
-        <IconBolt size={14} style={{ color: "var(--accent-okr)" }} />
+        <IconBolt size={14} style={{ color: "var(--accent-okr-text)" }} />
         Portfolio streak: <strong>{currentStreak} weeks</strong>
         <span style={{ width: 1, height: 14, background: "var(--color-border-subtle)" }} />
         <IconMoon size={14} style={{ color: "var(--brand-400)" }} />
