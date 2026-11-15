@@ -18,6 +18,9 @@ import {
  * - reads gate at `edit` permission (minimum workspace role `member`) — ADR
  *   content is member-visible, NOT viewer-visible;
  * - config mutations gate at `manage_members` (admin);
+ * - ADR metadata (label, title, link; never the body) also reaches agents
+ *   with a write role through `agentGuidance.context` (ADR-0049, amended
+ *   2026-11-15); the text itself is only served here;
  * - there is deliberately NO write path to ADR content anywhere here — git is
  *   the source of truth and the projection is one-way.
  */

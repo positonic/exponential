@@ -47,8 +47,9 @@ export const agentGuidanceRouter = createTRPCRouter({
    * The selected workspace's (and optional project's) AI instructions, marked
    * as guidance and assembled exactly as chat assembles them. Requires
    * membership of the workspace; a project outside it is BAD_REQUEST.
-   * ADRs are listed only when the principal resolves to a person (the `adr`
-   * router's human-only rule); a principal the resolver refuses gets none.
+   * ADR metadata is listed for a caller with a write role, agents included
+   * while their owner still belongs (ADR-0049, amended 2026-11-15); a
+   * principal the resolver refuses gets none.
    */
   context: protectedProcedure
     .input(z.object({ workspaceId: z.string().min(1), projectId: z.string().min(1).optional() }))
@@ -57,9 +58,9 @@ export const agentGuidanceRouter = createTRPCRouter({
         userId: ctx.session.user.id,
         workspaceId: input.workspaceId,
         projectId: input.projectId,
-        resolvePrincipalKind: async () => {
+        resolvePrincipal: async () => {
           try {
-            return (await resolvePrincipal(ctx)).kind;
+            return await resolvePrincipal(ctx);
           } catch (error) {
             // The resolver refuses (a shadow user with no agent): no ADRs, but
             // the rest of the context still loads. Anything else is a real failure.

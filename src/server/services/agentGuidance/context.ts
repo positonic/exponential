@@ -197,9 +197,9 @@ export interface ContextPayload {
   decisions: ContextDecisions;
   /**
    * Accepted ADRs (git-synced, ADR-0060) on the project's product. Listed
-   * only for a person signed in as themselves with a write role, the same
-   * rule the `adr` router applies (ADR content is member-visible and
-   * human-only): every agent principal and every viewer gets an empty list.
+   * for any caller whose account has a write role in the workspace (an
+   * agent also needs its owner still in it; ADR-0049, amended 2026-11-15);
+   * viewers and guests get an empty list.
    * Titles only: fetch the link for the text. Guidance, not authority.
    */
   adrs: ContextAdrs;
@@ -288,14 +288,23 @@ export async function loadProjectDecisions(
 }
 
 /**
- * Whether ADRs may go into this caller's context: the `adr` router's rule,
- * through the same central pieces. A `human` principal (`resolvePrincipal`,
- * as `humanOnlyProcedure` uses) with a write role in the workspace
- * (`canEditWorkspaceContent`, the role `requireWorkspaceMembership("edit")`
- * demands). Agents, Zoe and gateways, and viewers or guests, get none.
+ * Whether ADR metadata (label, title, link; never the body) may go into this
+ * caller's context (ADR-0049, amended 2026-11-15). The caller's own account
+ * needs a write role in the workspace (`canEditWorkspaceContent`, the role
+ * `requireWorkspaceMembership("edit")` demands: ADRs stay member-visible,
+ * never viewer-visible), whatever its principal kind. An External agent or
+ * Assistant (`kind: "agent"`) also needs its owner to still belong to the
+ * workspace (`getWorkspaceMembership`), the delegation invariant. The ADR
+ * text itself stays behind the human-only `adr` router.
  */
-export function canReadAdrsInContext(principalKind: Principal["kind"] | null, role: WorkspaceRole | undefined): boolean {
-  return principalKind === "human" && canEditWorkspaceContent(role ?? null);
+export function canReadAdrsInContext(
+  principal: Principal | null,
+  role: WorkspaceRole | undefined,
+  ownerRole?: WorkspaceRole | null,
+): boolean {
+  if (!principal || !canEditWorkspaceContent(role ?? null)) return false;
+  if (principal.kind === "agent") return ownerRole != null;
+  return true;
 }
 
 const EMPTY_ADRS: ContextAdrs = { items: [], omitted: 0 };
@@ -384,10 +393,10 @@ export async function getContext(
     projectId?: string | null;
     now?: Date;
     /**
-     * The caller's principal kind, resolved only when ADRs could be listed.
+     * The caller's principal, resolved only when ADRs could be listed.
      * Omitted, or returning null, lists no ADRs (fail closed).
      */
-    resolvePrincipalKind?: () => Promise<Principal["kind"] | null>;
+    resolvePrincipal?: () => Promise<Principal | null>;
   },
 ): Promise<ContextPayload> {
   const loaded = await loadScopeInstructions(db, opts);
@@ -411,9 +420,13 @@ export async function getContext(
     : { items: [], omitted: 0 };
 
   let adrs = EMPTY_ADRS;
-  if (loaded.project?.productId && canEditWorkspaceContent(loaded.workspaceRole ?? null) && opts.resolvePrincipalKind) {
-    const kind = await opts.resolvePrincipalKind();
-    if (canReadAdrsInContext(kind, loaded.workspaceRole)) {
+  if (loaded.project?.productId && canEditWorkspaceContent(loaded.workspaceRole ?? null) && opts.resolvePrincipal) {
+    const principal = await opts.resolvePrincipal();
+    const ownerRole =
+      principal?.kind === "agent"
+        ? ((await getWorkspaceMembership(db, principal.ownerId, workspace.id))?.role ?? null)
+        : null;
+    if (canReadAdrsInContext(principal, loaded.workspaceRole, ownerRole)) {
       adrs = await loadProjectAdrs(db, { workspace, project: loaded.project });
     }
   }

@@ -435,18 +435,42 @@ describe("agentGuidance.context ADRs", () => {
     expect(db.adrDocument.findMany).not.toHaveBeenCalled();
   });
 
-  it("gives agents none, as the human-only adr router does", async () => {
+  it("gives an agent with a write role ADRs while its owner still belongs", async () => {
     withWorkspace(db, null);
     withProductProject();
     withAdrs([{ id: "adr-1", number: 1, title: "One", repoProductId: PRODUCT }]);
     db.user.findUnique.mockResolvedValue({ isAgent: true } as never);
     db.externalAgent.findUnique.mockResolvedValue({ id: "agent-1", ownerId: "owner-1" } as never);
-    const viaKey = await caller(db, { tokenType: "agent-key" }).agentGuidance.context({ workspaceId: WS.id, projectId: PROJECT.id });
-    expect(viaKey.adrs).toEqual({ items: [], omitted: 0 });
-    db.user.findUnique.mockResolvedValue({ isAgent: false } as never);
-    const viaZoe = await caller(db, { tokenType: "agent-context" }).agentGuidance.context({ workspaceId: WS.id, projectId: PROJECT.id });
-    expect(viaZoe.adrs).toEqual({ items: [], omitted: 0 });
+    // First lookup: the agent's own membership; second: its owner's.
+    db.workspaceUser.findUnique
+      .mockResolvedValueOnce({ role: "member", workspaceId: WS.id } as never)
+      .mockResolvedValueOnce({ role: "owner", workspaceId: WS.id } as never);
+    const context = await caller(db, { tokenType: "agent-key" }).agentGuidance.context({ workspaceId: WS.id, projectId: PROJECT.id });
+    expect(context.adrs.items.map((a) => a.id)).toEqual(["adr-1"]);
+  });
+
+  it("gives an agent none once its owner has left the workspace", async () => {
+    withWorkspace(db, null);
+    withProductProject();
+    withAdrs([{ id: "adr-1", number: 1, title: "One", repoProductId: PRODUCT }]);
+    db.user.findUnique.mockResolvedValue({ isAgent: true } as never);
+    db.externalAgent.findUnique.mockResolvedValue({ id: "agent-1", ownerId: "owner-1" } as never);
+    db.workspaceUser.findUnique
+      .mockResolvedValueOnce({ role: "member", workspaceId: WS.id } as never)
+      .mockResolvedValueOnce(null);
+    db.teamUser.findFirst.mockResolvedValue(null);
+    const context = await caller(db, { tokenType: "agent-key" }).agentGuidance.context({ workspaceId: WS.id, projectId: PROJECT.id });
+    expect(context.adrs).toEqual({ items: [], omitted: 0 });
     expect(db.adrDocument.findMany).not.toHaveBeenCalled();
+  });
+
+  it("gives none when the principal resolver refuses (a shadow user with no agent)", async () => {
+    withWorkspace(db, null);
+    withProductProject();
+    db.user.findUnique.mockResolvedValue({ isAgent: true } as never);
+    db.externalAgent.findUnique.mockResolvedValue(null);
+    const context = await caller(db, { tokenType: "agent-key" }).agentGuidance.context({ workspaceId: WS.id, projectId: PROJECT.id });
+    expect(context.adrs).toEqual({ items: [], omitted: 0 });
   });
 
   it("gives a viewer none (ADRs are member-visible)", async () => {
@@ -458,14 +482,18 @@ describe("agentGuidance.context ADRs", () => {
     expect(db.adrDocument.findMany).not.toHaveBeenCalled();
   });
 
-  it("applies the adr router's rule: a human with a write role", () => {
-    expect(canReadAdrsInContext("human", "member")).toBe(true);
-    expect(canReadAdrsInContext("human", "owner")).toBe(true);
-    expect(canReadAdrsInContext("human", "viewer")).toBe(false);
-    expect(canReadAdrsInContext("human", "guest")).toBe(false);
-    expect(canReadAdrsInContext("human", undefined)).toBe(false);
-    expect(canReadAdrsInContext("agent", "member")).toBe(false);
-    expect(canReadAdrsInContext("agent_for_human", "member")).toBe(false);
+  it("needs a write role for every principal, and a present owner for an agent", () => {
+    const human = { kind: "human" as const, userId: "u", surface: "web" as const };
+    const zoe = { kind: "agent_for_human" as const, userId: "u", surface: "whatsapp" as const };
+    const agent = { kind: "agent" as const, userId: "s", agentId: "a", ownerId: "o", surface: "agent-key" as const };
+    expect(canReadAdrsInContext(human, "member")).toBe(true);
+    expect(canReadAdrsInContext(human, "viewer")).toBe(false);
+    expect(canReadAdrsInContext(human, "guest")).toBe(false);
+    expect(canReadAdrsInContext(human, undefined)).toBe(false);
+    expect(canReadAdrsInContext(zoe, "member")).toBe(true);
+    expect(canReadAdrsInContext(agent, "member", "viewer")).toBe(true);
+    expect(canReadAdrsInContext(agent, "member", null)).toBe(false);
+    expect(canReadAdrsInContext(agent, "viewer", "owner")).toBe(false);
     expect(canReadAdrsInContext(null, "member")).toBe(false);
   });
 
