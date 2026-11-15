@@ -310,6 +310,7 @@ describe("workspace.updateMemberRole", () => {
     db.externalAgent.findMany.mockResolvedValue([{ shadowUserId: "shadow-assistant" }] as never);
     db.workspaceUser.deleteMany.mockResolvedValue({ count: 1 } as never);
     db.projectMember.deleteMany.mockResolvedValue({ count: 0 } as never);
+    db.actionAssignee.deleteMany.mockResolvedValue({ count: 1 });
 
     await caller(db).workspace.updateMemberRole({
       workspaceId: WORKSPACE_ID,
@@ -323,6 +324,18 @@ describe("workspace.updateMemberRole", () => {
     });
     expect(db.workspaceUser.deleteMany).toHaveBeenCalledWith({
       where: { workspaceId: WORKSPACE_ID, userId: { in: ["shadow-assistant"] } },
+    });
+    // A viewer may read what their Assistant filed for them, not edit it, so
+    // the assignment that would let them is withdrawn.
+    expect(db.actionAssignee.deleteMany).toHaveBeenCalledWith({
+      where: {
+        userId: TARGET_ID,
+        action: {
+          createdById: { in: ["shadow-assistant"] },
+          projectId: null,
+          workspaceId: WORKSPACE_ID,
+        },
+      },
     });
   });
 

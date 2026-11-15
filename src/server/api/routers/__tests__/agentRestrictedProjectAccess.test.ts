@@ -480,6 +480,8 @@ describe("project grants do not outlive the workspace delegation", () => {
     );
     const db = getDbMock();
     db.workspaceUser.deleteMany.mockResolvedValue({ count: 1 });
+    // The same cascade unassigns the owner from what their agents filed there.
+    db.actionAssignee.deleteMany.mockResolvedValue({ count: 0 });
     projectMembers.set(CLAUDE.id, "editor");
 
     await cascadeOwnerRemovedFromWorkspace(db, JAMES.id, WORKSPACE_ID);

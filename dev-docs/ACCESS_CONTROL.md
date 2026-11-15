@@ -117,6 +117,14 @@ creates an action with no project and no assignee, `createAction` assigns its
 owner (`resolveAgentOwnerAssignee`, ADR-0049), provided the owner belongs to
 the action's workspace. That is an ordinary assignment, not another access path.
 
+An assignment is not workspace-scoped, though: an assignee keeps view and edit
+whatever their standing in the workspace. So the assignment is withdrawn where
+the owner's standing changes. `cascadeOwnerRemovedFromWorkspace`, which runs
+when a person is removed from a workspace or demoted to `viewer`, also deletes
+their `ActionAssignee` rows on the project-less actions their agents created
+there (`unassignOwnerFromAgentActionsInWorkspace`). Afterwards the table above
+decides again: a viewer reads, someone removed reaches nothing.
+
 ### Projects
 
 A user can **view** a project if ANY of these are true:

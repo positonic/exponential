@@ -30,7 +30,11 @@ notification. The rule is the Action write module's (`resolveAgentOwnerAssignee`
 path has it, and it reads the verified principal, never a label the caller sends. An Action in a
 project is left alone (the project's people already see it, and an agent filing backlog work for a
 team is not handing it all to its owner), as is one whose assignee the agent named. The owner is
-added only if they belong to the Action's workspace. This is the third "an agent keeps this for
+added only if they belong to the Action's workspace, and the assignment does not outlive that:
+an assignee keeps an Action whatever their workspace standing, so the cascade that removes an
+owner's agents from a workspace (removal, or demotion to viewer) also unassigns the owner from
+the project-less Actions those agents created there. A viewer goes on reading them through the
+owner path above; someone removed reaches nothing. This is the third "an agent keeps this for
 its owner" case after time (ADR-0061) and the Reading list (ADR-0079), and differs from both: the
 row is not owned by the owner, it is assigned to them.
 

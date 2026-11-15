@@ -92,6 +92,38 @@ export async function revokeAgentProjectMembershipsInWorkspace(
 }
 
 /**
+ * An owner losing a workspace is also unassigned from the project-less Actions
+ * their agents created there. Such an Action is assigned to the owner when the
+ * agent files it (`resolveAgentOwnerAssignee`, ADR-0049), and an assignee
+ * keeps an Action whatever their workspace standing: left in place, the row
+ * would let a removed owner go on opening and editing it, and a viewer go on
+ * editing it, past the workspace-scoped path that gives an owner their agent's
+ * Actions in the first place. Returns the number of assignments removed.
+ *
+ * Every assignment of the owner on those Actions goes, not only the default
+ * one: the row does not record how it came about.
+ */
+export async function unassignOwnerFromAgentActionsInWorkspace(
+  db: Db,
+  ownerId: string,
+  shadowUserIds: string[],
+  workspaceId: string,
+): Promise<number> {
+  if (shadowUserIds.length === 0) return 0;
+  const result = await db.actionAssignee.deleteMany({
+    where: {
+      userId: ownerId,
+      action: {
+        createdById: { in: shadowUserIds },
+        projectId: null,
+        workspaceId,
+      },
+    },
+  });
+  return result.count;
+}
+
+/**
  * An agent leaves one workspace: its membership row and every direct project
  * grant it held there, which were made under the delegation being withdrawn.
  * The one removal path for an agent's own membership — its owner revoking it
@@ -120,7 +152,10 @@ export async function revokeAgentWorkspace(
 
 /**
  * Owner removed from a workspace → their agents' shadow users lose their
- * membership there too. Returns the number of agent memberships removed.
+ * membership there too, and the owner is unassigned from the project-less
+ * Actions those agents filed for them there
+ * ({@link unassignOwnerFromAgentActionsInWorkspace}). Returns the number of
+ * agent memberships removed.
  */
 export async function cascadeOwnerRemovedFromWorkspace(
   db: Db,
@@ -141,6 +176,7 @@ export async function cascadeOwnerRemovedFromWorkspace(
     },
   });
   await revokeAgentProjectMembershipsInWorkspace(db, shadowUserIds, workspaceId);
+  await unassignOwnerFromAgentActionsInWorkspace(db, ownerId, shadowUserIds, workspaceId);
   return result.count;
 }
 
@@ -282,7 +318,9 @@ export async function assertAgentProjectMembership(
  * Owner's role changed in a workspace. Agents always hold role `member`; a
  * demotion to `viewer` means the owner can no longer delegate member-level
  * access, so their agents' memberships are removed (there is no viewer tier
- * for agents — see ADR-0049). Promotions and admin↔member moves keep the
+ * for agents — see ADR-0049), and with them the owner's assignments on the
+ * project-less Actions those agents filed: a viewer still reads those, but
+ * no longer edits them. Promotions and admin↔member moves keep the
  * delegation valid and are no-ops.
  */
 export async function cascadeOwnerRoleChanged(

@@ -321,6 +321,7 @@ describe("workspace.removeMember — an owner or admin removes someone's agent (
       .mockResolvedValueOnce({ role: "member", user: { email: null, isAgent: false } } as never);
     db.externalAgent.findMany.mockResolvedValue([{ shadowUserId: SHADOW_ID }] as never);
     db.workspaceUser.deleteMany.mockResolvedValue({ count: 1 } as never);
+    db.actionAssignee.deleteMany.mockResolvedValue({ count: 1 });
 
     await caller(db).workspace.removeMember({ workspaceId: WORKSPACE_ID, userId: INVITEE_ID });
 
@@ -330,6 +331,14 @@ describe("workspace.removeMember — an owner or admin removes someone's agent (
     });
     expect(db.workspaceUser.deleteMany).toHaveBeenCalledWith({
       where: { workspaceId: WORKSPACE_ID, userId: { in: [SHADOW_ID] } },
+    });
+    // And they are unassigned from the project-less actions it filed for them
+    // here, which an assignee would otherwise keep after leaving.
+    expect(db.actionAssignee.deleteMany).toHaveBeenCalledWith({
+      where: {
+        userId: INVITEE_ID,
+        action: { createdById: { in: [SHADOW_ID] }, projectId: null, workspaceId: WORKSPACE_ID },
+      },
     });
   });
 

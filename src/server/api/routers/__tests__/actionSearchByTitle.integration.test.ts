@@ -157,27 +157,72 @@ describe("action.searchByTitle", () => {
     await expect(asOwner.action.update({ id: action.id, name: "Renamed" })).rejects.toThrow();
   });
 
-  // The whole chain against real tables: the create's owner default, then
-  // the owner's own list, which is "created by me, or assigned to me".
-  it("puts a project-less action an agent creates on its owner's list", async () => {
-    const owner = await createUser(db);
-    const ws = await createWorkspace(db, { ownerId: owner.id, slug: "sbt-agent-plate" });
-    const shadow = await db.user.create({ data: { name: "Desk agent", isAgent: true } });
-    await db.externalAgent.create({
-      data: { name: "Desk agent", ownerId: owner.id, shadowUserId: shadow.id },
+  // The whole chain against real tables: the create's owner default, the
+  // owner's own list ("created by me, or assigned to me"), and what the
+  // workspace's own member procedures leave the owner with afterwards. An
+  // assignee keeps an action whatever their workspace standing, so the
+  // default assignment has to be withdrawn when the owner loses the
+  // workspace or drops to viewer.
+  describe("a project-less action an agent creates", () => {
+    async function agentFilesAnAction(slug: string) {
+      const admin = await createUser(db);
+      const owner = await createUser(db);
+      const ws = await createWorkspace(db, { ownerId: admin.id, slug });
+      await addWorkspaceMember(db, ws.id, owner.id);
+      const shadow = await db.user.create({ data: { name: "Desk agent", isAgent: true } });
+      await db.externalAgent.create({
+        data: { name: "Desk agent", ownerId: owner.id, shadowUserId: shadow.id },
+      });
+      await addWorkspaceMember(db, ws.id, shadow.id);
+
+      const created = await createTestCaller(shadow.id).action.create({
+        name: "Ask the accountant about payouts",
+        workspaceId: ws.id,
+      });
+      return {
+        ws,
+        shadow,
+        created,
+        asAdmin: createTestCaller(admin.id),
+        asOwner: createTestCaller(owner.id),
+        ownerId: owner.id,
+      };
+    }
+
+    it("lands on its owner's list, assigned to them", async () => {
+      const { ws, shadow, created, asOwner, ownerId } = await agentFilesAnAction("sbt-agent-plate");
+
+      expect(created.createdById).toBe(shadow.id);
+      expect(created.source).toBe("agent");
+      expect(created.assignees.map((a) => a.userId)).toEqual([ownerId]);
+
+      const mine = await asOwner.action.getAll({ workspaceId: ws.id });
+      expect(mine.map((a) => a.id)).toEqual([created.id]);
     });
-    await addWorkspaceMember(db, ws.id, shadow.id);
 
-    const created = await createTestCaller(shadow.id).action.create({
-      name: "Ask the accountant about payouts",
-      workspaceId: ws.id,
+    it("leaves the owner when they are removed from the workspace", async () => {
+      const { ws, created, asAdmin, asOwner, ownerId } = await agentFilesAnAction("sbt-agent-removed");
+
+      await asAdmin.workspace.removeMember({ workspaceId: ws.id, userId: ownerId });
+
+      expect(await db.actionAssignee.count({ where: { actionId: created.id } })).toBe(0);
+      expect(await asOwner.action.getAll()).toEqual([]);
+      await expect(asOwner.action.getById({ id: created.id })).rejects.toThrow(/not found/i);
+      await expect(asOwner.action.update({ id: created.id, name: "Renamed" })).rejects.toThrow();
     });
 
-    expect(created.createdById).toBe(shadow.id);
-    expect(created.source).toBe("agent");
-    expect(created.assignees.map((a) => a.userId)).toEqual([owner.id]);
+    it("becomes read-only for an owner demoted to viewer", async () => {
+      const { ws, created, asAdmin, asOwner, ownerId } = await agentFilesAnAction("sbt-agent-viewer");
 
-    const mine = await createTestCaller(owner.id).action.getAll({ workspaceId: ws.id });
-    expect(mine.map((a) => a.id)).toEqual([created.id]);
+      await asAdmin.workspace.updateMemberRole({ workspaceId: ws.id, userId: ownerId, role: "viewer" });
+
+      expect(await db.actionAssignee.count({ where: { actionId: created.id } })).toBe(0);
+      // Still theirs to read, through the agent-owner path…
+      expect((await asOwner.action.getById({ id: created.id })).id).toBe(created.id);
+      // …but no longer to change.
+      await expect(asOwner.action.update({ id: created.id, name: "Renamed" })).rejects.toThrow();
+      const unchanged = await db.action.findUniqueOrThrow({ where: { id: created.id } });
+      expect(unchanged.name).toBe("Ask the accountant about payouts");
+    });
   });
 });
