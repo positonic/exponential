@@ -1,4 +1,5 @@
 import type { PrismaClient } from "@prisma/client";
+import { buildPageEditorPath } from "~/lib/pages/page-path";
 import { emitNotification } from "./emitNotification";
 import { NOTIFICATION_CATEGORIES } from "./constants";
 import type { MentionSubject } from "./types";
@@ -301,5 +302,55 @@ export async function emitFeatureCommentMention(
     });
   } catch (error) {
     console.error("[emit/mentionAdapters] feature comment mention failed:", error);
+  }
+}
+
+/**
+ * Emit a Mention notification for a KnowledgePageComment (doc-level, anchored
+ * thread or reply). Replaces the legacy `sendPageMentionNotifications`, which
+ * sent push/Zulip/email directly and wrote no Notification row, so page
+ * mentions never reached the inbox. `pageId` on the subject gates recipients
+ * by page view access (invite-only pages, ADR-0069) in `filterRecipientsByAccess`.
+ */
+export async function emitPageCommentMention(
+  db: PrismaClient,
+  params: {
+    pageId: string;
+    commentId: string;
+    commentContent: string;
+    commentAuthorId: string;
+    previousContent?: string;
+  },
+): Promise<void> {
+  try {
+    const page = await db.knowledgePage.findUnique({
+      where: { id: params.pageId },
+      select: {
+        title: true,
+        workspace: { select: { id: true, slug: true, name: true } },
+      },
+    });
+    if (!page) return;
+
+    const subject: MentionSubject = {
+      commentId: params.commentId,
+      commentContent: params.commentContent,
+      previousContent: params.previousContent,
+      workspaceId: page.workspace.id,
+      workspaceSlug: page.workspace.slug,
+      workspaceName: page.workspace.name,
+      targetName: page.title,
+      targetPath: buildPageEditorPath(page.workspace.slug, params.pageId),
+      pageId: params.pageId,
+    };
+
+    await emitNotification({
+      category: NOTIFICATION_CATEGORIES.MENTION,
+      actorUserId: params.commentAuthorId,
+      subject,
+      db,
+    });
+  } catch (error) {
+    console.error("[emit/mentionAdapters] page comment mention failed:", error);
   }
 }

@@ -53,8 +53,9 @@ vi.mock("~/server/auth", () => ({
 vi.mock("~/server/utils/reportHandledErrorServer", () => ({
   reportHandledErrorServer: vi.fn(),
 }));
-vi.mock("~/server/services/notifications/EmailNotificationService", () => ({
-  sendPageMentionNotifications: vi.fn(),
+vi.mock("~/server/services/notifications/emit/mentionAdapters", async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
+  emitPageCommentMention: vi.fn(() => Promise.resolve()),
 }));
 
 const dbHolder: { current: DeepMockProxy<PrismaClient> | null } = { current: null };
@@ -76,6 +77,7 @@ vi.mock("~/server/db", () => {
 });
 
 import { createMockCaller } from "~/test/trpc-helpers";
+import { emitPageCommentMention } from "~/server/services/notifications/emit/mentionAdapters";
 
 const OWNER = "user-owner";
 const VIEWER = "user-viewer";
@@ -257,5 +259,87 @@ describe("pageComment.create: anchoring by quote", () => {
     expect(created.threadId).toBeUndefined();
     expect(created.anchor).toEqual({ anchored: false, fastForward: false });
     expect(store.docVersion).toBe(0);
+  });
+});
+
+// shiny.gust: every path that writes a page comment hands its mentions to the
+// unified pipeline with the comment id (the dedupe key) — and an edit passes
+// the old body so only newly added mentions notify.
+describe("pageComment: mentions go through the notification pipeline", () => {
+  const db = getDbMock();
+  const MENTION = "ping @[Member](member-1)";
+
+  beforeEach(() => {
+    mockReset(db);
+    vi.mocked(emitPageCommentMention).mockClear();
+    installPage(db, { docVersion: 0, body: "The indicator must be cheap.", bodyDoc: null });
+  });
+
+  it("a doc-level comment emits its mention", async () => {
+    const caller = createMockCaller({ userId: OWNER, db });
+
+    await caller.pageComment.create({ pageId: PAGE_ID, body: MENTION });
+
+    expect(emitPageCommentMention).toHaveBeenCalledTimes(1);
+    expect(emitPageCommentMention).toHaveBeenCalledWith(db, {
+      pageId: PAGE_ID,
+      commentId: "comment-1",
+      commentContent: MENTION,
+      commentAuthorId: OWNER,
+    });
+  });
+
+  it("a thread anchored by its quote emits its mention", async () => {
+    const caller = createMockCaller({ userId: OWNER, db });
+
+    await caller.pageComment.create({ pageId: PAGE_ID, body: MENTION, quotedText: "indicator" });
+
+    expect(emitPageCommentMention).toHaveBeenCalledWith(
+      db,
+      expect.objectContaining({ pageId: PAGE_ID, commentId: "comment-1", commentContent: MENTION }),
+    );
+  });
+
+  it("a reply emits its mention", async () => {
+    db.knowledgePageComment.findUnique.mockResolvedValue({
+      pageId: PAGE_ID,
+      threadId: null,
+      parentId: null,
+    } as never);
+    const caller = createMockCaller({ userId: OWNER, db });
+
+    await caller.pageComment.reply({ parentId: "parent-1", body: MENTION });
+
+    expect(emitPageCommentMention).toHaveBeenCalledWith(db, {
+      pageId: PAGE_ID,
+      commentId: "comment-1",
+      commentContent: MENTION,
+      commentAuthorId: OWNER,
+    });
+  });
+
+  it("an edit passes the old body, so only mentions it added notify", async () => {
+    db.knowledgePageComment.findFirst.mockResolvedValue({
+      id: "comment-9",
+      pageId: PAGE_ID,
+      body: "no mentions yet",
+    } as never);
+    db.knowledgePageComment.update.mockResolvedValue({
+      id: "comment-9",
+      pageId: PAGE_ID,
+      body: MENTION,
+      createdBy: { id: OWNER, name: null, image: null },
+    } as never);
+    const caller = createMockCaller({ userId: OWNER, db });
+
+    await caller.pageComment.update({ commentId: "comment-9", body: MENTION });
+
+    expect(emitPageCommentMention).toHaveBeenCalledWith(db, {
+      pageId: PAGE_ID,
+      commentId: "comment-9",
+      commentContent: MENTION,
+      commentAuthorId: OWNER,
+      previousContent: "no mentions yet",
+    });
   });
 });

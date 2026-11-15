@@ -33,7 +33,7 @@ For scheduled notifications (reminders, summaries), preferences are checked at s
 
 | File | Purpose |
 |------|---------|
-| `EmailNotificationService.ts` | Event-triggered notifications (assignments, mentions). Sends email + push. Contains `shouldSendEmailNotification()` preference resolution. |
+| `EmailNotificationService.ts` | Only `shouldSendEmailNotification()` preference resolution. Event-triggered notifications (assignments, and @mentions on action, ticket, feature, insight and Knowledge Page comments) go through `emit/emitNotification.ts` (ADR-0045): a durable `Notification` row for the inbox, then per-channel deliveries. Comment surfaces call an adapter in `emit/mentionAdapters.ts`; a page comment mention is also gated by page view access (invite-only pages). |
 | `NotificationScheduler.ts` | Singleton that processes scheduled notifications every 60s. Delivers via push + WhatsApp. Schedules recurring daily/weekly summaries and task reminders. |
 | `WebPushService.ts` | `sendPushNotification()` for single device, `sendPushToUser()` for all user devices. Auto-cleans expired subscriptions (410 Gone). |
 | `NotificationTemplates.ts` | Message templates for daily summary, weekly summary, and task reminders. |

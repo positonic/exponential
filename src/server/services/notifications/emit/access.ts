@@ -39,28 +39,12 @@ export async function filterRecipientsByAccess(
 
   // Pages aren't an AccessControlService resource type — gate them through
   // the page resolver directly (grants admit in every mode; a restricted page
-  // admits grantees only).
+  // admits grantees only). A mention on a page comment is gated the same way.
   if (input.category === NOTIFICATION_CATEGORIES.PAGE_SHARED) {
-    const page = await input.db.knowledgePage.findUnique({
-      where: { id: input.subject.pageId },
-      select: {
-        id: true,
-        createdById: true,
-        projectId: true,
-        workspaceId: true,
-        isInviteOnly: true,
-        databaseId: true,
-      },
-    });
-    if (!page) return [];
-    const allowed = await Promise.all(
-      recipientIds.map(async (userId) =>
-        canViewKnowledgePage(await getKnowledgePageAccess(input.db, userId, page))
-          ? userId
-          : null,
-      ),
-    );
-    return allowed.filter((id): id is string => id !== null);
+    return filterByPageView(input.db, input.subject.pageId, recipientIds);
+  }
+  if (input.category === NOTIFICATION_CATEGORIES.MENTION && input.subject.pageId) {
+    return filterByPageView(input.db, input.subject.pageId, recipientIds);
   }
 
   const resource = resolveResource(input);
@@ -80,4 +64,32 @@ export async function filterRecipientsByAccess(
   );
 
   return results.filter((id): id is string => id !== null);
+}
+
+/** Keep only the recipients who can currently view the KnowledgePage. */
+async function filterByPageView(
+  db: EmitNotificationInput["db"],
+  pageId: string,
+  recipientIds: string[],
+): Promise<string[]> {
+  const page = await db.knowledgePage.findUnique({
+    where: { id: pageId },
+    select: {
+      id: true,
+      createdById: true,
+      projectId: true,
+      workspaceId: true,
+      isInviteOnly: true,
+      databaseId: true,
+    },
+  });
+  if (!page) return [];
+  const allowed = await Promise.all(
+    recipientIds.map(async (userId) =>
+      canViewKnowledgePage(await getKnowledgePageAccess(db, userId, page))
+        ? userId
+        : null,
+    ),
+  );
+  return allowed.filter((id): id is string => id !== null);
 }

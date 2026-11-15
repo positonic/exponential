@@ -54,8 +54,9 @@ vi.mock("~/server/utils/reportHandledErrorServer", () => ({
 vi.mock("~/server/services/notifications/emit/emitNotification", () => ({
   emitNotification: vi.fn(() => Promise.resolve()),
 }));
-vi.mock("~/server/services/notifications/EmailNotificationService", () => ({
-  sendPageMentionNotifications: vi.fn(),
+vi.mock("~/server/services/notifications/emit/mentionAdapters", async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
+  emitPageCommentMention: vi.fn(() => Promise.resolve()),
 }));
 
 const dbHolder: { current: DeepMockProxy<PrismaClient> | null } = { current: null };

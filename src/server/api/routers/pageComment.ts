@@ -10,7 +10,7 @@ import {
   ensurePageAccess,
   type PageForAccess,
 } from "~/server/services/pages/access";
-import { sendPageMentionNotifications } from "~/server/services/notifications/EmailNotificationService";
+import { emitPageCommentMention } from "~/server/services/notifications/emit/mentionAdapters";
 import { writePageBodyIfVersion } from "~/server/services/pages/page-links";
 import {
   getKnowledgePageAccess,
@@ -117,8 +117,9 @@ async function createQuotedThread(
   }
   const comment = created.row ?? (await createRow(db));
 
-  void sendPageMentionNotifications(db, {
+  void emitPageCommentMention(db, {
     pageId,
+    commentId: comment.id,
     commentContent: body,
     commentAuthorId: userId,
   });
@@ -219,9 +220,10 @@ export const pageCommentRouter = createTRPCRouter({
         include: { createdBy: { select: authorSelect } },
       });
 
-      // Fire-and-forget: notify mentioned workspace members.
-      void sendPageMentionNotifications(ctx.db, {
+      // Fire-and-forget: notify mentioned members who can view the page.
+      void emitPageCommentMention(ctx.db, {
         pageId: input.pageId,
+        commentId: comment.id,
         commentContent: input.body,
         commentAuthorId: ctx.session.user.id,
       });
@@ -292,8 +294,9 @@ export const pageCommentRouter = createTRPCRouter({
         include: { createdBy: { select: authorSelect } },
       });
 
-      void sendPageMentionNotifications(ctx.db, {
+      void emitPageCommentMention(ctx.db, {
         pageId: parent.pageId,
+        commentId: comment.id,
         commentContent: input.body,
         commentAuthorId: ctx.session.user.id,
       });
@@ -360,8 +363,9 @@ export const pageCommentRouter = createTRPCRouter({
 
       // Fire-and-forget: notify mentions added by the edit. Passing the old
       // body means already-notified users aren't pinged again.
-      void sendPageMentionNotifications(ctx.db, {
+      void emitPageCommentMention(ctx.db, {
         pageId: existing.pageId,
+        commentId: updated.id,
         commentContent: input.body,
         commentAuthorId: ctx.session.user.id,
         previousContent: existing.body,
