@@ -26,6 +26,8 @@ import jwt from "jsonwebtoken";
 import crypto from "crypto";
 import { testFirefliesConnection } from "./integration";
 import { pageRouter } from "./page";
+import { ticketRouter } from "~/plugins/product/server/routers/ticket";
+import { applyTicketLabels } from "~/server/services/tags/ticketLabels";
 import { GoogleCalendarService } from "~/server/services/GoogleCalendarService";
 import { decryptBufferSafe, encryptString, encryptToBase64 } from "~/server/utils/encryption";
 import { encryptCredential, getDecryptedKey } from "~/server/utils/credentialHelper";
@@ -54,6 +56,9 @@ import {
   resolveOrCreateWorkspaceTags,
   attachTicketTags,
 } from "~/server/services/notionTicketImport";
+
+// Label references an agent passes for a ticket: tag ids, slugs or names.
+const ticketLabelRefsSchema = z.array(z.string().min(1).max(100)).max(20);
 
 // Parse an ISO date string supplied by an agent tool into a Date. Empty/nullish
 // values clear the field (return null); a malformed string throws BAD_REQUEST
@@ -4420,11 +4425,14 @@ export const mastraRouter = createTRPCRouter({
       priority: z.number().int().min(0).max(4).optional(),
       points: z.number().optional(),
       assigneeId: z.string().optional(),
+      // Label ids, slugs or names (see listLabels). Unknown ones are skipped
+      // and reported in `warnings`; they are never created.
+      labels: ticketLabelRefsSchema.optional(),
     }))
     .mutation(async ({ ctx, input }) => {
       const userId = ctx.session.user.id;
 
-      console.log(`🎫 [tRPC createTicket] RECEIVED: productId=${input.productId}, title="${input.title}", type=${input.type ?? 'FEATURE'}, status=${input.status ?? 'BACKLOG'}, userId=${userId}`);
+      console.log(`🎫 [tRPC createTicket] RECEIVED: productId=${input.productId}, title="${input.title}", type=${input.type ?? 'FEATURE'}, status=${input.status ?? 'BACKLOG'}, labels=${input.labels?.length ?? 0}, userId=${userId}`);
 
       // Verifies the product exists and the user can write to its workspace.
       const product = await loadProductWithAccess(ctx.db, userId, input.productId, "edit");
@@ -4446,6 +4454,15 @@ export const mastraRouter = createTRPCRouter({
 
       console.log(`✅ [tRPC createTicket] CREATED: id=${ticket.id}, number=${ticket.number}, shortId=${ticket.shortId ?? 'none'}`);
 
+      const { labels, warnings } = input.labels?.length
+        ? await applyTicketLabels(ctx.db, {
+            userId,
+            ticketId: ticket.id,
+            workspaceId: product.workspaceId,
+            change: { add: input.labels },
+          })
+        : { labels: [], warnings: [] };
+
       return {
         ticket: {
           id: ticket.id,
@@ -4457,6 +4474,160 @@ export const mastraRouter = createTRPCRouter({
           priority: ticket.priority,
           productId: ticket.productId,
         },
+        labels,
+        warnings,
+      };
+    }),
+
+  // Update one ticket, by id or by product + ticket number (list-tickets
+  // returns numbers, not ids). Field edits go through the product plugin's
+  // `ticket.update`, so completedAt, the Markdown→bodyDoc sync, activity and
+  // the Notion push behave exactly as they do in the UI. Labels: `labels`
+  // replaces the set, `addLabels` / `removeLabels` edit it; all take ids,
+  // slugs or names.
+  updateTicket: protectedProcedure
+    .input(z.object({
+      // Non-empty: an empty id must be a BAD_REQUEST, never "no id" (which
+      // would fall through to the number lookup with no filter).
+      ticketId: z.string().trim().min(1).optional(),
+      productId: z.string().trim().min(1).optional(),
+      ticketNumber: z.number().int().positive().optional(),
+      title: z.string().min(1).max(300).optional(),
+      body: z.string().optional(),
+      type: z.enum(['BUG', 'FEATURE', 'CHORE', 'IMPROVEMENT', 'SPIKE', 'RESEARCH']).optional(),
+      status: z.enum([
+        'BACKLOG', 'NEEDS_REFINEMENT', 'READY_TO_PLAN', 'COMMITTED',
+        'IN_PROGRESS', 'BLOCKED', 'QA', 'DONE', 'DEPLOYED', 'ARCHIVED',
+      ]).optional(),
+      priority: z.number().int().min(0).max(4).nullable().optional(),
+      points: z.number().nullable().optional(),
+      assigneeId: z.string().nullable().optional(),
+      labels: ticketLabelRefsSchema.optional(),
+      addLabels: ticketLabelRefsSchema.optional(),
+      removeLabels: ticketLabelRefsSchema.optional(),
+    }).refine(
+      (i) => i.ticketId !== undefined || (i.productId !== undefined && i.ticketNumber !== undefined),
+      { message: "Pass ticketId, or productId with ticketNumber" },
+    ))
+    .mutation(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+      const {
+        ticketId, productId, ticketNumber,
+        labels: setLabels, addLabels, removeLabels,
+        ...fields
+      } = input;
+
+      // One answer for "doesn't exist" and "exists where you can't see it",
+      // so this can't be used to probe tickets in other workspaces. Someone
+      // who can see the product but not edit it gets FORBIDDEN below instead.
+      const ticketNotFound = () => new TRPCError({ code: "NOT_FOUND", message: "Ticket not found" });
+      const canSeeProduct = async (id: string): Promise<boolean> => {
+        try {
+          await loadProductWithAccess(ctx.db, userId, id, "view");
+          return true;
+        } catch (error) {
+          if (error instanceof TRPCError && (error.code === "FORBIDDEN" || error.code === "NOT_FOUND")) {
+            return false;
+          }
+          throw error;
+        }
+      };
+
+      let found: { id: string; productId: string } | null;
+      if (ticketId !== undefined) {
+        found = await ctx.db.ticket.findUnique({ where: { id: ticketId }, select: { id: true, productId: true } });
+        if (!found || !(await canSeeProduct(found.productId))) throw ticketNotFound();
+      } else {
+        // The refinement guarantees both are set on this branch.
+        if (productId === undefined || ticketNumber === undefined) throw ticketNotFound();
+        if (!(await canSeeProduct(productId))) throw ticketNotFound();
+        found = await ctx.db.ticket.findFirst({
+          where: { productId, number: ticketNumber },
+          select: { id: true, productId: true },
+        });
+        if (!found) throw ticketNotFound();
+      }
+
+      console.log(`🎫 [tRPC updateTicket] RECEIVED: ticketId=${found.id}, fields=${Object.keys(fields).join(",") || "none"}, labels=${setLabels ? "set" : ""}${addLabels ? "+add" : ""}${removeLabels ? "+remove" : ""}, userId=${userId}`);
+
+      // Edit access up front, so a labels-only call is gated the same as a
+      // field edit (ticket.update checks again for the fields).
+      const product = await loadProductWithAccess(ctx.db, userId, found.productId, "edit");
+
+      const hasFieldEdit = Object.values(fields).some((v) => v !== undefined);
+      if (hasFieldEdit) {
+        await ticketRouter.createCaller(ctx).update({ id: found.id, ...fields });
+      }
+
+      const { labels, warnings } = await applyTicketLabels(ctx.db, {
+        userId,
+        ticketId: found.id,
+        workspaceId: product.workspaceId,
+        change: { set: setLabels, add: addLabels, remove: removeLabels },
+      });
+
+      const ticket = await ctx.db.ticket.findUnique({
+        where: { id: found.id },
+        select: {
+          id: true, number: true, shortId: true, title: true, type: true,
+          status: true, priority: true, points: true, assigneeId: true, productId: true,
+        },
+      });
+      if (!ticket) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Ticket not found" });
+      }
+
+      console.log(`✅ [tRPC updateTicket] UPDATED: id=${ticket.id}, labels=${labels.map((l) => l.slug).join(",") || "none"}, warnings=${warnings.length}`);
+
+      return { ticket, labels, warnings };
+    }),
+
+  // The labels an agent may put on tickets in one workspace (global tags plus
+  // the workspace's own), so it can pick from real labels instead of
+  // guessing names. Pass productId or workspaceId. Mutation for transport
+  // only (authenticatedTrpcCall always POSTs), like listProducts.
+  listLabels: protectedProcedure
+    .input(z.object({
+      // Blank ids are refused here: an empty productId would otherwise fall
+      // through to the workspace branch with no workspaceId at all.
+      productId: z.string().trim().min(1).optional(),
+      workspaceId: z.string().trim().min(1).optional(),
+    }).refine(
+      (i) => i.productId !== undefined || i.workspaceId !== undefined,
+      { message: "Pass productId or workspaceId" },
+    ))
+    .mutation(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+      const { productId, workspaceId: inputWorkspaceId } = input;
+      let workspaceId: string;
+      if (productId !== undefined) {
+        workspaceId = (await loadProductWithAccess(ctx.db, userId, productId, "view")).workspaceId;
+      } else if (inputWorkspaceId !== undefined) {
+        workspaceId = inputWorkspaceId;
+        await assertWorkspaceAccess(ctx.db, userId, workspaceId, "view");
+      } else {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Pass productId or workspaceId" });
+      }
+
+      const tags = await ctx.db.tag.findMany({
+        where: { OR: [{ workspaceId }, { workspaceId: null }] },
+        select: {
+          id: true, name: true, slug: true, description: true,
+          category: true, workspaceId: true,
+        },
+        orderBy: [{ workspaceId: { sort: "asc", nulls: "last" } }, { name: "asc" }],
+      });
+
+      return {
+        workspaceId,
+        labels: tags.map((t) => ({
+          id: t.id,
+          name: t.name,
+          slug: t.slug,
+          description: t.description,
+          category: t.category,
+          scope: t.workspaceId ? ("workspace" as const) : ("global" as const),
+        })),
       };
     }),
 

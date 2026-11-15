@@ -95,6 +95,20 @@ export const TOOL_DISPLAY: Record<string, ToolDisplay> = {
     progress: 'Creating tickets… {n}/{total}',
     pickArg: pickFirstString('title'),
   },
+  updateTicketTool: {
+    verb: 'Update ticket',
+    pastTense: 'Updated ticket',
+    pluralPast: 'Updated {n} tickets',
+    progress: 'Updating tickets… {n}/{total}',
+    pickArg: pickFirstString('title'),
+  },
+  listLabelsTool: {
+    verb: 'List labels',
+    pastTense: 'Listed labels',
+    pluralPast: 'Listed labels ×{n}',
+    progress: 'Listing labels… {n}/{total}',
+    pickArg: noArg,
+  },
   bulkCreateTicketsTool: {
     verb: 'Create tickets',
     pastTense: 'Created tickets',
