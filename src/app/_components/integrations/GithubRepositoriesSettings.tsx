@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
   Text,
   Stack,
@@ -15,6 +16,11 @@ import { IconBrandGithub, IconRefresh } from "@tabler/icons-react";
 import { notifications } from "@mantine/notifications";
 import { api } from "~/trpc/react";
 import { useWorkspace } from "~/providers/WorkspaceProvider";
+import {
+  GITHUB_INSTALL_PARAM,
+  githubInstallNotice,
+  parseGithubInstallResult,
+} from "~/lib/github/installResult";
 
 /**
  * Workspace settings → Integrations → GitHub (ADR-0020, slice #3). Renders by
@@ -29,6 +35,27 @@ export function GithubRepositoriesSettings() {
   const { workspaceId, userRole } = useWorkspace();
   const isOwnerOrAdmin = userRole === "owner" || userRole === "admin";
   const utils = api.useUtils();
+
+  // The GitHub App install returns here with `?github=<result>`. Say how it
+  // went once, then drop the param so a reload or a shared link stays quiet.
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const installResult = parseGithubInstallResult(
+    searchParams.get(GITHUB_INSTALL_PARAM),
+  );
+  useEffect(() => {
+    if (!installResult) return;
+    notifications.show({
+      // A fixed id: React's development double-run shows it once, not twice.
+      id: "github-install-result",
+      ...githubInstallNotice(installResult),
+    });
+    const rest = new URLSearchParams(searchParams.toString());
+    rest.delete(GITHUB_INSTALL_PARAM);
+    const query = rest.toString();
+    router.replace(query ? `${pathname}?${query}` : pathname, { scroll: false });
+  }, [installResult, pathname, router, searchParams]);
 
   const { data: connection, isLoading } =
     api.github.getGithubConnectionState.useQuery(
