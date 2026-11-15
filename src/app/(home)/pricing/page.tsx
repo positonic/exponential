@@ -12,7 +12,7 @@ import { PRODUCT_NAME } from "~/lib/brand";
 import { getPublicBaseUrlFromEnv } from "~/lib/urls";
 import {
   COMPARISON,
-  DESIGN_PARTNER_EMAIL,
+  SUPPORT_EMAIL,
   ENTERPRISE_CONTACT_HREF,
   FAQ,
   PLANS,
@@ -166,8 +166,8 @@ export default async function PricingPage() {
                 <h2 className="mkt-h2 mb-4">Questions</h2>
                 <p className="mkt-body">
                   Anything else? Email{" "}
-                  <a href={`mailto:${DESIGN_PARTNER_EMAIL}`} className="mkt-link">
-                    {DESIGN_PARTNER_EMAIL}
+                  <a href={`mailto:${SUPPORT_EMAIL}`} className="mkt-link">
+                    {SUPPORT_EMAIL}
                   </a>
                   .
                 </p>

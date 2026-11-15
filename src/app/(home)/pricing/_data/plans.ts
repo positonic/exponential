@@ -11,12 +11,15 @@
 
 export const RAILWAY_DEPLOY_URL = "https://railway.com/deploy/exponential";
 export const SELF_HOSTING_GUIDE_URL = "/docs/self-hosting";
-export const DESIGN_PARTNER_EMAIL = "support@exponential.im";
-export const DESIGN_PARTNER_HREF = `mailto:${DESIGN_PARTNER_EMAIL}?subject=${encodeURIComponent(
+/** General questions. */
+export const SUPPORT_EMAIL = "support@exponential.im";
+/** Design partners and enterprise enquiries come straight to James (D-0080, D-0085). */
+export const FOUNDER_EMAIL = "james@exponential.im";
+export const DESIGN_PARTNER_HREF = `mailto:${FOUNDER_EMAIL}?subject=${encodeURIComponent(
   "Exponential design partner",
 )}`;
 /** The enterprise strip's link: same inbox, its own subject, so it is triaged apart. */
-export const ENTERPRISE_CONTACT_HREF = `mailto:${DESIGN_PARTNER_EMAIL}?subject=${encodeURIComponent(
+export const ENTERPRISE_CONTACT_HREF = `mailto:${FOUNDER_EMAIL}?subject=${encodeURIComponent(
   "Exponential for my company",
 )}`;
 
@@ -61,11 +64,11 @@ export const PLANS: Plan[] = [
     tag: "Coming soon",
     price: "Soon",
     description:
-      "For growing startups that want more assistant use and a person on support.",
+      "For growing startups that want more assistant use and priority support.",
     features: [
       "Everything in Free",
       "More assistant use, pooled across the workspace",
-      "Email support within one business day",
+      "Priority email support",
       "Monthly or annual billing",
     ],
     cta: {
@@ -74,7 +77,7 @@ export const PLANS: Plan[] = [
       variant: "ghost",
     },
     footnote:
-      "Workspaces created before Team launches stay free for 12 months after it does.",
+      "Workspaces created before Team launches can claim a free year of Team.",
     highlighted: true,
   },
   {
@@ -89,7 +92,7 @@ export const PLANS: Plan[] = [
       "Your database, your model keys",
       "One-click deploy on Railway",
       "Use it inside your company without publishing your changes",
-      "Community support on GitHub",
+      "Community support and docs",
     ],
     cta: { label: "Deploy on Railway", href: RAILWAY_DEPLOY_URL, variant: "ghost" },
   },
@@ -153,9 +156,9 @@ export const COMPARISON: ComparisonGroup[] = [
       {
         feature: "Support",
         values: {
-          free: "Community",
-          team: "Email, 1 business day",
-          selfHosted: "Community",
+          free: "Community and docs",
+          team: "Priority email",
+          selfHosted: "Community and docs",
         },
       },
     ],
@@ -181,17 +184,17 @@ export const FAQ = [
   {
     question: "Is the hosted plan really free?",
     answer:
-      "Yes. There's no credit card and no trial clock. When Team launches, nothing you use on Free moves to it, and workspaces created before then get Team free for 12 months.",
+      "Yes. There's no credit card and no trial clock. When Team launches, nothing you use on Free moves to it, and workspaces created before then can claim a free year of Team. No card is needed, and it returns to Free when the year ends.",
   },
   {
     question: "Do agents count as seats?",
     answer:
-      "No. Agents connected over MCP or the CLI, and assistants you assign work to, are unlimited on every plan. When Team launches, it will charge for people only.",
+      "No. Agents connected over MCP or the CLI, and assistants you assign work to, are unlimited on every plan. When Team launches, it will charge for the people who can edit; viewers are free.",
   },
   {
     question: "Who pays for the AI?",
     answer:
-      "On the hosted plan, we do. Self-hosted installs use your own model keys, and AI is optional there.",
+      "On the hosted plan, we do. When Team launches, Free will include a monthly allowance, and you'll be able to add your own Anthropic key to keep going with no limit. Self-hosted installs use your own model keys, and AI is optional there.",
   },
   {
     question: "Can my company use the open-source version?",
@@ -206,6 +209,6 @@ export const FAQ = [
   {
     question: "What is a design partner?",
     answer:
-      "A startup that uses Exponential every week and talks to us about what it needs before Team launches. Design partners get Team free while we shape it.",
+      `One of about ten startups, three or more people using Exponential every week with an agent connected, that joins a 30-minute call with us each month while we shape Team. Design partners get Team free for 24 months from launch. To apply, email ${FOUNDER_EMAIL}.`,
   },
 ];
