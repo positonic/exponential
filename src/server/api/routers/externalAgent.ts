@@ -30,6 +30,10 @@ const AVATAR_EXTENSIONS = {
   "image/webp": "webp",
 } as const;
 
+/** Shared by `create` and `createKey`: why a key for an agent in no workspace is refused. */
+export const NO_WORKSPACE_KEY_MESSAGE =
+  "An agent in no workspace can sign in but see nothing, so it can't have a key yet. Add it to at least one workspace first.";
+
 async function requireOwnedAgent(
   db: PrismaClient | Prisma.TransactionClient,
   agentId: string,
@@ -178,6 +182,12 @@ export const externalAgentRouter = createTRPCRouter({
         input.workspaceIds ?? [],
       );
       const keyName = blankToNull(input.keyName);
+      // A key for an agent in no workspace authenticates and then sees nothing
+      // (raw.ledge): refuse it rather than hand out a credential that looks
+      // broken. The agent itself can still be created and given a key later.
+      if (keyName && workspaceIds.length === 0) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: NO_WORKSPACE_KEY_MESSAGE });
+      }
       const generated = keyName ? generateExternalAgentKey() : null;
 
       const agent = await ctx.db.$transaction(async (tx) => {
@@ -337,7 +347,14 @@ export const externalAgentRouter = createTRPCRouter({
     .mutation(async ({ ctx, input }) => {
       const agent = await requireOwnedAgent(ctx.db, input.agentId, ctx.session.user.id);
 
-      const keyCount = await ctx.db.externalAgentKey.count({ where: { agentId: agent.id } });
+      const [keyCount, workspaceCount] = await Promise.all([
+        ctx.db.externalAgentKey.count({ where: { agentId: agent.id } }),
+        ctx.db.workspaceUser.count({ where: { userId: agent.shadowUserId } }),
+      ]);
+      // Same rule as `create`: never mint a key that signs in and sees nothing.
+      if (workspaceCount === 0) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: NO_WORKSPACE_KEY_MESSAGE });
+      }
       if (keyCount >= MAX_KEYS_PER_AGENT) {
         throw new TRPCError({
           code: "BAD_REQUEST",

@@ -175,6 +175,13 @@ async function loadWorkspaceForUser(
   return { status: "forbidden" as const };
 }
 
+/**
+ * `workspace.list` for an agent in no workspace. Its key authenticated, so the
+ * credential is fine; the fix is a membership, which only the owner can grant.
+ */
+export const UNPROVISIONED_AGENT_MESSAGE =
+  "This agent's key works, but the agent is in no workspace yet, so there is nothing to see. Its owner can add it to a workspace in Settings → Agents.";
+
 export const workspaceRouter = createTRPCRouter({
   // API endpoint for browser extension - uses API key authentication
   getUserWorkspaces: apiKeyMiddleware
@@ -319,6 +326,20 @@ export const workspaceRouter = createTRPCRouter({
       },
       orderBy: [{ type: "asc" }, { createdAt: "desc" }],
     });
+
+    // A person always has at least their Personal workspace, so an empty list
+    // is only ever an agent nobody has added anywhere. Say so instead of
+    // returning [], which callers (the CLI, MCP tools) read as "you have
+    // nothing" and report cheerfully (raw.ledge).
+    if (workspaces.length === 0) {
+      const caller = await ctx.db.user.findUnique({
+        where: { id: userId },
+        select: { isAgent: true },
+      });
+      if (caller?.isAgent) {
+        throw new TRPCError({ code: "PRECONDITION_FAILED", message: UNPROVISIONED_AGENT_MESSAGE });
+      }
+    }
 
     return workspaces.map((workspace) => {
       const currentMember = workspace.members.find((m) => m.userId === userId);

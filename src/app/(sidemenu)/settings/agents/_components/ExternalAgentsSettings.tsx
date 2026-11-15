@@ -382,14 +382,27 @@ export function ExternalAgentsSettings() {
               <Text size="sm" fw={500}>
                 Keys
               </Text>
-              <Button
-                size="compact-sm"
-                variant="light"
-                leftSection={<IconKey size={14} />}
-                onClick={() => setKeyModalAgentId(agent.id)}
+              {/* A key for an agent in no workspace signs in and sees nothing,
+                  and the server refuses it; say why here instead. The span
+                  carries the hover, since a disabled button fires no events. */}
+              <Tooltip
+                label="Add this agent to a workspace first: a key for an agent in no workspace can't see anything."
+                disabled={agent.workspaces.length > 0}
+                multiline
+                w={260}
               >
-                New key
-              </Button>
+                <span>
+                  <Button
+                    size="compact-sm"
+                    variant="light"
+                    leftSection={<IconKey size={14} />}
+                    disabled={agent.workspaces.length === 0}
+                    onClick={() => setKeyModalAgentId(agent.id)}
+                  >
+                    New key
+                  </Button>
+                </span>
+              </Tooltip>
             </Group>
             {agent.keys.length > 0 && (
               /* Without a scroll container the table overflows the page on narrow

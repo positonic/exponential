@@ -46,6 +46,10 @@ interface AgentDrawerProps {
   editing: EditableAgent | null;
 }
 
+/** Shown on the Workspaces field when a key is asked for with none picked. */
+export const NO_WORKSPACE_KEY_HINT =
+  "Pick at least one workspace, or clear the key label and add a key once the agent is in one.";
+
 /**
  * Create or edit an External agent. Creating is one step: name, workspaces and
  * first key go to the server together, and the key is shown once on success.
@@ -91,7 +95,10 @@ export function AgentDrawer({ opened, onClose, editing }: AgentDrawerProps) {
       }
       notifications.show({
         title: 'Agent created',
-        message: 'Add a key from its card when you are ready to connect it.',
+        // A key needs a workspace first (raw.ledge), so say both steps.
+        message: data.granted > 0
+          ? 'Add a key from its card when you are ready to connect it.'
+          : 'Add it to a workspace from its card, then add a key to connect it.',
         color: 'green',
         icon: <IconCheck size={16} />,
       });
@@ -163,15 +170,24 @@ export function AgentDrawer({ opened, onClose, editing }: AgentDrawerProps) {
         </Stack>
       ) : (
         <form
-          onSubmit={form.onSubmit((values) =>
-            editing
-              ? updateAgent.mutate({
-                  agentId: editing.id,
-                  name: values.name,
-                  description: values.description,
-                })
-              : createAgent.mutate(values),
-          )}
+          onSubmit={form.onSubmit((values) => {
+            if (editing) {
+              updateAgent.mutate({
+                agentId: editing.id,
+                name: values.name,
+                description: values.description,
+              });
+              return;
+            }
+            // The server refuses this too: a key for an agent in no workspace
+            // signs in and sees nothing. Said here, on the field, before a
+            // round trip.
+            if (values.keyName.trim() && values.workspaceIds.length === 0) {
+              form.setFieldError('workspaceIds', NO_WORKSPACE_KEY_HINT);
+              return;
+            }
+            createAgent.mutate(values);
+          })}
         >
           <Stack>
             <TextInput

@@ -67,4 +67,43 @@ test.describe("Agents settings — create drawer", () => {
     await expect(page).toHaveURL(/\/settings\/agents$/);
     await expect(drawer).toBeHidden();
   });
+
+  test("refuses a key for an agent in no workspace, and a bare agent's card can't mint one", async ({
+    page,
+  }) => {
+    const agentName = `E2E bare agent ${Date.now()}`;
+
+    await page.goto("/settings/agents/new");
+    const drawer = page.getByRole("dialog", { name: "New external agent" });
+    await expect(drawer).toBeVisible({ timeout: FIRST_PAINT_TIMEOUT });
+
+    // A key label but no workspace: the field says why, and nothing is created.
+    await drawer.getByLabel("Name").fill(agentName);
+    await expect(drawer.getByLabel("Key label")).toHaveValue("default");
+    await drawer.getByRole("button", { name: "Create agent" }).click();
+    await expect(drawer.getByText(/Pick at least one workspace/)).toBeVisible();
+    await expect(page.getByRole("dialog", { name: "Copy your key now" })).toHaveCount(0);
+    await test.info().attach("agent-no-workspace-key-refused", {
+      body: await page.screenshot(),
+      contentType: "image/png",
+    });
+
+    // Clearing the key label creates the agent with no key.
+    await drawer.getByLabel("Key label").fill("");
+    await drawer.getByRole("button", { name: "Create agent" }).click();
+    // The create mutation may still be compiling on a cold dev server.
+    await expect(drawer).toBeHidden({ timeout: FIRST_PAINT_TIMEOUT });
+
+    // Its card offers no key until it is in a workspace.
+    const card = page.locator(".mantine-Paper-root").filter({ hasText: agentName });
+    await expect(card).toBeVisible();
+    await expect(card.getByRole("button", { name: "New key" })).toBeDisabled();
+    await test.info().attach("agent-no-workspace-new-key-disabled", {
+      body: await page.screenshot(),
+      contentType: "image/png",
+    });
+
+    await card.getByRole("button", { name: /Delete agent/ }).click();
+    await expect(page.getByText(agentName)).toHaveCount(0);
+  });
 });

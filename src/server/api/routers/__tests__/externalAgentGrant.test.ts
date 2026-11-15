@@ -321,6 +321,51 @@ describe("externalAgent.create — one-step setup", () => {
   });
 });
 
+describe("a key is never minted for an agent in no workspace (raw.ledge)", () => {
+  let db: DeepMockProxy<PrismaClient>;
+
+  beforeEach(() => {
+    db = getDbMock();
+    mockReset(db);
+    arrangeOwner(db);
+    db.$transaction.mockImplementation((async (fn: (tx: PrismaClient) => unknown) =>
+      fn(db as unknown as PrismaClient)) as never);
+    db.user.create.mockResolvedValue({ id: SHADOW_ID } as never);
+    db.externalAgent.create.mockResolvedValue({ id: AGENT_ID, name: "Claude Code" } as never);
+  });
+
+  it("create refuses a key with no workspaces, and writes nothing", async () => {
+    await expect(
+      caller(db).externalAgent.create({ name: "Claude Code", keyName: "laptop" }),
+    ).rejects.toThrow(/no workspace/);
+
+    expect(db.$transaction).not.toHaveBeenCalled();
+    expect(db.user.create).not.toHaveBeenCalled();
+    expect(db.externalAgentKey.create).not.toHaveBeenCalled();
+  });
+
+  it("createKey refuses an agent that belongs to no workspace", async () => {
+    db.externalAgentKey.count.mockResolvedValue(0);
+    db.workspaceUser.count.mockResolvedValue(0);
+
+    await expect(
+      caller(db).externalAgent.createKey({ agentId: AGENT_ID, name: "laptop" }),
+    ).rejects.toThrow(/no workspace/);
+    expect(db.externalAgentKey.create).not.toHaveBeenCalled();
+    // It asked about the agent's own memberships, not the owner's.
+    expect(db.workspaceUser.count).toHaveBeenCalledWith({ where: { userId: SHADOW_ID } });
+  });
+
+  it("createKey still mints for an agent in at least one workspace", async () => {
+    db.externalAgentKey.count.mockResolvedValue(0);
+    db.workspaceUser.count.mockResolvedValue(1);
+    db.externalAgentKey.create.mockResolvedValue({ id: "key-1" } as never);
+
+    const result = await caller(db).externalAgent.createKey({ agentId: AGENT_ID, name: "laptop" });
+    expect(result.secret).toMatch(/^exp_agent_/);
+  });
+});
+
 describe("externalAgent.delete — an Assistant's principal is protected (ADR-0067)", () => {
   let db: DeepMockProxy<PrismaClient>;
 
