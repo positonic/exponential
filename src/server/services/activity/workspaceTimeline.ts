@@ -2,7 +2,7 @@
  * Workspace shipping timeline — the per-workspace sibling of the public
  * `/product-timeline` page.
  *
- * The public page calls the GitHub API live, hardcoded to `positonic/exponential`,
+ * The public page calls the GitHub API live, hardcoded to `exponential-im/exponential`,
  * and stores nothing. That is right for a marketing changelog and wrong for a
  * workspace view, which needs to be:
  *

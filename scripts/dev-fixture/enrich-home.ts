@@ -28,7 +28,7 @@ const CYCLE_GOAL =
   "Ship the **tiered daily home** and make it feel [effortless](https://exponential.im).";
 
 const LEGACY_HTML_ACTION_NAME =
-  '<a target="_blank" rel="noopener noreferrer" class="text-blue-500 underline cursor-pointer" href="https://github.com/positonic/exponential/pull/623">https://github.com/positonic/exponential/pull/623</a>';
+  '<a target="_blank" rel="noopener noreferrer" class="text-blue-500 underline cursor-pointer" href="https://github.com/exponential-im/exponential/pull/623">https://github.com/exponential-im/exponential/pull/623</a>';
 
 async function main() {
   const user = await db.user.findUniqueOrThrow({
@@ -104,7 +104,7 @@ async function main() {
     // Exactly what the rich action input stores for a pasted URL.
     [LEGACY_HTML_ACTION_NAME, 1],
     // What an agent or the CLI stores when it writes Markdown into a name.
-    ["Fix the **flaky** fixture test ([issue 42](https://github.com/positonic/exponential/issues/42))", -1],
+    ["Fix the **flaky** fixture test ([issue 42](https://github.com/exponential-im/exponential/issues/42))", -1],
   ] as const) {
     const existing = await db.action.findFirst({
       where: { name, workspaceId: workspace.id },
@@ -143,7 +143,7 @@ async function main() {
     [
       "fixture-mention-3",
       "Linus mentioned you on ticket FIX-4",
-      "@Dev see **both** cases in [the PR](https://github.com/positonic/exponential/pull/623)",
+      "@Dev see **both** cases in [the PR](https://github.com/exponential-im/exponential/pull/623)",
     ],
   ] as const) {
     await db.notification.upsert({

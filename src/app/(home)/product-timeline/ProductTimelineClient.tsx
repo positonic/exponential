@@ -171,14 +171,14 @@ export function ProductTimelineClient() {
     api.github.listCommits.useQuery({
       page,
       perPage: 100,
-      owner: "positonic",
+      owner: "exponential-im",
       repo: "exponential",
       branch: "main",
     }),
   );
 
   const releasesQuery = api.github.listReleases.useQuery({
-    owner: "positonic",
+    owner: "exponential-im",
     repo: "exponential",
     perPage: 30,
   });
@@ -230,7 +230,7 @@ export function ProductTimelineClient() {
     if (!commitsFailure) return;
     reportHandledError(new Error(commitsFailure), {
       area: "product-timeline-commits",
-      context: { repo: "positonic/exponential", branch: "main" },
+      context: { repo: "exponential-im/exponential", branch: "main" },
     });
   }, [commitsFailure]);
 
@@ -238,7 +238,7 @@ export function ProductTimelineClient() {
     if (!releasesErrorMessage) return;
     reportHandledError(new Error(releasesErrorMessage), {
       area: "product-timeline-releases",
-      context: { repo: "positonic/exponential" },
+      context: { repo: "exponential-im/exponential" },
     });
   }, [releasesErrorMessage]);
 
@@ -320,7 +320,7 @@ export function ProductTimelineClient() {
       <Group justify="space-between" align="flex-start" mb="xs">
         <Title order={1}>Product Timeline</Title>
         <Anchor
-          href="https://github.com/positonic/exponential/releases/new"
+          href="https://github.com/exponential-im/exponential/releases/new"
           target="_blank"
           rel="noopener noreferrer"
           style={{ textDecoration: "none" }}

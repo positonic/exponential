@@ -35,7 +35,7 @@ export function GenerateContentModal({
   onClose,
   workspaceId,
 }: GenerateContentModalProps) {
-  const [owner, setOwner] = useState("positonic");
+  const [owner, setOwner] = useState("exponential-im");
   const [repo, setRepo] = useState("exponential");
   const [branch, setBranch] = useState("main");
   const [dayRange, setDayRange] = useState<number>(7);
@@ -144,7 +144,7 @@ export function GenerateContentModal({
             <Group grow>
               <TextInput
                 label="GitHub Owner"
-                placeholder="positonic"
+                placeholder="exponential-im"
                 value={owner}
                 onChange={(e) => setOwner(e.currentTarget.value)}
                 required

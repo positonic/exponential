@@ -18,7 +18,7 @@ The [Railway template](https://railway.com/deploy/exponential) runs your own ins
 
 ## Where to find it
 
-The code is at [github.com/positonic/exponential](https://github.com/positonic/exponential). The README's "Self-hosting" section covers Railway, Docker Compose and running from source; the deeper operator guides live under `dev-docs/`, starting with `PRODUCTION_DEPLOYMENT_GUIDE.md`.
+The code is at [github.com/exponential-im/exponential](https://github.com/exponential-im/exponential). The README's "Self-hosting" section covers Railway, Docker Compose and running from source; the deeper operator guides live under `dev-docs/`, starting with `PRODUCTION_DEPLOYMENT_GUIDE.md`.
 
 ## What an installation consists of
 

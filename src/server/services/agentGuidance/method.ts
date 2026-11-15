@@ -18,7 +18,7 @@ import {
   type MethodDocumentContent,
 } from "~/lib/docs/method";
 
-export const METHOD_CANONICAL_REPO = "positonic/exponential";
+export const METHOD_CANONICAL_REPO = "exponential-im/exponential";
 export const METHOD_CANONICAL_PATH = "content/docs/method";
 
 export type MethodDocument = MethodDocumentContent;

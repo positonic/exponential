@@ -186,4 +186,4 @@ We're not there yet. But the discovery layer is live, and it works today.
 - [Read llms.txt](https://www.exponential.im/llms.txt)
 - [Subscribe via RSS](https://www.exponential.im/api/bounties/feed.xml)
 
-*Exponential is [open source (AGPL-3.0)](https://github.com/positonic/exponential). If you're building agents that do work, we'd love to hear from you.*
+*Exponential is [open source (AGPL-3.0)](https://github.com/exponential-im/exponential). If you're building agents that do work, we'd love to hear from you.*

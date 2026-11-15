@@ -11,7 +11,7 @@ The `exponential` command-line tool gives you, your scripts and your agents the 
 
 ## Where to find it
 
-The tool is the `exponential-cli` package on npm; its source is at [github.com/positonic/exponential-cli](https://github.com/positonic/exponential-cli). It talks to whatever installation you point it at.
+The tool is the `exponential-cli` package on npm; its source is at [github.com/exponential-im/exponential-cli](https://github.com/exponential-im/exponential-cli). It talks to whatever installation you point it at.
 
 ## How to install and sign in
 

@@ -2,8 +2,8 @@
 # GitHub Container Registry, so a Railway template (or any Docker host) pulls a
 # ready image instead of building one.
 #
-#   ghcr.io/positonic/exponential-app        (Dockerfile)
-#   ghcr.io/positonic/exponential-scheduler  (docker/scheduler.Dockerfile)
+#   ghcr.io/exponential-im/exponential-app        (Dockerfile)
+#   ghcr.io/exponential-im/exponential-scheduler  (docker/scheduler.Dockerfile)
 #
 # Tags: `latest` and `sha-<short sha>` on every push to main; `vX.Y.Z` (and
 # `X.Y`) on a version tag. Pin a sha or version tag for a repeatable install;

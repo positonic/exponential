@@ -111,7 +111,7 @@ describe("while the method is a draft", () => {
       version: "0.1.0",
       status: "draft",
       publishedAt: null,
-      canonicalSource: { repo: "positonic/exponential", path: "content/docs/method", url: null },
+      canonicalSource: { repo: "exponential-im/exponential", path: "content/docs/method", url: null },
     });
     expect(method!.documents).toEqual([
       {

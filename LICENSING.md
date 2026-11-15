@@ -23,7 +23,7 @@ You can clone this repo and run Exponential on your own machine or server at no 
 To self-host:
 
 ```bash
-git clone https://github.com/positonic/exponential.git
+git clone https://github.com/exponential-im/exponential.git
 cd exponential
 npm install
 cp .env.selfhost.example .env   # then fill in the four required variables and one way to sign in
@@ -110,4 +110,4 @@ See the [LICENSE](LICENSE) file for the complete AGPL-3.0 license text, or read 
 
 ## Questions?
 
-If you have questions about the license or how it applies to your use case, open a [GitHub Discussion](https://github.com/positonic/exponential/discussions) or email support@exponential.im.
+If you have questions about the license or how it applies to your use case, open a [GitHub Discussion](https://github.com/exponential-im/exponential/discussions) or email support@exponential.im.

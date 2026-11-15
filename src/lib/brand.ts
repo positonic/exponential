@@ -38,6 +38,6 @@ export const PRODUCT_SEO_DESCRIPTION =
  */
 export const SOCIAL_PROFILES = {
   x: 'https://x.com/be_exponential',
-  github: 'https://github.com/positonic/exponential',
+  github: 'https://github.com/exponential-im/exponential',
   linkedin: 'https://www.linkedin.com/company/108621153/',
 } as const;

@@ -243,7 +243,7 @@ export function buildDocsSearchIndex(pages: DocPage[], nav: DocNavSection[]): Do
 }
 
 /** GitHub "edit this file" URL for a repo-relative docs path. */
-export const DOCS_REPO_EDIT_BASE = "https://github.com/positonic/exponential/edit/main";
+export const DOCS_REPO_EDIT_BASE = "https://github.com/exponential-im/exponential/edit/main";
 
 export function docsEditUrl(filePath: string): string {
   return `${DOCS_REPO_EDIT_BASE}/${filePath.split(path.sep).join("/")}`;

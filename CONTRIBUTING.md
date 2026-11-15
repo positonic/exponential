@@ -183,7 +183,7 @@ Some issues have bounties attached. To claim one:
 
 ## Reporting Bugs
 
-Open a [GitHub Issue](https://github.com/positonic/exponential/issues) with:
+Open a [GitHub Issue](https://github.com/exponential-im/exponential/issues) with:
 
 - A clear title describing the bug
 - Steps to reproduce
@@ -197,7 +197,7 @@ By contributing to Exponential, you agree that your contributions are licensed u
 
 ## Questions?
 
-- Open a [Discussion](https://github.com/positonic/exponential/discussions) for general questions
+- Open a [Discussion](https://github.com/exponential-im/exponential/discussions) for general questions
 - Check existing issues before creating new ones
 
 Thank you for contributing!

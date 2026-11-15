@@ -49,7 +49,7 @@ We're in good company. GitLab, Grafana, Mattermost, and Nextcloud all use the AG
 **Run it locally or self-host it.** Clone the repo, run it on your machine or your server, use every feature in the codebase. Free, forever. You own your data.
 
 ```bash
-git clone https://github.com/positonic/exponential.git
+git clone https://github.com/exponential-im/exponential.git
 cd exponential
 npm install
 npx prisma migrate dev
@@ -62,7 +62,7 @@ npm run dev
 
 This matters especially for us. Exponential is designed as an AI-native platform. We want people building agents that create tasks, manage bounties, and orchestrate work through our APIs. Those agents are yours. The AGPL doesn't touch them.
 
-**Contribute.** We actively welcome contributions. See our [Contributing Guide](https://github.com/positonic/exponential/blob/main/CONTRIBUTING.md). Your contributions are licensed under the AGPL, same as the rest of the project.
+**Contribute.** We actively welcome contributions. See our [Contributing Guide](https://github.com/exponential-im/exponential/blob/main/CONTRIBUTING.md). Your contributions are licensed under the AGPL, same as the rest of the project.
 
 **Use it for your company.** Running Exponential internally for your team doesn't trigger the source-sharing requirement. The AGPL only kicks in when you provide the software as a service to *third parties* over a network.
 
@@ -112,8 +112,8 @@ No. The license covers the software, not the data you store in it.
 
 ---
 
-The full license text is in the [LICENSE](https://github.com/positonic/exponential/blob/main/LICENSE) file. For a plain-language breakdown of every scenario, see [LICENSING.md](https://github.com/positonic/exponential/blob/main/LICENSING.md).
+The full license text is in the [LICENSE](https://github.com/exponential-im/exponential/blob/main/LICENSE) file. For a plain-language breakdown of every scenario, see [LICENSING.md](https://github.com/exponential-im/exponential/blob/main/LICENSING.md).
 
-Questions? Open a [GitHub Discussion](https://github.com/positonic/exponential/discussions) or reach out at support@exponential.im.
+Questions? Open a [GitHub Discussion](https://github.com/exponential-im/exponential/discussions) or reach out at support@exponential.im.
 
-*Exponential is open source at [github.com/positonic/exponential](https://github.com/positonic/exponential).*
+*Exponential is open source at [github.com/exponential-im/exponential](https://github.com/exponential-im/exponential).*

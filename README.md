@@ -1,8 +1,8 @@
 # Exponential.im
 
-[![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL--3.0-blue.svg)](https://github.com/positonic/exponential/blob/main/LICENSE)
-[![GitHub stars](https://img.shields.io/github/stars/positonic/exponential)](https://github.com/positonic/exponential)
-[![Open Source](https://img.shields.io/badge/Open%20Source-%E2%9D%A4-green)](https://github.com/positonic/exponential)
+[![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL--3.0-blue.svg)](https://github.com/exponential-im/exponential/blob/main/LICENSE)
+[![GitHub stars](https://img.shields.io/github/stars/exponential-im/exponential)](https://github.com/exponential-im/exponential)
+[![Open Source](https://img.shields.io/badge/Open%20Source-%E2%9D%A4-green)](https://github.com/exponential-im/exponential)
 
 An open-source productivity and project management platform built with the T3 Stack. Manage projects, track goals and key results, plan your day with AI, and collaborate across workspaces.
 
@@ -51,7 +51,7 @@ Run your own copy in one click (see [Self-hosting](#self-hosting)):
 1. **Clone the repository**
 
    ```bash
-   git clone https://github.com/positonic/exponential.git
+   git clone https://github.com/exponential-im/exponential.git
    cd exponential
    ```
 
@@ -215,10 +215,10 @@ merges in automatically:
 ```yaml
 services:
   app:
-    image: ghcr.io/positonic/exponential-app:latest
+    image: ghcr.io/exponential-im/exponential-app:latest
     build: !reset null
   scheduler:
-    image: ghcr.io/positonic/exponential-scheduler:latest
+    image: ghcr.io/exponential-im/exponential-scheduler:latest
     build: !reset null
 ```
 
@@ -241,12 +241,12 @@ Both are published to the GitHub Container Registry by
 each release. When several commits land while a build runs, only the newest
 is built next, so not every commit has a `sha-` tag. For a repeatable install,
 pin a version tag or a `sha-` tag listed on the package page
-([app](https://github.com/positonic/exponential/pkgs/container/exponential-app),
-[scheduler](https://github.com/positonic/exponential/pkgs/container/exponential-scheduler)).
+([app](https://github.com/exponential-im/exponential/pkgs/container/exponential-app),
+[scheduler](https://github.com/exponential-im/exponential/pkgs/container/exponential-scheduler)).
 
 ```bash
-docker pull ghcr.io/positonic/exponential-app:latest
-docker pull ghcr.io/positonic/exponential-scheduler:latest
+docker pull ghcr.io/exponential-im/exponential-app:latest
+docker pull ghcr.io/exponential-im/exponential-scheduler:latest
 ```
 
 To build them yourself:
@@ -385,7 +385,7 @@ exponential actions list
 exponential actions create -n "My task" -p <project-id>
 ```
 
-See [exponential-cli](https://github.com/positonic/exponential-cli) for full docs.
+See [exponential-cli](https://github.com/exponential-im/exponential-cli) for full docs.
 
 ### OpenClaw (AI Agent)
 

@@ -300,7 +300,7 @@ export function UserMenu({ session, onClose }: UserMenuProps) {
             <Menu.Item
               leftSection={<GithubIcon className="h-4 w-4" />}
               component="a"
-              href="https://github.com/positonic/exponential"
+              href="https://github.com/exponential-im/exponential"
               target="_blank"
               rel="noopener noreferrer"
               className="text-text-primary hover:bg-surface-hover"

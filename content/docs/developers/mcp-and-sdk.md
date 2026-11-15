@@ -13,8 +13,8 @@ The MCP server signs in with an [external agent](/docs/developers/external-agent
 
 ## Where to find it
 
-- MCP server: the `exponential-mcp` package on npm ([github.com/positonic/exponential-mcp](https://github.com/positonic/exponential-mcp)).
-- SDK: the `exponential-sdk` package on npm ([github.com/positonic/exponential-sdk](https://github.com/positonic/exponential-sdk)).
+- MCP server: the `exponential-mcp` package on npm ([github.com/exponential-im/exponential-mcp](https://github.com/exponential-im/exponential-mcp)).
+- SDK: the `exponential-sdk` package on npm ([github.com/exponential-im/exponential-sdk](https://github.com/exponential-im/exponential-sdk)).
 - The key the MCP server uses: [Settings → Agents → New agent](/settings/agents/new).
 
 ## How to connect Claude with the MCP server

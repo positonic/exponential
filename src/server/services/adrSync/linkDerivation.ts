@@ -64,7 +64,7 @@ export function deriveSupersedes(docs: AdrDocForLinks[]): DerivedLink[] {
 
 export interface RepoIdentity {
   repositoryId: string;
-  /** e.g. "positonic/exponential" */
+  /** e.g. "exponential-im/exponential" */
   fullName: string;
   shortCode: string;
 }

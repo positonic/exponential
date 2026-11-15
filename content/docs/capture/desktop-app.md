@@ -11,7 +11,7 @@ Exponential runs in the browser, and it also runs as a desktop app that wraps th
 
 ## Where to find it
 
-There are two shells, both in the open-source repository ([github.com/positonic/exponential](https://github.com/positonic/exponential)):
+There are two shells, both in the open-source repository ([github.com/exponential-im/exponential](https://github.com/exponential-im/exponential)):
 
 - **Exponential** (Electron) for macOS, Windows and Linux: the established desktop app, with an overlay title bar on macOS.
 - **Exponential Beta** (Tauri, macOS only): a newer, lighter shell that adds the Local wiki and native macOS window tabs. It installs beside the first, with its own icon and bundle.
