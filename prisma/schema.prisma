@@ -278,15 +278,6 @@ model User {
   dealsAssigned          Deal[]                  @relation("DealAssignedTo")
   dealActivities         DealActivity[]          @relation("DealActivityUser")
 
-  // Retired bounty board (Nov 2026): @ignore keeps these columns in the
-  // database but out of the client, so the next migration can drop them
-  // without breaking the deployment still serving traffic.
-  displayName                    String?                         @ignore
-  bio                            String?                         @ignore
-  contributorSkills              String[]                        @default([]) @ignore
-  isContributor                  Boolean                         @default(false) @ignore
-  wallets                        Wallet[]                        @ignore
-  bountyClaims                   BountyClaim[]                   @ignore
   // Notification override relations
   workspaceNotificationOverrides WorkspaceNotificationOverride[]
 
@@ -518,7 +509,6 @@ model Workspace {
   effortUnit               EffortUnit @default(STORY_POINTS)
   enableAdvancedActions    Boolean    @default(false)
   enableDetailedActions    Boolean    @default(false)
-  enableBounties           Boolean    @default(false) @ignore // retired bounty board; dropped next
   enableDailyPlanBanner    Boolean    @default(true)
   enableWeeklyReviewBanner Boolean    @default(true)
   enableEmailNotifications Boolean    @default(true)
@@ -1247,17 +1237,6 @@ model Action {
   comments             ActionComment[]
   timeEntries          TimeEntry[]
 
-  // Retired bounty board (Nov 2026): ignored by the client, dropped next.
-  isBounty           Boolean       @default(false) @ignore
-  bountyAmount       Decimal?      @ignore
-  bountyToken        String?       @ignore
-  bountyStatus       BountyStatus? @ignore
-  bountyDifficulty   String?       @ignore
-  bountySkills       String[]      @default([]) @ignore
-  bountyDeadline     DateTime?     @ignore
-  bountyMaxClaimants Int           @default(1) @ignore
-  bountyExternalUrl  String?       @ignore
-  bountyClaims       BountyClaim[] @ignore
 
   decisionLinks DecisionLink[]
 
@@ -1364,49 +1343,6 @@ model TimeResolutionRule {
   @@index([userId])
 }
 
-model BountyClaim {
-  id              String      @id @default(cuid())
-  actionId        String
-  claimantId      String
-  status          ClaimStatus @default(ACTIVE)
-  submissionUrl   String?
-  submissionNotes String?
-  reviewNotes     String?
-  claimedAt       DateTime    @default(now())
-  submittedAt     DateTime?
-  reviewedAt      DateTime?
-  createdAt       DateTime    @default(now())
-  updatedAt       DateTime    @updatedAt
-
-  action   Action @relation(fields: [actionId], references: [id], onDelete: Cascade)
-  claimant User   @relation(fields: [claimantId], references: [id])
-
-  @@unique([actionId, claimantId])
-  @@index([actionId])
-  @@index([claimantId])
-  @@index([status])
-
-  @@ignore // retired bounty board (Nov 2026); dropped next
-}
-
-model Wallet {
-  id        String   @id @default(cuid())
-  userId    String
-  address   String   @unique
-  chain     String? // e.g. "ethereum", "solana", "polygon"
-  label     String? // user-defined label, e.g. "Hardware wallet"
-  isPrimary Boolean  @default(false)
-  verified  Boolean  @default(false)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@index([userId])
-
-  @@ignore // retired bounty board (Nov 2026); dropped next
-}
-
 model ActionAssignee {
   id       String @id @default(cuid())
   actionId String
@@ -1470,7 +1406,6 @@ model Project {
   isPublic              Boolean                    @default(false)
   isRestricted          Boolean                    @default(false)
   enableDetailedActions Boolean? // null = inherit from workspace
-  enableBounties        Boolean?                   @ignore // retired bounty board; dropped next
   type                  String                     @default("standard") // "standard" | "pipeline"
   actions               Action[]
   aiInteractionHistory  AiInteractionHistory[]
@@ -3302,22 +3237,6 @@ enum EffortUnit {
   STORY_POINTS
   T_SHIRT
   HOURS
-}
-
-enum BountyStatus {
-  OPEN
-  IN_PROGRESS
-  IN_REVIEW
-  COMPLETED
-  CANCELLED
-}
-
-enum ClaimStatus {
-  ACTIVE
-  SUBMITTED
-  APPROVED
-  REJECTED
-  WITHDRAWN
 }
 
 // Team Weekly Planning Models
