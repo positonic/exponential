@@ -84,9 +84,10 @@ hash changes with the prompt, so the comparison is automatic.
 The **calibration card** on `/admin/feedback` tracks judge-vs-human
 directional agreement. At ≥80% over ≥10 overlap pairs the gate opens, and:
 
-- `npm run file-failures` starts actually filing (code_bug → beads here,
-  agent_behaviour → beads in `../mastra` or here, capability_gap → product
-  Ticket; clustered, idempotent via `ThreadScore.filedAt`).
+- `npm run file-failures -- --product <cuid>` starts actually filing, all as
+  Exponential Tickets (code_bug → BUG, fix here; agent_behaviour → BUG, fix
+  in `../mastra` or here; capability_gap → FEATURE; clustered, idempotent via
+  `ThreadScore.filedAt`).
 - `macro.titan` (once built) adds the Level C inner loop: failures
   clustered by mode → Opus proposes a minimal prompt diff → eval-gated →
   PR opened with the evidence block, **manually triggered** by the

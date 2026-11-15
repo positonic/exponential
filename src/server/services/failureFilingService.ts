@@ -21,12 +21,12 @@ import {
  * re-runs file nothing new when no new failures exist.
  *
  * Destination filers are injected so the service is unit-testable and the
- * script owns the messy parts (bd CLI subprocesses, Ticket creation).
+ * script owns the messy part (Ticket creation against the real DB).
  */
 
 export type DestinationFilers = Record<
   FilingDestination,
-  (filing: Filing) => Promise<string /* destination ref, e.g. "beads:x12" */>
+  (filing: Filing) => Promise<string /* destination ref, e.g. "ticket:<cuid>" */>
 >;
 
 /** Blast-radius cap: a bad batch defers to later runs instead of spamming trackers. */

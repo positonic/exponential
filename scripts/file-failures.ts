@@ -1,13 +1,13 @@
 /**
  * file-failures — Level B lane-routed auto-filing (ADR-0012 decision 4).
  *
- * Takes scored, not-yet-filed failures and files each cluster into the
- * tracker owned by its Failure lane:
+ * Takes scored, not-yet-filed failures and files each cluster as a
+ * Ticket in the product given by --product, typed by its Failure lane:
  *
- *   code_bug        → beads issue in this repo
- *   agent_behaviour → beads issue in ../mastra (brain) or this repo
+ *   code_bug        → BUG Ticket, fix in this repo
+ *   agent_behaviour → BUG Ticket, fix in ../mastra (brain) or this repo
  *                     (router persona / voice catalog), per judge reasoning
- *   capability_gap  → product Ticket (requires --product)
+ *   capability_gap  → FEATURE Ticket
  *
  * GATED on the calibration gate (decision 9): a closed gate files nothing.
  * --override-gate exists for testing only. Idempotent via
@@ -20,16 +20,13 @@
  *   npm run file-failures -- --product <cuid> --yes     # non-local DB host
  *   npm run file-failures -- --override-gate --dry-run  # testing only
  *
- * ⚠️  Writes filedAt/filedRef to the DB at DATABASE_URL and creates issues/
- * Tickets. Refuses non-local DB hosts unless --yes is passed.
+ * ⚠️  Writes filedAt/filedRef to the DB at DATABASE_URL and creates Tickets.
+ * Refuses non-local DB hosts unless --yes is passed.
  */
-import { execFileSync } from "child_process";
-import { existsSync } from "fs";
-
-import { PrismaClient } from "@prisma/client";
+import { PrismaClient, type TicketType } from "@prisma/client";
 
 import { fileFailures } from "../src/server/services/failureFilingService";
-import { type Filing } from "../src/server/services/failureFiling";
+import { type Filing, type FilingDestination } from "../src/server/services/failureFiling";
 import { JUDGE_VERSION } from "../src/server/services/AgentEvalService";
 import { generateFunId } from "../src/lib/fun-ids";
 
@@ -41,7 +38,6 @@ interface Args {
   yes: boolean;
   productId?: string;
   userId?: string;
-  mastraDir: string;
 }
 
 function parseArgs(argv: string[]): Args {
@@ -61,37 +57,15 @@ function parseArgs(argv: string[]): Args {
     yes: argv.includes("--yes"),
     productId: value("--product"),
     userId: value("--user"),
-    mastraDir: value("--mastra") ?? "../mastra",
   };
 }
 
-/** Create a beads issue via the bd CLI; returns "beads:<issue-id>". */
-function fileBeadsIssue(filing: Filing, cwd: string): string {
-  const issueType = filing.lane === "code_bug" ? "bug" : "task";
-  // --silent outputs only the issue id — stable for scripting, unlike the
-  // human-readable banner.
-  const stdout = execFileSync(
-    "bd",
-    [
-      "create",
-      `--title=${filing.title}`,
-      `--type=${issueType}`,
-      "--priority=2",
-      "--silent",
-      "-d",
-      filing.body,
-    ],
-    { cwd, encoding: "utf8" },
-  );
-  const issueId = stdout.trim();
-  if (!/^[a-z0-9]+(-[a-z0-9]+)+$/i.test(issueId)) {
-    throw new Error(
-      `bd create succeeded but output was not a bare issue id — ` +
-        `the issue MAY ALREADY EXIST in ${cwd}; check before re-running:\n${stdout}`,
-    );
-  }
-  return `beads:${issueId}`;
-}
+/** Ticket type and "where the fix lives" note for each destination. */
+const DESTINATION_TICKET: Record<FilingDestination, { type: TicketType; fixLives: string }> = {
+  "app-bug": { type: "BUG", fixLives: "this repo (exponential-app: tRPC, tools, router persona)" },
+  "mastra-bug": { type: "BUG", fixLives: "../mastra (Zoe's brain instructions)" },
+  "capability-gap": { type: "FEATURE", fixLives: "a missing capability, not a bug" },
+};
 
 async function main(): Promise<void> {
   const args = parseArgs(process.argv.slice(2));
@@ -122,31 +96,19 @@ async function main(): Promise<void> {
     // Preflight destination preconditions before any filing happens, so a run
     // never crashes mid-loop with real side effects already behind it.
     if (!args.dryRun) {
-      const unfiledByLane = (lane: string) =>
-        db.threadScore.count({
-          where: { failureLane: lane, filedAt: null, judgeVersion: JUDGE_VERSION },
-        });
-      const capabilityGaps = await unfiledByLane("capability_gap");
-      if (capabilityGaps > 0 && !args.productId) {
+      const unfiled = await db.threadScore.count({
+        where: { failureLane: { not: null }, filedAt: null, judgeVersion: JUDGE_VERSION },
+      });
+      if (unfiled > 0 && !args.productId) {
         console.error(
-          `${capabilityGaps} unfiled capability_gap failure(s) need a product Ticket — ` +
-            "pass --product <cuid>.",
-        );
-        process.exitCode = 1;
-        return;
-      }
-      const agentBehaviours = await unfiledByLane("agent_behaviour");
-      if (agentBehaviours > 0 && !existsSync(args.mastraDir)) {
-        console.error(
-          `--mastra directory "${args.mastraDir}" does not exist — ` +
-            "agent_behaviour filings may go there. Pass --mastra <path>.",
+          `${unfiled} unfiled failure(s) are filed as Tickets — pass --product <cuid>.`,
         );
         process.exitCode = 1;
         return;
       }
     }
 
-    // Resolve who owns capability_gap Tickets we create.
+    // Resolve who owns the Tickets we create.
     const resolveCreator = async (): Promise<string> => {
       if (args.userId) return args.userId;
       const admin = await db.user.findFirst({
@@ -160,50 +122,51 @@ async function main(): Promise<void> {
       return admin.id;
     };
 
+    const fileTicket = async (filing: Filing): Promise<string> => {
+      if (!args.productId) {
+        throw new Error("Filing needs a product — pass --product <cuid>.");
+      }
+      const { type, fixLives } = DESTINATION_TICKET[filing.destination];
+      const createdById = await resolveCreator();
+      // Mirrors the createTicket flow in src/server/api/routers/mastra.ts:
+      // atomic counter increment, then optional fun short id.
+      const updated = await db.product.update({
+        where: { id: args.productId },
+        data: { ticketCounter: { increment: 1 } },
+        select: { ticketCounter: true, funTicketIds: true },
+      });
+      let shortId: string | null = null;
+      if (updated.funTicketIds) {
+        const existing = await db.ticket.findMany({
+          where: { productId: args.productId },
+          select: { shortId: true },
+        });
+        shortId = generateFunId(
+          new Set(existing.map((t) => t.shortId).filter(Boolean) as string[]),
+        );
+      }
+      const ticket = await db.ticket.create({
+        data: {
+          productId: args.productId,
+          number: updated.ticketCounter,
+          shortId,
+          title: filing.title,
+          body: `**Where the fix lives:** ${fixLives}\n\n${filing.body}`,
+          type,
+          status: "BACKLOG",
+          createdById,
+        },
+      });
+      return `ticket:${ticket.id}`;
+    };
+
     const result = await fileFailures(db, {
       dryRun: args.dryRun,
       overrideGate: args.overrideGate,
       filers: {
-        "exponential-beads": (filing) => Promise.resolve(fileBeadsIssue(filing, process.cwd())),
-        "mastra-beads": (filing) => Promise.resolve(fileBeadsIssue(filing, args.mastraDir)),
-        "product-ticket": async (filing) => {
-          if (!args.productId) {
-            throw new Error(
-              "A capability_gap filing needs a product Ticket — pass --product <cuid>.",
-            );
-          }
-          const createdById = await resolveCreator();
-          // Mirrors the createTicket flow in src/server/api/routers/mastra.ts:
-          // atomic counter increment, then optional fun short id.
-          const updated = await db.product.update({
-            where: { id: args.productId },
-            data: { ticketCounter: { increment: 1 } },
-            select: { ticketCounter: true, funTicketIds: true },
-          });
-          let shortId: string | null = null;
-          if (updated.funTicketIds) {
-            const existing = await db.ticket.findMany({
-              where: { productId: args.productId },
-              select: { shortId: true },
-            });
-            shortId = generateFunId(
-              new Set(existing.map((t) => t.shortId).filter(Boolean) as string[]),
-            );
-          }
-          const ticket = await db.ticket.create({
-            data: {
-              productId: args.productId,
-              number: updated.ticketCounter,
-              shortId,
-              title: filing.title,
-              body: filing.body,
-              type: "FEATURE",
-              status: "BACKLOG",
-              createdById,
-            },
-          });
-          return `ticket:${ticket.id}`;
-        },
+        "app-bug": fileTicket,
+        "mastra-bug": fileTicket,
+        "capability-gap": fileTicket,
       },
     });
 

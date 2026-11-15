@@ -57,19 +57,19 @@ describe("clusterFailures", () => {
 });
 
 describe("routeCluster", () => {
-  it("routes code_bug to exponential beads and capability_gap to a product Ticket", () => {
+  it("routes code_bug to an app bug and capability_gap to a capability-gap Ticket", () => {
     expect(routeCluster({ lane: "code_bug", failures: [failure({ lane: "code_bug" })] })).toBe(
-      "exponential-beads",
+      "app-bug",
     );
     expect(
       routeCluster({ lane: "capability_gap", failures: [failure({ lane: "capability_gap" })] }),
-    ).toBe("product-ticket");
+    ).toBe("capability-gap");
   });
 
-  it("routes agent_behaviour to ../mastra by default, to this repo when reasoning points at the router/voice catalog", () => {
+  it("routes agent_behaviour to a mastra bug by default, to an app bug when reasoning points at the router/voice catalog", () => {
     expect(
       routeCluster({ lane: "agent_behaviour", failures: [failure({})] }),
-    ).toBe("mastra-beads");
+    ).toBe("mastra-bug");
     expect(
       routeCluster({
         lane: "agent_behaviour",
@@ -79,7 +79,7 @@ describe("routeCluster", () => {
           }),
         ],
       }),
-    ).toBe("exponential-beads");
+    ).toBe("app-bug");
   });
 });
 
@@ -164,9 +164,9 @@ const unfiledRow = (conversationId: string) => ({
 });
 
 const filers = (): DestinationFilers => ({
-  "exponential-beads": vi.fn().mockResolvedValue("beads:exponential-x1"),
-  "mastra-beads": vi.fn().mockResolvedValue("beads:mastra-x1"),
-  "product-ticket": vi.fn().mockResolvedValue("ticket:cuid1"),
+  "app-bug": vi.fn().mockResolvedValue("ticket:app-x1"),
+  "mastra-bug": vi.fn().mockResolvedValue("ticket:mastra-x1"),
+  "capability-gap": vi.fn().mockResolvedValue("ticket:gap-x1"),
 });
 
 describe("fileFailures", () => {
@@ -177,7 +177,7 @@ describe("fileFailures", () => {
     const result = await fileFailures(db, { filers: f, log });
 
     expect(result.filed).toEqual([]);
-    expect(f["exponential-beads"]).not.toHaveBeenCalled();
+    expect(f["app-bug"]).not.toHaveBeenCalled();
     expect(log).toHaveBeenCalledWith(expect.stringContaining("Calibration gate CLOSED"));
     // never even queried for unfiled failures
     expect(db.threadScore.findMany).toHaveBeenCalledTimes(1);
@@ -193,10 +193,10 @@ describe("fileFailures", () => {
     const result = await fileFailures(db, { filers: f, log: vi.fn(), now: () => now });
 
     expect(result.filed).toHaveLength(1);
-    expect(result.filed[0]!.ref).toBe("beads:exponential-x1");
+    expect(result.filed[0]!.ref).toBe("ticket:app-x1");
     expect(db.threadScore.updateMany).toHaveBeenCalledWith({
       where: { conversationId: { in: ["a", "b"] } },
-      data: { filedAt: now, filedRef: "beads:exponential-x1" },
+      data: { filedAt: now, filedRef: "ticket:app-x1" },
     });
   });
 
@@ -231,7 +231,7 @@ describe("fileFailures", () => {
     const result = await fileFailures(db, { filers: f, log });
 
     expect(result.filed).toHaveLength(MAX_FILINGS_PER_RUN);
-    expect(f["exponential-beads"]).toHaveBeenCalledTimes(MAX_FILINGS_PER_RUN);
+    expect(f["app-bug"]).toHaveBeenCalledTimes(MAX_FILINGS_PER_RUN);
     expect(log).toHaveBeenCalledWith(expect.stringContaining("2 cluster(s) deferred"));
   });
 
@@ -241,7 +241,7 @@ describe("fileFailures", () => {
     const result = await fileFailures(db, { filers: f, log: vi.fn(), dryRun: true });
 
     expect(result.filed[0]!.ref).toBe("(dry-run)");
-    expect(f["exponential-beads"]).not.toHaveBeenCalled();
+    expect(f["app-bug"]).not.toHaveBeenCalled();
     expect(db.threadScore.updateMany).not.toHaveBeenCalled();
   });
 

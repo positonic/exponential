@@ -1,6 +1,6 @@
 # UX Improvement Plan — New User Experience
 
-> Generated from cognitive walkthrough (Feb 2026). Tracks all friction points, their beads, and recommended sequencing.
+> Generated from cognitive walkthrough (Feb 2026). Tracks all friction points, their beads, and recommended sequencing. (Beads was retired in Nov 2026; issues still open then moved to Exponential tickets, searchable by their `exponential-xxx` id.)
 
 ## Status Overview
 

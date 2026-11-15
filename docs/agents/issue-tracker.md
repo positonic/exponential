@@ -75,14 +75,9 @@ exponential tickets list --product exponential --status BLOCKED --json          
 
 Run `exponential tickets get <ticket-cuid> --json`. The output includes the ticket body, status, dependencies, linked actions, and the full comment thread.
 
-## Relationship to beads (`bd`)
+## Beads (`bd`) is retired
 
-This repo ALSO uses [beads](https://github.com/beads-project/beads) for fine-grained, code-adjacent task tracking (see `CLAUDE.md` → "Beads Workflow"). Rough division of labour:
-
-- **Exponential tickets** — product-facing work items: features, PRDs, bugs that span multiple commits, items that should be visible to non-engineers.
-- **Beads issues** — implementation-scope tracking inside a single session or PR: "I'm about to write code, claim it, close it when committed."
-
-When in doubt for skill-driven flows (`/triage`, `/to-issues`, `/to-prd`, `/qa`), use **Exponential**. Beads remains the right answer for the day-to-day `bd ready → bd update → bd close` loop.
+This repo used [beads](https://github.com/beads-project/beads) until November 2026. Its open issues now live in Exponential as tickets whose body starts "Moved from beads `exponential-xxxx`". Exponential is the only tracker; for in-session checklists use `TodoWrite`. See `CLAUDE.md` → "Beads (`bd`) — retired" for reading old issues from git history.
 
 
 ## Wayfinding operations

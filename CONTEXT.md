@@ -71,7 +71,7 @@ _Avoid_: One-on-one, 121.
 The bucket a meeting falls into for navigation. Resolved 2026-09-09 (ADR-0059) without a stored column: a **1:1** is derived from participant count, and a meeting is a *ceremony meeting* when it has an **Occurrence** (filter the Meetings list by ceremony). `customer` / `internal` remain unassigned tabs with honest empty states until a tagging mechanism exists.
 
 **Action**:
-A task extracted from a meeting by Zoe and persisted in the `Action` table. The canonical word everywhere — schema, tRPC routers, CLI, UI. Never "task" in user-facing copy, despite Beads/Task-Master using "task" for their own concepts.
+A task extracted from a meeting by Zoe and persisted in the `Action` table. The canonical word everywhere — schema, tRPC routers, CLI, UI. Never "task" in user-facing copy, despite Task-Master (and the retired Beads tracker) using "task" for their own concepts.
 _Avoid_: Task, todo, item.
 
 **Action source**:

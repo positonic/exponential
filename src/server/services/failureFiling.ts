@@ -2,14 +2,14 @@
  * failureFiling — Level B lane-routed auto-filing, the pure half
  * (ADR-0012 decision 4 + Phase 3 Level B).
  *
- * Scored failures are filed into the tracker owned by their Failure lane
- * instead of a human reading the Level-A report:
+ * Scored failures are filed as Exponential Tickets, routed by their Failure
+ * lane, instead of a human reading the Level-A report:
  *
- *   code_bug        → beads issue in THIS repo (tRPC/tool fix)
- *   agent_behaviour → beads issue in ../mastra (brain instructions) or in
- *                     this repo (router persona / voice catalog), by where
- *                     the judge's reasoning points
- *   capability_gap  → a product Ticket (missing capability, not a bug)
+ *   code_bug        → BUG Ticket, fix in THIS repo (tRPC/tool fix)
+ *   agent_behaviour → BUG Ticket, fix in ../mastra (brain instructions) or
+ *                     in this repo (router persona / voice catalog), by
+ *                     where the judge's reasoning points
+ *   capability_gap  → FEATURE Ticket (missing capability, not a bug)
  *
  * This module is pure: clustering, routing, and body formatting over
  * constructed inputs. failureFilingService.ts owns the gate check, DB
@@ -94,7 +94,7 @@ export function clusterFailures(
   }));
 }
 
-export type FilingDestination = "exponential-beads" | "mastra-beads" | "product-ticket";
+export type FilingDestination = "app-bug" | "mastra-bug" | "capability-gap";
 
 /** Signals in the judge's reasoning/expectation that the agent_behaviour
  * fix lives in THIS repo (server-issued router persona / voice catalog,
@@ -104,18 +104,18 @@ const ROUTER_SIDE_SIGNALS = /\b(router|persona|voice (tool )?catalog|voice.?rout
 export function routeCluster(cluster: FailureCluster): FilingDestination {
   switch (cluster.lane) {
     case "code_bug":
-      return "exponential-beads";
+      return "app-bug";
     case "capability_gap":
-      return "product-ticket";
+      return "capability-gap";
     case "agent_behaviour": {
       const evidence = cluster.failures
         .map((f) => `${f.expectation ?? ""} ${f.reasoning}`)
         .join(" ");
-      return ROUTER_SIDE_SIGNALS.test(evidence) ? "exponential-beads" : "mastra-beads";
+      return ROUTER_SIDE_SIGNALS.test(evidence) ? "app-bug" : "mastra-bug";
     }
     default:
       // Unknown lane: keep it visible in this repo rather than dropping it.
-      return "exponential-beads";
+      return "app-bug";
   }
 }
 

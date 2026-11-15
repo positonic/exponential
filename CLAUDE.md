@@ -691,19 +691,13 @@ outside the feature registry, because it files many thin tickets. See the **Issu
 - **Quick / small / single-step work** (a bugfix, a rename, a one-file change): no tracker needed,
   or an ephemeral `TodoWrite` list. Don't manufacture a ticket for a 5-minute change.
 - **Multi-step or multi-session implementation work**: track it where it belongs in Exponential.
-- **There is no longer a mandate to file everything in `bd` before writing code.**
 
-### Beads (`bd`) — being wound down
+### Beads (`bd`) — retired
 
-beads still holds a historical backlog with live dependency chains (notably the bounty/payment
-epic). It is **not the default tracker anymore** and we are migrating its open issues into
-Exponential. Until that's done:
-
-- It's fine to **read** beads for context: `bd ready`, `bd blocked`, `bd show <id>`,
-  `bd list --status=in_progress`. The `blocked-by` / `blocks` graph is the main thing worth keeping.
-- Don't **create** new beads issues — file new work in Exponential instead.
-- Don't use `bd edit` (it opens `$EDITOR` and blocks agents); use `bd update` if you must edit.
-- `bd` priorities are numeric (0–4 / P0–P4, 0=critical), never "high"/"medium"/"low".
+beads was retired in November 2026. Its still-open issues were triaged and moved into Exponential
+tickets (each body starts "Moved from beads `exponential-xxxx`"); the bounty board / crypto payments
+chain was gathered into one ticket, `micro.grove`, and archived (direction dropped). Don't run `bd` here. To read an old
+issue: `git show 930e7415:.beads/issues.jsonl | grep <id>` (the last `main` commit before removal).
 
 ## Agent skills
 
@@ -711,7 +705,7 @@ Per-repo configuration for Matt Pocock's engineering skills (`/triage`, `/to-prd
 
 ### Issue tracker
 
-Work items (features, PRDs, bugs, tickets) live in **Exponential** under workspace `exponential` / product `exponential`. Use the `exponential` CLI. Ephemeral in-session checklists can use `TodoWrite`; there is no separate mandatory tracker. (Legacy `bd`/beads is read-only and being wound down — see the **Task Tracking** section above.) See [`docs/agents/issue-tracker.md`](docs/agents/issue-tracker.md).
+Work items (features, PRDs, bugs, tickets) live in **Exponential** under workspace `exponential` / product `exponential`. Use the `exponential` CLI. Ephemeral in-session checklists can use `TodoWrite`; there is no other tracker (beads is retired — see the **Task Tracking** section above). See [`docs/agents/issue-tracker.md`](docs/agents/issue-tracker.md).
 
 ### Commenting and @mentions
 

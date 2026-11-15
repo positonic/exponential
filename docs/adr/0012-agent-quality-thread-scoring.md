@@ -137,6 +137,9 @@ Three forces shaped the design:
 - Failure-lane routing presumes a future agent (Level B/C) that can open issues
   in three places (beads/tRPC here, a `../mastra` issue, an Exponential Ticket).
   Until then, Level A surfaces the lanes in a report for a human to action.
+  *Amended 2026-11-15:* beads was retired, so Level B now files every lane as an
+  Exponential Ticket (BUG for code_bug and agent_behaviour, FEATURE for
+  capability_gap); the ticket body says whether the fix lives here or in `../mastra`.
 - `promptVersion` stamping must ship **before** the first prompt fix, or the
   baseline is lost.
 - The `agent_behaviour` lane — not `code_bug` — is the automation target for
