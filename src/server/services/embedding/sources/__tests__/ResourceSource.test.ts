@@ -60,6 +60,26 @@ describe("ResourceSource", () => {
     expect(source.getContent()).toBe("## S\nbody");
   });
 
+  it("indexes the Page text of a page that has no body, so it is found by what it says", () => {
+    const listing = row({
+      content: null,
+      rawContent: null,
+      pageText: "Villa in Lanzarote\n€1,240 total\nFree cancellation",
+      contentType: "web_page",
+      mimeType: null,
+    });
+
+    expect(listing.getContent()).toBe("Villa in Lanzarote\n€1,240 total\nFree cancellation");
+    expect(listing.getSections()).toBeNull();
+  });
+
+  it("indexes the body when there is one, and nothing for a bare link", () => {
+    expect(row({ contentType: "web_page", content: "the article", pageText: "stale" }).getContent()).toBe(
+      "the article",
+    );
+    expect(row({ content: null, rawContent: null, pageText: null }).getContent()).toBeNull();
+  });
+
   it("leaves every other Resource to plain chunking", () => {
     expect(row({ contentType: "note" }).getSections()).toBeNull();
     expect(row({ mimeType: null }).getSections()).toBeNull();

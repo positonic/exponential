@@ -114,13 +114,16 @@ async function flushAfter(): Promise<void> {
 }
 
 import { createMockCaller } from "~/test/trpc-helpers";
+import { alreadyInProjectFromError } from "~/server/services/resources/alreadyInProject";
 import {
   readTransition,
   deriveContent,
   countWords,
   resaveReadStatus,
   saveReadState,
+  pageTextToStore,
   MAX_RAW_CONTENT_CHARS,
+  MAX_PAGE_TEXT_CHARS,
 } from "../resource";
 
 function fakeResource(overrides: Partial<Record<string, unknown>> = {}) {
@@ -142,6 +145,8 @@ function fakeResource(overrides: Partial<Record<string, unknown>> = {}) {
     createdAt: new Date("2026-10-01T00:00:00Z"),
     updatedAt: new Date("2026-10-01T00:00:00Z"),
     archivedAt: null,
+    // Who saved it, as the reads that return rows select it.
+    user: { id: (overrides.userId as string | undefined) ?? "caller-1", name: "Owner" },
     ...overrides,
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
   } as any;
@@ -218,6 +223,22 @@ describe("saveReadState", () => {
   });
 });
 
+describe("pageTextToStore", () => {
+  it("keeps the text of a page that has no body", () => {
+    expect(pageTextToStore("Villa\n€1,240 total", false)).toBe("Villa\n€1,240 total");
+  });
+
+  it("drops it when the save carries a body, and when it is blank or absent", () => {
+    expect(pageTextToStore("Villa", true)).toBeNull();
+    expect(pageTextToStore("  \n ", false)).toBeNull();
+    expect(pageTextToStore(undefined, false)).toBeNull();
+  });
+
+  it("cuts text over the cap instead of refusing it", () => {
+    expect(pageTextToStore("x".repeat(MAX_PAGE_TEXT_CHARS + 50), false)).toHaveLength(MAX_PAGE_TEXT_CHARS);
+  });
+});
+
 describe("deriveContent / countWords", () => {
   it("keeps caller-supplied content untouched, even when empty", () => {
     expect(deriveContent({ content: "hi", rawContent: "<p>no</p>" })).toBe("hi");
@@ -252,6 +273,9 @@ describe("resource router — reading list (mocked)", () => {
     triggerArticleMock.mockReset();
     // No row for the URL unless a test says otherwise (dedupe, D-0027).
     dbMock.resource.findFirst.mockResolvedValue(null);
+    // No workspace, so nothing is shared with the caller through a Project
+    // unless a test says otherwise (ADR-0082).
+    dbMock.workspace.findMany.mockResolvedValue([]);
   });
 
   describe("create", () => {
@@ -466,6 +490,203 @@ describe("resource router — reading list (mocked)", () => {
       expect(dbMock.resource.update).not.toHaveBeenCalled();
     });
 
+    describe("Page text (damp.gem)", () => {
+      const url = "https://www.airbnb.com/rooms/53368445";
+      const pageText = "Villa in Lanzarote\n€1,240 total\nFree cancellation";
+
+      it("stores the text of a page with no Article body, and indexes it when asked", async () => {
+        dbMock.resource.create.mockResolvedValue(fakeResource({ id: "listing", url }));
+        const caller = createMockCaller({ userId: callerId, db: dbMock });
+
+        await caller.resource.create({ title: "Villa", url, pageText, generateEmbeddings: true });
+
+        const data = dbMock.resource.create.mock.calls[0]![0].data;
+        expect(data).toMatchObject({ pageText, wordCount: null });
+        expect(data.content).toBeUndefined();
+        expect(data.rawContent).toBeUndefined();
+        await flushAfter();
+        expect(embedResourceMock).toHaveBeenCalledWith("listing");
+      });
+
+      it("is not indexed unless the save asks for the Knowledge index", async () => {
+        dbMock.resource.create.mockResolvedValue(fakeResource({ id: "listing", url }));
+        const caller = createMockCaller({ userId: callerId, db: dbMock });
+
+        await caller.resource.create({ title: "Villa", url, pageText, generateEmbeddings: false });
+
+        await flushAfter();
+        expect(embedResourceMock).not.toHaveBeenCalled();
+      });
+
+      it("a save that carries both keeps the body and stores no Page text", async () => {
+        dbMock.resource.create.mockResolvedValue(fakeResource({ id: "article", url }));
+        const caller = createMockCaller({ userId: callerId, db: dbMock });
+
+        await caller.resource.create({ title: "Post", url, rawContent: "<p>the article</p>", pageText });
+
+        expect(dbMock.resource.create.mock.calls[0]![0].data).toMatchObject({
+          content: "the article",
+          pageText: null,
+        });
+      });
+
+      it("cuts Page text over the cap and still saves", async () => {
+        dbMock.resource.create.mockResolvedValue(fakeResource({ id: "long", url }));
+        const caller = createMockCaller({ userId: callerId, db: dbMock });
+
+        const out = await caller.resource.create({
+          title: "Long",
+          url,
+          pageText: "x".repeat(MAX_PAGE_TEXT_CHARS + 1),
+          generateEmbeddings: false,
+        });
+
+        expect(out.created).toBe(true);
+        expect(dbMock.resource.create.mock.calls[0]![0].data.pageText).toHaveLength(MAX_PAGE_TEXT_CHARS);
+      });
+
+      it("saving the page again replaces the text and re-indexes it when indexing is on", async () => {
+        dbMock.resource.findFirst.mockResolvedValue(
+          fakeResource({ id: "old", url, title: "airbnb.com", pageText: "€1,100 total" }),
+        );
+        dbMock.resource.update.mockResolvedValue(fakeResource({ id: "old", url }));
+        const caller = createMockCaller({ userId: callerId, db: dbMock });
+
+        await caller.resource.create({ title: "Villa", url, pageText, generateEmbeddings: true, forReference: true });
+
+        expect(dbMock.resource.update.mock.calls[0]![0].data).toMatchObject({ title: "Villa", pageText });
+        await flushAfter();
+        expect(embedResourceMock).toHaveBeenCalledWith("old");
+      });
+
+      it("a Resource that has a body keeps it and takes no Page text", async () => {
+        dbMock.resource.findFirst.mockResolvedValue(
+          fakeResource({ id: "old", url, title: "Kept", content: "the article", rawContent: "<p>the article</p>" }),
+        );
+        dbMock.resource.update.mockResolvedValue(fakeResource({ id: "old", url }));
+        const caller = createMockCaller({ userId: callerId, db: dbMock });
+
+        await caller.resource.create({ title: "Villa", url, pageText, generateEmbeddings: true });
+
+        const data = dbMock.resource.update.mock.calls[0]![0].data;
+        expect(data).not.toHaveProperty("pageText");
+        expect(data).not.toHaveProperty("title");
+        await flushAfter();
+        expect(embedResourceMock).not.toHaveBeenCalled();
+      });
+
+      it("a body saved later replaces the Page text", async () => {
+        dbMock.resource.findFirst.mockResolvedValue(fakeResource({ id: "old", url, pageText: "€1,100 total" }));
+        dbMock.resource.update.mockResolvedValue(fakeResource({ id: "old", url }));
+        const caller = createMockCaller({ userId: callerId, db: dbMock });
+
+        await caller.resource.create({ title: "Post", url, rawContent: "<p>the article</p>", generateEmbeddings: false });
+
+        expect(dbMock.resource.update.mock.calls[0]![0].data).toMatchObject({
+          content: "the article",
+          pageText: null,
+        });
+      });
+
+      it("no response carries Page text: not the reader's read, not the save's own reply", async () => {
+        dbMock.resource.findFirst.mockResolvedValue(fakeResource({ id: "listing", url }));
+        dbMock.resource.update.mockResolvedValue(fakeResource({ id: "listing", url }));
+        const caller = createMockCaller({ userId: callerId, db: dbMock });
+
+        await caller.resource.get({ id: "listing" });
+        await caller.resource.create({ title: "Villa", url, pageText, generateEmbeddings: false });
+        await caller.resource.update({ id: "listing", description: "For January" });
+
+        expect(dbMock.resource.findFirst.mock.calls[0]![0]).toMatchObject({ omit: { pageText: true } });
+        for (const call of dbMock.resource.update.mock.calls) {
+          expect(call[0]).toMatchObject({ omit: { pageText: true } });
+        }
+
+        dbMock.resource.findFirst.mockResolvedValue(null);
+        dbMock.resource.create.mockResolvedValue(fakeResource({ id: "new", url }));
+        await caller.resource.create({ title: "Villa", url, pageText, generateEmbeddings: false });
+        expect(dbMock.resource.create.mock.calls[0]![0]).toMatchObject({ omit: { pageText: true } });
+      });
+    });
+
+    describe("identity and last-saved address (witty.otter)", () => {
+      const LISTING = "https://www.airbnb.com/rooms/53368445";
+      const JANUARY = `${LISTING}?adults=4&check_in=2027-01-25&check_out=2027-01-30&source_impression_id=p3_x`;
+      const MARCH = `${LISTING}?adults=2&check_in=2027-03-01&check_out=2027-03-05&utm_source=mail`;
+
+      it("a new save stores the visited address without tracking, and the page's identity", async () => {
+        dbMock.resource.create.mockResolvedValue(fakeResource({ id: "new" }));
+        const caller = createMockCaller({ userId: callerId, db: dbMock });
+
+        await caller.resource.create({ title: "Villa", url: JANUARY, declaredUrl: LISTING, contentType: "bookmark" });
+
+        expect(dbMock.resource.findFirst.mock.calls[0]![0]!.where).toEqual({ userId: callerId, identity: LISTING });
+        expect(dbMock.resource.create.mock.calls[0]![0].data).toMatchObject({
+          url: `${LISTING}?adults=4&check_in=2027-01-25&check_out=2027-01-30`,
+          identity: LISTING,
+        });
+      });
+
+      it("the same listing saved with other dates updates the one Resource, whose link opens the second visit", async () => {
+        dbMock.resource.findFirst.mockResolvedValue(
+          fakeResource({ id: "old", url: `${LISTING}?adults=4&check_in=2027-01-25&check_out=2027-01-30`, identity: LISTING }),
+        );
+        dbMock.resource.update.mockResolvedValue(fakeResource({ id: "old" }));
+        const caller = createMockCaller({ userId: callerId, db: dbMock });
+
+        const out = await caller.resource.create({ title: "Villa", url: MARCH, declaredUrl: LISTING });
+
+        expect(out.created).toBe(false);
+        expect(dbMock.resource.create).not.toHaveBeenCalled();
+        expect(dbMock.resource.findFirst.mock.calls[0]![0]!.where).toEqual({ userId: callerId, identity: LISTING });
+        expect(dbMock.resource.update.mock.calls[0]![0].data).toMatchObject({
+          url: `${LISTING}?adults=2&check_in=2027-03-01&check_out=2027-03-05`,
+          identity: LISTING,
+        });
+      });
+
+      it("two searches stay two Resources when the site declares one generic address for both", async () => {
+        dbMock.resource.create.mockResolvedValue(fakeResource({ id: "new" }));
+        const caller = createMockCaller({ userId: callerId, db: dbMock });
+        const declaredUrl = "https://www.google.com/travel/flights";
+
+        await caller.resource.create({ title: "ACE", url: "https://www.google.com/travel/flights/search?tfs=ACE", declaredUrl });
+        await caller.resource.create({ title: "FNC", url: "https://www.google.com/travel/flights/search?tfs=FNC", declaredUrl });
+
+        const matchedOn = dbMock.resource.findFirst.mock.calls.map((call) => (call[0]!.where as { identity: string }).identity);
+        expect(matchedOn).toEqual([
+          "https://www.google.com/travel/flights/search?tfs=ACE",
+          "https://www.google.com/travel/flights/search?tfs=FNC",
+        ]);
+        expect(dbMock.resource.create).toHaveBeenCalledTimes(2);
+      });
+
+      it("ignores a declared URL on another host, and saves when it is not a URL at all", async () => {
+        dbMock.resource.create.mockResolvedValue(fakeResource({ id: "new" }));
+        const caller = createMockCaller({ userId: callerId, db: dbMock });
+        const url = "https://shop.example.com/item/9?ref=home";
+
+        await caller.resource.create({ title: "Item", url, declaredUrl: "https://tracker.example.net/item/9" });
+        await caller.resource.create({ title: "Item", url, declaredUrl: "/item/9" });
+
+        for (const call of dbMock.resource.create.mock.calls) {
+          expect(call[0].data).toMatchObject({ url, identity: url });
+        }
+      });
+
+      it("a note with no URL has no identity and is never matched", async () => {
+        dbMock.resource.create.mockResolvedValue(fakeResource({ id: "note", url: null }));
+        const caller = createMockCaller({ userId: callerId, db: dbMock });
+
+        await caller.resource.create({ title: "A note", content: "pasted", contentType: "note", generateEmbeddings: false });
+
+        expect(dbMock.resource.findFirst).not.toHaveBeenCalled();
+        const data = dbMock.resource.create.mock.calls[0]![0].data;
+        expect(data).not.toHaveProperty("url");
+        expect(data).not.toHaveProperty("identity");
+      });
+    });
+
     describe("re-saving a URL already in the list (dedupe, D-0027)", () => {
       it("un-archives, returns to to_read, refreshes the body, and reports created: false", async () => {
         dbMock.resource.findFirst.mockResolvedValue(
@@ -489,7 +710,8 @@ describe("resource router — reading list (mocked)", () => {
 
         expect(dbMock.resource.create).not.toHaveBeenCalled();
         expect(dbMock.resource.findFirst).toHaveBeenCalledWith({
-          where: { userId: callerId, url: "https://example.com/post" },
+          where: { userId: callerId, identity: "https://example.com/post" },
+          orderBy: { updatedAt: "desc" },
         });
         const call = dbMock.resource.update.mock.calls[0]![0];
         expect(call.where).toEqual({ id: "old" });
@@ -699,6 +921,24 @@ describe("resource router — reading list (mocked)", () => {
       expect(dbMock.resource.findMany.mock.calls[1]![0]!.where).not.toHaveProperty("readStatus");
     });
 
+    it("pages without losing the row at a page boundary", async () => {
+      const all = Array.from({ length: 5 }, (_, i) => fakeResource({ id: `r${i}` }));
+      dbMock.resource.findMany.mockImplementation(((args: { take: number; skip?: number; cursor?: { id: string } }) => {
+        const start = args.cursor ? all.findIndex((row) => row.id === args.cursor!.id) + (args.skip ?? 0) : 0;
+        return Promise.resolve(all.slice(start, start + args.take));
+      }) as never);
+      const caller = createMockCaller({ userId: callerId, db: dbMock });
+
+      const first = await caller.resource.list({ limit: 2 });
+      const second = await caller.resource.list({ limit: 2, cursor: first.nextCursor });
+      const third = await caller.resource.list({ limit: 2, cursor: second.nextCursor });
+
+      expect([first, second, third].flatMap((page) => page.resources.map((r) => r.id))).toEqual([
+        "r0", "r1", "r2", "r3", "r4",
+      ]);
+      expect(third.nextCursor).toBeUndefined();
+    });
+
     it("returns readStatus and readAt on every row", async () => {
       dbMock.resource.findMany.mockResolvedValue([fakeResource()]);
       const caller = createMockCaller({ userId: callerId, db: dbMock });
@@ -707,6 +947,419 @@ describe("resource router — reading list (mocked)", () => {
 
       const select = dbMock.resource.findMany.mock.calls[0]![0]!.select!;
       expect(select).toMatchObject({ readStatus: true, readAt: true });
+    });
+  });
+
+  describe("identities (sly.breeze)", () => {
+    const entry = (overrides: Record<string, unknown> = {}) => ({
+      id: "r1",
+      identity: "https://example.com/post",
+      title: "A link",
+      workspaceId: "w1",
+      readStatus: "to_read",
+      project: { id: "p1", name: "Travel" },
+      user: { id: callerId, name: "Caller" },
+      ...overrides,
+    });
+
+    it("returns one entry per unarchived Resource with an identity, for the caller only", async () => {
+      dbMock.resource.findMany.mockResolvedValue([entry()] as never);
+      const caller = createMockCaller({ userId: callerId, db: dbMock });
+
+      const out = await caller.resource.identities();
+
+      const args = dbMock.resource.findMany.mock.calls[0]![0]!;
+      expect(args.where).toEqual({ userId: callerId, archivedAt: null, identity: { not: null } });
+      expect(args.orderBy).toEqual({ id: "asc" });
+      expect(out.items).toEqual([
+        {
+          id: "r1",
+          identity: "https://example.com/post",
+          title: "A link",
+          workspaceId: "w1",
+          project: { id: "p1", name: "Travel" },
+          owner: { id: callerId, name: "Caller" },
+          isMine: true,
+          readStatus: "to_read",
+        },
+      ]);
+      expect(out.nextCursor).toBeUndefined();
+    });
+
+    it("never returns anyone else's read state", async () => {
+      dbMock.resource.findMany.mockResolvedValue([
+        entry({ id: "theirs", readStatus: "reading", user: { id: "teammate", name: "Teammate" } }),
+      ] as never);
+      const caller = createMockCaller({ userId: callerId, db: dbMock });
+
+      const out = await caller.resource.identities();
+
+      expect(out.items[0]).toMatchObject({
+        isMine: false,
+        readStatus: null,
+        owner: { id: "teammate", name: "Teammate" },
+      });
+    });
+
+    it("accepts no URL, identity or page content", async () => {
+      dbMock.resource.findMany.mockResolvedValue([] as never);
+      const caller = createMockCaller({ userId: callerId, db: dbMock });
+
+      await caller.resource.identities({
+        limit: 10,
+        // Unknown keys are stripped, never used: nothing here can narrow the read to a page.
+        ...({ url: "https://example.com/post", identity: "https://example.com/post", title: "A link" } as object),
+      });
+
+      expect(dbMock.resource.findMany.mock.calls[0]![0]!.where).toEqual({
+        userId: callerId,
+        archivedAt: null,
+        identity: { not: null },
+      });
+    });
+
+    it("hands an account with 5,000 Resources the complete list through the cursor", async () => {
+      const all = Array.from({ length: 5000 }, (_, i) => entry({ id: `r${String(i).padStart(4, "0")}` }));
+      dbMock.resource.findMany.mockImplementation(((args: { take: number; skip?: number; cursor?: { id: string } }) => {
+        const start = args.cursor ? all.findIndex((row) => row.id === args.cursor!.id) + (args.skip ?? 0) : 0;
+        return Promise.resolve(all.slice(start, start + args.take));
+      }) as never);
+      const caller = createMockCaller({ userId: callerId, db: dbMock });
+
+      const seen: string[] = [];
+      let cursor: string | undefined;
+      let pages = 0;
+      do {
+        const page = await caller.resource.identities(cursor ? { cursor } : undefined);
+        seen.push(...page.items.map((item) => item.id));
+        cursor = page.nextCursor;
+        pages += 1;
+      } while (cursor);
+
+      expect(seen).toHaveLength(5000);
+      expect(new Set(seen).size).toBe(5000);
+      expect(pages).toBe(5);
+    });
+  });
+
+  describe("filing shares (perky.nova, ADR-0082)", () => {
+    // The caller is in workspace w1, so Resources filed under its Projects can reach them.
+    const sharedW1 = expect.objectContaining({ workspaceId: "w1" }) as unknown;
+    const ownOrShared = { OR: [{ userId: callerId }, { OR: [sharedW1] }] };
+    const teammates = fakeResource({ id: "theirs", userId: "teammate", projectId: "p1", readStatus: "reading", readAt: new Date() });
+
+    beforeEach(() => {
+      dbMock.workspace.findMany.mockResolvedValue([{ id: "w1" }] as never);
+      dbMock.project.findUnique.mockResolvedValue({
+        createdById: callerId,
+        teamId: null,
+        workspaceId: "w1",
+        isPublic: false,
+        isRestricted: false,
+      } as never);
+    });
+
+    it("the reader opens a Resource the caller can see, with its saver and without the owner's read state", async () => {
+      dbMock.resource.findFirst.mockResolvedValue(teammates);
+      const caller = createMockCaller({ userId: callerId, db: dbMock });
+
+      const out = await caller.resource.get({ id: "theirs" });
+
+      expect(dbMock.resource.findFirst.mock.calls[0]![0]!.where).toEqual({ id: "theirs", ...ownOrShared });
+      expect(out.resource).toMatchObject({
+        id: "theirs",
+        isMine: false,
+        owner: { id: "teammate", name: "Owner" },
+        readStatus: null,
+        readAt: null,
+      });
+      expect(out.resource).not.toHaveProperty("user");
+    });
+
+    it("a Project's list is everything filed there that the caller may see, each with who saved it", async () => {
+      dbMock.resource.findMany.mockResolvedValue([teammates, fakeResource({ id: "mine", projectId: "p1" })]);
+      const caller = createMockCaller({ userId: callerId, db: dbMock });
+
+      const out = await caller.resource.list({ projectId: "p1" });
+
+      const where = dbMock.resource.findMany.mock.calls[0]![0]!.where as Record<string, unknown>;
+      expect(where).not.toHaveProperty("userId");
+      expect(where.projectId).toBe("p1");
+      expect(where.AND).toEqual([{ OR: [{ userId: callerId }, { AND: [{ projectId: "p1" }, { OR: [sharedW1] }] }] }]);
+      expect(out.resources.map((r) => [r.id, r.isMine, r.readStatus])).toEqual([
+        ["theirs", false, null],
+        ["mine", true, "to_read"],
+      ]);
+    });
+
+    it("every other list stays the caller's own: the Knowledge page, and the Reading list even inside a Project", async () => {
+      dbMock.resource.findMany.mockResolvedValue([]);
+      const caller = createMockCaller({ userId: callerId, db: dbMock });
+
+      await caller.resource.list({ workspaceId: "w1" });
+      await caller.resource.list({ projectId: "p1", readStatus: "unread" });
+
+      for (const call of dbMock.resource.findMany.mock.calls) {
+        expect(call[0]!.where).toMatchObject({ userId: callerId });
+      }
+      expect(dbMock.workspace.findMany).not.toHaveBeenCalled();
+    });
+
+    it("the identities read includes Resources in Projects the caller can see", async () => {
+      dbMock.resource.findMany.mockResolvedValue([]);
+      const caller = createMockCaller({ userId: callerId, db: dbMock });
+
+      await caller.resource.identities();
+
+      expect(dbMock.resource.findMany.mock.calls[0]![0]!.where).toEqual({
+        ...ownOrShared,
+        archivedAt: null,
+        identity: { not: null },
+      });
+    });
+
+    it("every write looks only at the caller's own rows, so a shared Resource is not theirs to change", async () => {
+      dbMock.resource.findFirst.mockResolvedValue(null);
+      dbMock.resource.updateMany.mockResolvedValue({ count: 0 });
+      dbMock.resource.deleteMany.mockResolvedValue({ count: 0 });
+      const caller = createMockCaller({ userId: callerId, db: dbMock });
+      const refused = { code: "NOT_FOUND" } satisfies Partial<TRPCError>;
+
+      await expect(caller.resource.update({ id: "theirs", description: "x" })).rejects.toMatchObject(refused);
+      await expect(caller.resource.setReadStatus({ id: "theirs", readStatus: "read" })).rejects.toMatchObject(refused);
+      await expect(caller.resource.setPinned({ id: "theirs", pinned: true })).rejects.toMatchObject(refused);
+      await expect(caller.resource.regenerateEmbeddings({ id: "theirs" })).rejects.toMatchObject(refused);
+      await expect(caller.resource.archive({ id: "theirs" })).rejects.toMatchObject(refused);
+      await expect(caller.resource.unarchive({ id: "theirs" })).rejects.toMatchObject(refused);
+      await expect(caller.resource.delete({ id: "theirs" })).rejects.toMatchObject(refused);
+
+      const wheres = [
+        ...dbMock.resource.findFirst.mock.calls.map((call) => call[0]!.where),
+        ...dbMock.resource.updateMany.mock.calls.map((call) => call[0].where),
+        ...dbMock.resource.deleteMany.mock.calls.map((call) => call[0]!.where),
+      ];
+      expect(wheres).toHaveLength(7);
+      for (const where of wheres) expect(where).toEqual({ id: "theirs", userId: callerId });
+      expect(dbMock.resource.update).not.toHaveBeenCalled();
+    });
+
+    it("filing puts the Resource in the Project's workspace, on a save and on a move", async () => {
+      dbMock.resource.create.mockResolvedValue(fakeResource({ id: "new" }));
+      dbMock.workspaceUser.count.mockResolvedValue(1);
+      const caller = createMockCaller({ userId: callerId, db: dbMock });
+
+      await caller.resource.create({ title: "x", url: "https://example.com/a", projectId: "p1", workspaceId: "elsewhere" });
+      expect(dbMock.resource.create.mock.calls[0]![0].data).toMatchObject({ projectId: "p1", workspaceId: "w1" });
+
+      dbMock.resource.findFirst.mockResolvedValue(fakeResource({ id: "mine", workspaceId: "home", projectId: null }));
+      dbMock.resource.update.mockResolvedValue(fakeResource({ id: "mine", workspaceId: "w1", projectId: "p1" }));
+      await caller.resource.update({ id: "mine", projectId: "p1" });
+      expect(dbMock.resource.update.mock.calls[0]![0].data).toMatchObject({ projectId: "p1", workspaceId: "w1" });
+      // Its index entries go with it, so the Project's members can find it.
+      expect(dbMock.knowledgeChunk.updateMany).toHaveBeenCalledWith({
+        where: { sourceType: "resource", sourceId: "mine" },
+        data: { projectId: "p1", workspaceId: "w1" },
+      });
+    });
+  });
+
+  describe("a page is filed once per Project (keen.quill)", () => {
+    const url = "https://www.airbnb.com/rooms/53368445";
+    const theirs = { id: "theirs", title: "Villa", user: { id: "teammate", name: "James" } };
+    const already = { resourceId: "theirs", title: "Villa", projectId: "p1", owner: { id: "teammate", name: "James" } };
+
+    beforeEach(() => {
+      dbMock.workspace.findMany.mockResolvedValue([{ id: "w1" }] as never);
+      dbMock.workspaceUser.count.mockResolvedValue(1);
+      dbMock.project.findUnique.mockResolvedValue({
+        createdById: callerId,
+        teamId: null,
+        workspaceId: "w1",
+        isPublic: false,
+        isRestricted: false,
+      } as never);
+    });
+
+    /** The caller has no Resource for the page; a teammate's is filed under p1. */
+    function teammateFiledIt() {
+      dbMock.resource.findFirst.mockResolvedValueOnce(null).mockResolvedValueOnce(theirs as never);
+    }
+
+    it("refuses a save for reference, naming the Resource and who saved it, matched by identity", async () => {
+      teammateFiledIt();
+      const caller = createMockCaller({ userId: callerId, db: dbMock });
+
+      const error = await caller.resource
+        .create({ title: "Villa", url: `${url}?check_in=2027-03-01&utm_source=mail`, declaredUrl: url, projectId: "p1", forReference: true })
+        .then(() => null, (thrown: unknown) => thrown);
+
+      expect(error).toMatchObject({ code: "CONFLICT", message: "Already in this project, saved by James" });
+      expect(alreadyInProjectFromError(error)).toEqual(already);
+      expect(dbMock.resource.findFirst.mock.calls[1]![0]!.where).toMatchObject({
+        AND: [expect.anything(), { identity: url, archivedAt: null, userId: { not: callerId } }],
+      });
+      expect(dbMock.resource.create).not.toHaveBeenCalled();
+      expect(dbMock.resource.update).not.toHaveBeenCalled();
+    });
+
+    it("an explicit read request is a save for reference too", async () => {
+      teammateFiledIt();
+      const caller = createMockCaller({ userId: callerId, db: dbMock });
+
+      await expect(
+        caller.resource.create({ title: "Villa", url, projectId: "p1", readStatus: "read" }),
+      ).rejects.toMatchObject({ code: "CONFLICT" });
+    });
+
+    it("with the Reading list requested, saves the caller's own Resource with no Project and reports the one already there", async () => {
+      teammateFiledIt();
+      dbMock.resource.create.mockResolvedValue(fakeResource({ id: "mine", projectId: null }));
+      const caller = createMockCaller({ userId: callerId, db: dbMock });
+
+      const out = await caller.resource.create({ title: "Villa", url, projectId: "p1", workspaceId: "w1" });
+
+      const data = dbMock.resource.create.mock.calls[0]![0].data;
+      expect(data).toMatchObject({ workspaceId: "w1", readStatus: "to_read", userId: callerId });
+      expect(data.projectId).toBeUndefined();
+      expect(out).toMatchObject({ created: true, alreadyInProject: already });
+    });
+
+    it("leaves the caller's own Resource where it is filed when the Reading list is requested", async () => {
+      dbMock.resource.findFirst
+        .mockResolvedValueOnce(fakeResource({ id: "mine", projectId: "elsewhere", workspaceId: "w9", readStatus: "read" }))
+        .mockResolvedValueOnce(theirs as never);
+      dbMock.resource.update.mockResolvedValue(fakeResource({ id: "mine", projectId: "elsewhere", workspaceId: "w9" }));
+      const caller = createMockCaller({ userId: callerId, db: dbMock });
+
+      const out = await caller.resource.create({ title: "Villa", url, projectId: "p1", workspaceId: "w1" });
+
+      const data = dbMock.resource.update.mock.calls[0]![0].data;
+      expect(data).not.toHaveProperty("projectId");
+      expect(data).not.toHaveProperty("workspaceId");
+      expect(data).toMatchObject({ readStatus: "to_read" });
+      expect(out).toMatchObject({ created: false, alreadyInProject: already });
+    });
+
+    it("does not look for a second filing when the caller's own Resource is already in the Project", async () => {
+      dbMock.resource.findFirst.mockResolvedValueOnce(fakeResource({ id: "mine", projectId: "p1" }));
+      dbMock.resource.update.mockResolvedValue(fakeResource({ id: "mine", projectId: "p1" }));
+      const caller = createMockCaller({ userId: callerId, db: dbMock });
+
+      const out = await caller.resource.create({ title: "Villa", url, projectId: "p1", forReference: true });
+
+      expect(dbMock.resource.findFirst).toHaveBeenCalledTimes(1);
+      expect(out).toMatchObject({ created: false, alreadyInProject: null });
+    });
+
+    it("bringing back an archived Resource whose place a teammate has since taken unfiles it, without refusing the save", async () => {
+      dbMock.resource.findFirst
+        .mockResolvedValueOnce(fakeResource({ id: "mine", projectId: "p1", archivedAt: new Date("2026-11-01T00:00:00Z") }))
+        .mockResolvedValueOnce(theirs as never);
+      dbMock.resource.update.mockResolvedValue(fakeResource({ id: "mine", projectId: null }));
+      const caller = createMockCaller({ userId: callerId, db: dbMock });
+
+      // No Project named: just the page, saved again for reference.
+      const out = await caller.resource.create({ title: "Villa", url, forReference: true });
+
+      expect(dbMock.resource.update.mock.calls[0]![0].data).toMatchObject({ archivedAt: null, projectId: null });
+      expect(out).toMatchObject({ created: false, alreadyInProject: already });
+    });
+
+    it("an archived Resource comes back into its Project when nobody else has filed the page there", async () => {
+      dbMock.resource.findFirst
+        .mockResolvedValueOnce(fakeResource({ id: "mine", projectId: "p1", archivedAt: new Date("2026-11-01T00:00:00Z") }))
+        .mockResolvedValueOnce(null);
+      dbMock.resource.update.mockResolvedValue(fakeResource({ id: "mine", projectId: "p1" }));
+      const caller = createMockCaller({ userId: callerId, db: dbMock });
+
+      const out = await caller.resource.create({ title: "Villa", url, forReference: true });
+
+      expect(dbMock.resource.update.mock.calls[0]![0].data).not.toHaveProperty("projectId");
+      expect(out.alreadyInProject).toBeNull();
+    });
+
+    it("refuses a move into a Project that already lists the page, and moves nothing", async () => {
+      dbMock.resource.findFirst
+        .mockResolvedValueOnce(fakeResource({ id: "mine", identity: url, projectId: null }))
+        .mockResolvedValueOnce(theirs as never);
+      const caller = createMockCaller({ userId: callerId, db: dbMock });
+
+      const error = await caller.resource
+        .update({ id: "mine", projectId: "p1" })
+        .then(() => null, (thrown: unknown) => thrown);
+
+      expect(error).toMatchObject({ code: "CONFLICT" });
+      expect(alreadyInProjectFromError(error)).toEqual(already);
+      expect(dbMock.resource.update).not.toHaveBeenCalled();
+    });
+
+    it("a save with no Project never asks", async () => {
+      dbMock.resource.create.mockResolvedValue(fakeResource({ id: "mine" }));
+      const caller = createMockCaller({ userId: callerId, db: dbMock });
+
+      const out = await caller.resource.create({ title: "Villa", url, forReference: true });
+
+      expect(dbMock.resource.findFirst).toHaveBeenCalledTimes(1);
+      expect(out.alreadyInProject).toBeNull();
+    });
+  });
+
+  describe("unfile (woody.wolf)", () => {
+    const filed = { id: "theirs", userId: "teammate", projectId: "p1", workspaceId: "w1" };
+    const project = (overrides: Record<string, unknown> = {}) =>
+      ({ createdById: "teammate", teamId: null, workspaceId: "w1", isPublic: false, isRestricted: false, ...overrides }) as never;
+
+    beforeEach(() => {
+      dbMock.workspace.findMany.mockResolvedValue([{ id: "w1" }] as never);
+      dbMock.resource.findFirst.mockResolvedValue(filed as never);
+      dbMock.resource.update.mockResolvedValue({ id: "theirs", projectId: null, workspaceId: "w1" } as never);
+    });
+
+    it("a Project editor takes someone else's Resource out of the Project and changes nothing else", async () => {
+      dbMock.project.findUnique.mockResolvedValue(project());
+      dbMock.workspaceUser.findUnique.mockResolvedValue({ role: "member" } as never);
+      const caller = createMockCaller({ userId: callerId, db: dbMock });
+
+      const out = await caller.resource.unfile({ id: "theirs" });
+
+      expect(out).toEqual({ id: "theirs", projectId: null, unfiled: true });
+      expect(dbMock.resource.update.mock.calls[0]![0]).toMatchObject({
+        where: { id: "theirs" },
+        data: { projectId: null },
+      });
+      // Its index entries leave the Project too, so its text is no longer found by the members.
+      expect(dbMock.knowledgeChunk.updateMany).toHaveBeenCalledWith({
+        where: { sourceType: "resource", sourceId: "theirs" },
+        data: { projectId: null, workspaceId: "w1" },
+      });
+    });
+
+    it("refuses a member who can see the Project but not edit it", async () => {
+      dbMock.project.findUnique.mockResolvedValue(project());
+      dbMock.workspaceUser.findUnique.mockResolvedValue({ role: "viewer" } as never);
+      const caller = createMockCaller({ userId: callerId, db: dbMock });
+
+      await expect(caller.resource.unfile({ id: "theirs" })).rejects.toMatchObject({ code: "FORBIDDEN" });
+      expect(dbMock.resource.update).not.toHaveBeenCalled();
+    });
+
+    it("looks only among Resources the caller can see", async () => {
+      dbMock.resource.findFirst.mockResolvedValue(null);
+      const caller = createMockCaller({ userId: callerId, db: dbMock });
+
+      await expect(caller.resource.unfile({ id: "theirs" })).rejects.toMatchObject({ code: "NOT_FOUND" });
+      expect(dbMock.resource.findFirst.mock.calls[0]![0]!.where).toMatchObject({
+        id: "theirs",
+        OR: [{ userId: callerId }, expect.anything()],
+      });
+    });
+
+    it("the owner unfiles their own without needing edit access to the Project", async () => {
+      dbMock.resource.findFirst.mockResolvedValue({ ...filed, userId: callerId } as never);
+      const caller = createMockCaller({ userId: callerId, db: dbMock });
+
+      await expect(caller.resource.unfile({ id: "theirs" })).resolves.toMatchObject({ unfiled: true });
+      expect(dbMock.project.findUnique).not.toHaveBeenCalled();
     });
   });
 
@@ -805,7 +1458,26 @@ describe("resource router — agent works on its owner's list (mocked)", () => {
     expect(dbMock.resource.findFirst.mock.calls[0]![0]!.where).toEqual({
       userId: OWNER_ID,
       workspaceId: { in: ["w1"] },
-      url: "https://example.com/post",
+      identity: "https://example.com/post",
+    });
+  });
+
+  it("matches a page saved from another address only inside its delegated workspaces", async () => {
+    dbMock.resource.create.mockResolvedValue(fakeResource({ userId: OWNER_ID }));
+
+    await agentCaller().resource.create({
+      title: "A listing",
+      url: "https://www.airbnb.com/rooms/53368445?adults=2&utm_source=mail",
+      declaredUrl: "https://www.airbnb.com/rooms/53368445",
+      contentType: "bookmark",
+      workspaceId: "w1",
+      generateEmbeddings: false,
+    });
+
+    expect(dbMock.resource.findFirst.mock.calls[0]![0]!.where).toEqual({
+      userId: OWNER_ID,
+      workspaceId: { in: ["w1"] },
+      identity: "https://www.airbnb.com/rooms/53368445",
     });
   });
 
@@ -836,6 +1508,91 @@ describe("resource router — agent works on its owner's list (mocked)", () => {
       workspaceId: { in: ["w1"] },
       AND: [{ OR: [{ workspaceId: "w1" }, { workspaceId: null }] }],
       readStatus: { in: ["to_read", "reading"] },
+    });
+  });
+
+  it("fetches the identities of the owner's Resources in delegated workspaces only", async () => {
+    dbMock.resource.findMany.mockResolvedValue([
+      {
+        id: "r1",
+        identity: "https://example.com/post",
+        title: "A link",
+        workspaceId: "w1",
+        readStatus: "to_read",
+        project: null,
+        user: { id: OWNER_ID, name: "Owner" },
+      },
+    ] as never);
+
+    const out = await agentCaller().resource.identities();
+
+    expect(dbMock.resource.findMany.mock.calls[0]![0]!.where).toEqual({
+      userId: OWNER_ID,
+      workspaceId: { in: ["w1"] },
+      archivedAt: null,
+      identity: { not: null },
+    });
+    // The list is the owner's, so its entries are "mine" to the agent keeping it.
+    expect(out.items[0]).toMatchObject({ isMine: true, readStatus: "to_read" });
+  });
+
+  it("gains no view of other people's shared Resources (ADR-0082 leaves an agent's reach alone)", async () => {
+    dbMock.workspace.findMany.mockResolvedValue([{ id: "w1" }] as never);
+    dbMock.resource.findMany.mockResolvedValue([]);
+    dbMock.resource.findFirst.mockResolvedValue(null);
+    // A Project both the agent and its owner pass the gate of.
+    dbMock.project.findUnique.mockResolvedValue({
+      createdById: OWNER_ID,
+      teamId: null,
+      workspaceId: "w1",
+      isPublic: true,
+      isRestricted: false,
+    } as never);
+    const own = { userId: OWNER_ID, workspaceId: { in: ["w1"] } };
+
+    await agentCaller().resource.identities();
+    await agentCaller().resource.list({ projectId: "p1" });
+    await expect(agentCaller().resource.get({ id: "theirs" })).rejects.toMatchObject({ code: "NOT_FOUND" });
+
+    expect(dbMock.resource.findMany.mock.calls[0]![0]!.where).toEqual({ ...own, archivedAt: null, identity: { not: null } });
+    expect(dbMock.resource.findMany.mock.calls[1]![0]!.where).toMatchObject(own);
+    expect(dbMock.resource.findFirst.mock.calls[0]![0]!.where).toEqual({ id: "theirs", ...own });
+  });
+
+  it("keeps its owner's own copy in a delegated workspace when the Project already lists the page", async () => {
+    dbMock.workspace.findMany.mockResolvedValue([{ id: "w1" }] as never);
+    dbMock.project.findUnique.mockResolvedValue({
+      createdById: OWNER_ID,
+      teamId: null,
+      workspaceId: "w1",
+      isPublic: true,
+      isRestricted: false,
+    } as never);
+    // The agent and its owner are both members of w1, so both may edit the Project.
+    dbMock.workspaceUser.findUnique.mockResolvedValue({ role: "member" } as never);
+    dbMock.resource.findFirst
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({ id: "theirs", title: "Villa", user: { id: "teammate", name: "James" } } as never);
+    dbMock.resource.create.mockResolvedValue(fakeResource({ userId: OWNER_ID }));
+
+    // A Project and no workspace named, and the Reading list asked for by default.
+    await agentCaller().resource.create({ title: "Villa", url: "https://example.com/villa", projectId: "p1" });
+
+    const data = dbMock.resource.create.mock.calls[0]![0].data;
+    expect(data).toMatchObject({ userId: OWNER_ID, workspaceId: "w1" });
+    expect(data.projectId).toBeUndefined();
+  });
+
+  it("unfiles only its owner's Resources, never one a teammate filed", async () => {
+    dbMock.workspace.findMany.mockResolvedValue([{ id: "w1" }] as never);
+    dbMock.resource.findFirst.mockResolvedValue(null);
+
+    await expect(agentCaller().resource.unfile({ id: "theirs" })).rejects.toMatchObject({ code: "NOT_FOUND" });
+
+    expect(dbMock.resource.findFirst.mock.calls[0]![0]!.where).toEqual({
+      id: "theirs",
+      userId: OWNER_ID,
+      workspaceId: { in: ["w1"] },
     });
   });
 

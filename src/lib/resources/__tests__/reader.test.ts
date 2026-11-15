@@ -146,6 +146,17 @@ describe('readerContent', () => {
     expect(out.isEmpty).toBe(false);
   });
 
+  it('never shows Page text: a page saved with only that reads like a bare saved link', () => {
+    const listing = { ...base, pageText: 'Villa in Lanzarote €1,240 total' };
+
+    expect(readerContent(listing)).toMatchObject({ summary: null, body: null, transcript: null, isEmpty: true });
+    expect(readerContent({ ...listing, description: 'For the January trip' })).toMatchObject({
+      body: 'For the January trip',
+      isEmpty: false,
+    });
+    expect(JSON.stringify(readerContent(listing))).not.toContain('Lanzarote');
+  });
+
   it('reads an article with no summary, preferring Markdown over the captured HTML', () => {
     const out = readerContent({ ...base, content: 'markdown', rawContent: '<p>html</p>' });
     expect(out).toMatchObject({ summary: null, body: 'markdown', bodyLabel: 'Full article', isEmpty: false });

@@ -49,6 +49,11 @@ function readingTime(words: number | null): string | null {
  * text folded under it; otherwise the full text is the page. A link to the
  * original is always on hand. Opening an unread item marks it `reading`;
  * marking it read is explicit (D-0031), as on the iOS reader.
+ *
+ * A Resource someone else filed under a Project the reader is in opens here
+ * too (ADR-0082), to be read and nothing more: read state, archiving and
+ * every other change belong to its owner, so those controls are the owner's
+ * alone and opening it marks nothing.
  */
 export function ResourceReader({ resourceId, workspaceSlug }: ResourceReaderProps) {
   const router = useRouter();
@@ -85,7 +90,7 @@ export function ResourceReader({ resourceId, workspaceSlug }: ResourceReaderProp
   useEffect(() => {
     if (!resource || markedOpened.current === resource.id) return;
     markedOpened.current = resource.id;
-    if (resource.readStatus === 'to_read') {
+    if (resource.isMine && resource.readStatus === 'to_read') {
       mutateReadStatus({ id: resource.id, readStatus: 'reading' });
     }
   }, [resource, mutateReadStatus]);
@@ -127,7 +132,7 @@ export function ResourceReader({ resourceId, workspaceSlug }: ResourceReaderProp
           {backLink}
           <Text className={styles.notice}>
             {error?.data?.code === 'NOT_FOUND'
-              ? 'This item is not in your Reading list.'
+              ? "This item isn't yours, or isn't filed under a project you're in."
               : "Couldn't load this item. Refresh to try again."}
           </Text>
         </div>
@@ -147,6 +152,7 @@ export function ResourceReader({ resourceId, workspaceSlug }: ResourceReaderProp
     resource.publishedAt ? new Date(resource.publishedAt).toLocaleDateString() : null,
     // A transcript's length isn't a reading time; an article's is.
     resource.contentType === 'video' && !isVideoArticle(resource) ? null : readingTime(resource.wordCount),
+    resource.isMine ? null : `Saved by ${resource.owner.name ?? 'a teammate'}`,
   ].filter(Boolean);
 
   return (
@@ -171,7 +177,7 @@ export function ResourceReader({ resourceId, workspaceSlug }: ResourceReaderProp
                 {sourceLabel}
               </Button>
             )}
-            {isRead ? (
+            {resource.isMine && (isRead ? (
               <Button
                 size="xs"
                 variant="subtle"
@@ -196,8 +202,8 @@ export function ResourceReader({ resourceId, workspaceSlug }: ResourceReaderProp
               >
                 Mark read
               </Button>
-            )}
-            {!resource.archivedAt && (
+            ))}
+            {resource.isMine && !resource.archivedAt && (
               <Button
                 size="xs"
                 variant="subtle"

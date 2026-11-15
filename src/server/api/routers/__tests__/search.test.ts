@@ -283,6 +283,8 @@ describe("search router — knowledge (mocked)", () => {
       pageViewerId: callerId,
       transcriptionViewerId: callerId,
       resourceViewerId: callerId,
+      // A person also finds Resources filed under Projects they are in (ADR-0082).
+      resourceSharedWithViewer: true,
       sourceTypes: ["transcription", "resource", "page"],
       limit: 20,
     });

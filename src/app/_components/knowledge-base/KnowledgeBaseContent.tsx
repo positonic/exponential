@@ -39,10 +39,8 @@ import {
   IconInfoCircle,
   IconX,
   IconBrandYoutube,
-  IconExternalLink,
 } from '@tabler/icons-react';
 import { useState } from 'react';
-import Link from 'next/link';
 import { api } from '~/trpc/react';
 import { useWorkspace } from '~/providers/WorkspaceProvider';
 import { useDebouncedValue, useDisclosure } from '@mantine/hooks';
@@ -51,13 +49,12 @@ import {
   anySummaryPending,
   isSummaryPending,
   resourceReaderHref,
-  safeSourceUrl,
-  sourceLinkLabel,
   SUMMARY_POLL_MS,
   type SummaryFields,
 } from '~/lib/resources/reader';
 import { youtubeVideoId } from '~/utils/youtube';
 import styles from './KnowledgeBaseContent.module.css';
+import { RowMain, SourceLink, shortDate } from './ResourceRowParts';
 import { classifyQuickSave } from './quickSave';
 import { MarkdownInput } from '~/app/_components/shared/MarkdownInput';
 
@@ -117,69 +114,6 @@ function hostnameOf(url: string | null | undefined): string | null {
   } catch {
     return null;
   }
-}
-
-function shortDate(date: Date | string): string {
-  return new Date(date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-}
-
-/**
- * The row's title: a link when there is somewhere to go (external URLs open
- * in a new tab), plain text otherwise. A Resource's title always goes to the
- * reader; `SourceLink` is the way to the original.
- */
-function RowMain({
-  href,
-  external,
-  children,
-}: {
-  href: string | null;
-  external?: boolean;
-  children: React.ReactNode;
-}) {
-  if (!href) return <div className={styles.rowMain}>{children}</div>;
-  if (external) {
-    return (
-      <a href={href} target="_blank" rel="noopener noreferrer" className={styles.rowMain}>
-        {children}
-      </a>
-    );
-  }
-  return (
-    <Link href={href} className={styles.rowMain}>
-      {children}
-    </Link>
-  );
-}
-
-/**
- * The way to the original, beside a title that opens the reader. Always takes
- * its slot, so labels line up down a column whether or not a row has a URL.
- */
-function SourceLink({ url, onOpen }: { url: string | null | undefined; onOpen?: () => void }) {
-  const href = safeSourceUrl(url);
-  const label = sourceLinkLabel(href);
-  return (
-    <span className={styles.sourceSlot}>
-      {href && (
-        <Tooltip label={label}>
-          <ActionIcon
-            component="a"
-            href={href}
-            target="_blank"
-            rel="noopener noreferrer"
-            variant="subtle"
-            color="gray"
-            size="sm"
-            aria-label={label}
-            onClick={onOpen}
-          >
-            <IconExternalLink size={14} stroke={1.75} />
-          </ActionIcon>
-        </Tooltip>
-      )}
-    </span>
-  );
 }
 
 function RowSkeletons() {

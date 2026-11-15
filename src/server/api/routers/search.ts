@@ -14,6 +14,7 @@ import {
 import { stripHtml } from "~/lib/utils";
 import { shortIdSearchWhere, ticketUrlId } from "~/lib/fun-ids";
 import { getKnowledgeService } from "~/server/services/KnowledgeService";
+import { resolvePrincipal } from "~/server/services/access/principal";
 import { isAiConfigured } from "~/server/services/ai/requireAi";
 
 /**
@@ -593,6 +594,10 @@ export const searchRouter = createTRPCRouter({
         pageViewerId: userId,
         transcriptionViewerId: userId,
         resourceViewerId: userId,
+        // A person also finds the Resources filed under Projects they are
+        // in (ADR-0082). An agent's shadow user is a workspace member too,
+        // and must not: its reach is its owner's own Resources (ADR-0079).
+        resourceSharedWithViewer: (await resolvePrincipal(ctx)).kind !== "agent",
         // Uploaded documents have no page to link to yet, so their chunks are
         // always dropped below; searching them would only spend the over-fetch.
         sourceTypes: input.sourceTypes ?? SEARCHABLE_KNOWLEDGE_SOURCES,

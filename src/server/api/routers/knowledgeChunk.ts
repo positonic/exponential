@@ -2,6 +2,7 @@ import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 import { getKnowledgeService } from "~/server/services/KnowledgeService";
+import { resolvePrincipal } from "~/server/services/access/principal";
 
 // ────────────────────────────────────────────────────────────────────
 // One2b agent integration: lightweight wrappers around KnowledgeService
@@ -152,7 +153,8 @@ export const knowledgeChunkRouter = createTRPCRouter({
       //    originally ingested the transcript). Access still applies per
       //    source: `pageViewerId` keeps only Pages the caller can view,
       //    `transcriptionViewerId` only Meetings they can view, and
-      //    `resourceViewerId` only Resources they own, so restricted Pages,
+      //    `resourceViewerId` only Resources they own or were shared
+      //    through a Project they are in, so restricted Pages,
       //    restricted-project Meetings and other members' private Resources
       //    don't reach the agent through search. A brief needs no more than that: `transcription.findRelated`
       //    already returns only Meetings the caller can view.
@@ -165,9 +167,12 @@ export const knowledgeChunkRouter = createTRPCRouter({
         participantEmail: input.participantEmail,
         pageViewerId: userId,
         transcriptionViewerId: userId,
-        // Resources are private to their owner: the agent finds the caller's
-        // own saved pages and notes, never another member's.
+        // A Resource with no Project is private to its owner; one filed
+        // under a Project is shared with the people in it (ADR-0082). So a
+        // person finds their own and those, and an agent principal only what
+        // its own user owns (ADR-0079).
         resourceViewerId: userId,
+        resourceSharedWithViewer: (await resolvePrincipal(ctx)).kind !== "agent",
         limit: input.limit,
       });
 

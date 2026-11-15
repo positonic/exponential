@@ -384,7 +384,7 @@ describe("knowledgeChunk router (mocked)", () => {
       );
     });
 
-    it("restricts resource chunks to the caller's own resources (resourceViewerId)", async () => {
+    it("restricts resource chunks to Resources the caller can see (resourceViewerId)", async () => {
       stubMembership(true);
       mockSearch.mockResolvedValue([]);
 
@@ -402,7 +402,12 @@ describe("knowledgeChunk router (mocked)", () => {
       expect(mockSearch).toHaveBeenNthCalledWith(
         2,
         "x",
-        expect.objectContaining({ resourceViewerId: callerId, sourceTypes: ["resource"] }),
+        // The caller's own, and those shared through a Project they are in (ADR-0082).
+        expect.objectContaining({
+          resourceViewerId: callerId,
+          resourceSharedWithViewer: true,
+          sourceTypes: ["resource"],
+        }),
       );
     });
 

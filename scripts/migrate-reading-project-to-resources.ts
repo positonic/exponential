@@ -35,6 +35,7 @@
  */
 
 import path from 'node:path';
+import { resourceAddresses } from '../src/lib/resources/identity';
 
 export interface ActionRow {
   id: string;
@@ -201,7 +202,7 @@ export async function main(): Promise<void> {
       db.resource.create({
         data: {
           title: d.title,
-          url: d.url,
+          ...(d.url ? resourceAddresses(d.url) : {}),
           description: d.description,
           contentType: d.contentType,
           readStatus: d.readStatus,

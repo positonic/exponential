@@ -86,8 +86,14 @@ export {
   canEditProject,
   canManageProjectMembers,
   buildProjectAccessWhere,
+  buildProjectInsiderWhere,
   buildProjectEditWhere,
 } from "./resolvers/projectResolver";
+export {
+  buildSharedResourceWhere,
+  listSharedResourceProjectIds,
+  resourceOwnerInWorkspaceWhere,
+} from "./resolvers/resourceResolver";
 export { projectAccessDeniedError, type ProjectDeniedAction } from "./projectDenial";
 export {
   getActionAccess,

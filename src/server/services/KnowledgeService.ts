@@ -5,6 +5,7 @@ import type { PrismaClient } from "@prisma/client";
 import { randomUUID } from "crypto";
 import { buildKnowledgePageAccessWhere } from "~/server/services/access/resolvers/knowledgePageResolver";
 import { buildTranscriptionAccessWhere } from "~/server/services/access/resolvers/transcriptionResolver";
+import { listSharedResourceProjectIds } from "~/server/services/access/resolvers/resourceResolver";
 import type {
   EmbeddingSource,
   EmbeddingResult,
@@ -98,6 +99,15 @@ export interface KnowledgeSearchOptions {
    * are excluded entirely.
    */
   resourceViewerId?: string;
+  /**
+   * Also keep `resource` chunks of Resources other people shared with
+   * `resourceViewerId` by filing them under a Project that person is in
+   * (ADR-0082; the rule is in `access/resolvers/resourceResolver.ts`). Search
+   * follows visibility exactly: this is the same set `resource.list` and
+   * `resource.get` admit. Set it for a person. Leave it unset for an agent,
+   * which reads its owner's Resources and nobody else's (ADR-0079).
+   */
+  resourceSharedWithViewer?: boolean;
   limit?: number;
   similarityThreshold?: number;
 }
@@ -614,6 +624,8 @@ export class KnowledgeService {
    *      ANDed with `participantEmail`, which can only narrow the result.
    *   - `resourceViewerId` — keep `resource` chunks only for Resources this
    *      user owns; omitted, they are dropped (fail closed)
+   *   - `resourceSharedWithViewer` — also keep Resources shared with that
+   *      user through a Project they are in (ADR-0082); for people, not agents
    */
   async search(
     query: string,
@@ -628,6 +640,7 @@ export class KnowledgeService {
       pageViewerId,
       transcriptionViewerId,
       resourceViewerId,
+      resourceSharedWithViewer,
       limit = 10,
     } = options;
 
@@ -718,7 +731,8 @@ export class KnowledgeService {
       transcriptionAccessCondition = Prisma.sql`AND (kc."sourceType" <> 'transcription' OR kc."sourceId" = ANY(${viewableIds}::text[]))`;
     }
 
-    // Resource access: owner only, in the searched workspace. The query
+    // Resource access: the owner, in the searched workspace, and for a
+    // person the Resources shared with them through a Project. The query
     // already joins the live Resource row (`r`), so ownership and workspace
     // are read from it rather than from the chunk — a deleted Resource's
     // orphaned chunks never match, and neither do the stale chunks of one
@@ -730,7 +744,21 @@ export class KnowledgeService {
     if (searchesResources && !resourceViewerId) {
       resourceAccessCondition = Prisma.sql`AND kc."sourceType" <> 'resource'`;
     } else if (searchesResources && resourceViewerId) {
-      resourceAccessCondition = Prisma.sql`AND (kc."sourceType" <> 'resource' OR (r."userId" = ${resourceViewerId} AND r."workspaceId" = ${workspaceId}))`;
+      // Shared through a Project (ADR-0082): filed under a Project of this
+      // workspace that the viewer is in, by an owner who still belongs to
+      // the workspace. All of it read from live rows, so a Resource that is
+      // unfiled, or whose owner leaves, stops matching without a re-embed.
+      const sharedProjectIds = resourceSharedWithViewer
+        ? await listSharedResourceProjectIds(this.db, resourceViewerId, workspaceId)
+        : [];
+      const sharedCondition =
+        sharedProjectIds.length > 0
+          ? Prisma.sql` OR (r."workspaceId" = ${workspaceId} AND r."projectId" = ANY(${sharedProjectIds}::text[]) AND (
+              EXISTS (SELECT 1 FROM "WorkspaceUser" wu WHERE wu."workspaceId" = ${workspaceId} AND wu."userId" = r."userId")
+              OR EXISTS (SELECT 1 FROM "TeamUser" tu JOIN "Team" t ON t.id = tu."teamId" WHERE t."workspaceId" = ${workspaceId} AND tu."userId" = r."userId")
+            ))`
+          : Prisma.empty;
+      resourceAccessCondition = Prisma.sql`AND (kc."sourceType" <> 'resource' OR (r."userId" = ${resourceViewerId} AND r."workspaceId" = ${workspaceId})${sharedCondition})`;
     }
 
     // Execute vector search with parameterized query

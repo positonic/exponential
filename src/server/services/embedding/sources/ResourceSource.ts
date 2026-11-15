@@ -38,8 +38,13 @@ export function articleSections(title: string, article: string): EmbeddingSectio
 export class ResourceSource implements EmbeddingSource {
   constructor(private resource: Resource) {}
 
+  /**
+   * The text that is indexed: the body, else the Page text of a page that has
+   * none (a listing, a search), so it can be found by what it says.
+   */
   getContent(): string | null {
-    return this.resource.content ?? this.resource.rawContent;
+    const body = this.resource.content ?? this.resource.rawContent;
+    return body?.trim() ? body : (this.resource.pageText ?? body);
   }
 
   getSections(): EmbeddingSection[] | null {

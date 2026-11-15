@@ -48,6 +48,7 @@ vi.mock("@langchain/openai", () => ({
 // Imports of code under test must come AFTER vi.mock calls.
 import { KnowledgeService } from "../KnowledgeService";
 import { buildKnowledgePageAccessWhere } from "~/server/services/access/resolvers/knowledgePageResolver";
+import { buildProjectInsiderWhere } from "~/server/services/access/resolvers/projectResolver";
 import { buildTranscriptionAccessWhere } from "~/server/services/access/resolvers/transcriptionResolver";
 import type { EmbeddingSource } from "../embedding/types";
 
@@ -71,6 +72,7 @@ function buildFakeDb() {
   let queryRawResult: unknown[] = [];
   let viewablePages: { id: string }[] = [];
   let viewableMeetings: { id: string }[] = [];
+  let sharedProjects: Array<{ id: string }> = [];
 
   // Prisma's tagged template hands the function `(strings, ...values)`.
   // We accept a single Prisma.Sql object too (when caller pre-built it).
@@ -112,6 +114,9 @@ function buildFakeDb() {
     transcriptionSession: {
       findMany: vi.fn(async () => viewableMeetings),
     },
+    project: {
+      findMany: vi.fn(async () => sharedProjects),
+    },
   } as unknown as ConstructorParameters<typeof KnowledgeService>[0];
 
   return {
@@ -127,6 +132,9 @@ function buildFakeDb() {
     },
     setViewableMeetings: (ids: string[]) => {
       viewableMeetings = ids.map((id) => ({ id }));
+    },
+    setSharedProjects: (ids: string[]) => {
+      sharedProjects = ids.map((id) => ({ id }));
     },
   };
 }
@@ -580,6 +588,52 @@ describe("KnowledgeService — workspace scoping", () => {
       expect(fragments).toContain(`kc."sourceType" <> 'resource' OR (r."userId" = `);
       expect(fragments).not.toContain(`kc."userId" =`);
       expect(bound).toContain("u-7");
+    });
+
+    it("also keeps Resources shared through a Project the viewer is in, by an owner still in the workspace", async () => {
+      const { db, queryRawCalls, setQueryRawResult, setSharedProjects } = buildFakeDb();
+      setQueryRawResult([]);
+      setSharedProjects(["proj-shared"]);
+      const svc = new KnowledgeService(db);
+
+      await svc.search("foo", { workspaceId: "ws-A", resourceViewerId: "u-7", resourceSharedWithViewer: true });
+
+      const projectFindMany = (db as unknown as { project: { findMany: ReturnType<typeof vi.fn> } }).project.findMany;
+      expect((projectFindMany.mock.calls[0]?.[0] as { where: unknown }).where).toEqual({
+        AND: [{ workspaceId: "ws-A" }, buildProjectInsiderWhere("u-7")],
+      });
+      const { fragments, bound } = nestedSql(queryRawCalls[0]!);
+      // Still the owner's own, OR filed under one of those Projects. Project,
+      // workspace and owner are all read from the live Resource row.
+      expect(fragments).toContain(`kc."sourceType" <> 'resource' OR (r."userId" = `);
+      expect(fragments).toContain(`r."projectId" = ANY(`);
+      expect(fragments).toContain(`FROM "WorkspaceUser" wu WHERE wu."workspaceId" = `);
+      expect(fragments).toContain(`wu."userId" = r."userId"`);
+      expect(fragments).toContain(`tu."userId" = r."userId"`);
+      expect(bound).toContainEqual(["proj-shared"]);
+    });
+
+    it("shares nothing unless asked to: an agent's search stays its owner's Resources", async () => {
+      const { db, queryRawCalls, setQueryRawResult, setSharedProjects } = buildFakeDb();
+      setQueryRawResult([]);
+      setSharedProjects(["proj-shared"]);
+      const svc = new KnowledgeService(db);
+
+      await svc.search("foo", { workspaceId: "ws-A", resourceViewerId: "u-7" });
+
+      const projectFindMany = (db as unknown as { project: { findMany: ReturnType<typeof vi.fn> } }).project.findMany;
+      expect(projectFindMany).not.toHaveBeenCalled();
+      expect(nestedSql(queryRawCalls[0]!).fragments).not.toContain(`r."projectId" = ANY(`);
+    });
+
+    it("adds no shared clause for a viewer who is in none of the workspace's Projects", async () => {
+      const { db, queryRawCalls, setQueryRawResult } = buildFakeDb();
+      setQueryRawResult([]);
+      const svc = new KnowledgeService(db);
+
+      await svc.search("foo", { workspaceId: "ws-A", resourceViewerId: "u-7", resourceSharedWithViewer: true });
+
+      expect(nestedSql(queryRawCalls[0]!).fragments).not.toContain(`r."projectId" = ANY(`);
     });
 
     it("reads a resource's workspace from the live row, so a moved resource's stale chunks never match", async () => {

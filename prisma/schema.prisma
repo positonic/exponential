@@ -3540,9 +3540,22 @@ model Resource {
   // Core content
   title       String
   description String?
-  url         String? // Source URL for web pages/bookmarks
+  /// The address the Resource was last saved from, tracking parameters
+  /// removed: what its link opens. The latest save wins.
+  url         String?
+  /// What the page is matched by, never shown or linked: the URL it declares
+  /// for itself when that can be trusted, else `url`, normalised
+  /// (`pageIdentity` in src/lib/resources/identity.ts). Null only when there
+  /// is no `url`. One owner may hold two rows with one identity: rows that
+  /// pre-date the column were never merged.
+  identity    String?
   rawContent  String? // Original HTML/content
   content     String? // Cleaned/processed text
+  /// Page text: the visible text of a page that has no Article body (a
+  /// listing, a search, a dashboard), as it read on the day it was saved.
+  /// Indexed for search and never rendered by a reader, which is why it is
+  /// not in `content`. Null whenever the Resource has a body.
+  pageText    String?
   contentType String  @default("web_page") // "web_page" | "document" | "pdf" | "bookmark" | "note"
   mimeType    String? // e.g., "text/html", "application/pdf"
 
@@ -3590,6 +3603,7 @@ model Resource {
   @@index([workspaceId])
   @@index([contentType])
   @@index([url])
+  @@index([userId, identity])
 }
 
 model KnowledgeChunk {

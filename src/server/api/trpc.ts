@@ -22,6 +22,7 @@ import {
 import { hashExternalAgentKey, isExternalAgentKey } from "~/server/utils/external-agent-keys";
 import { conflictFromError } from "~/server/services/revisions/revisionConflict";
 import { propertyRejectionFromError } from "~/server/services/databases/values";
+import { alreadyInProjectFromError } from "~/server/services/resources/alreadyInProject";
 import { isPersonCredential, resolvePrincipal, type Principal } from "~/server/services/access/principal";
 
 /**
@@ -232,6 +233,10 @@ const t = initTRPC.context<typeof createTRPCContext>().create({
         // which property, and why, so the CLI and the table block can point at
         // the cell instead of parsing the message.
         property: propertyRejectionFromError(error),
+        // Filing a Resource under a Project that already lists the page
+        // (ADR-0082): which Resource holds its place and who saved it, so a
+        // client can say "Already in this project, saved by James".
+        alreadyInProject: alreadyInProjectFromError(error),
       },
     };
   },

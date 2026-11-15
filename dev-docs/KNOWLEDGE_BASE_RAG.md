@@ -44,9 +44,11 @@ model Resource {
   id          String    @id @default(cuid())
   title       String
   description String?
-  url         String?                          // Source URL
+  url         String?                          // Address it was last saved from (what its link opens)
+  identity    String?                          // What a save is matched by; see src/lib/resources/identity.ts
   rawContent  String?                          // Original HTML/content
   content     String?                          // Cleaned text
+  pageText    String?                          // Visible text of a page with no article body: indexed, never rendered
   contentType String    @default("web_page")   // web_page | document | pdf | bookmark | note
   mimeType    String?
   author      String?
@@ -102,7 +104,9 @@ For Railway/Supabase/Neon, pgvector is pre-installed. Just run the migration.
 | `resource.create` | mutation | Create a new resource with optional auto-embedding |
 | `resource.get` | query | Get a single resource by ID |
 | `resource.list` | query | List resources with filters (project, workspace, tags, search) |
+| `resource.identities` | query | Identity, title, project and owner of every Resource the caller can see, paged by cursor. Takes no URL: clients match "already saved?" locally |
 | `resource.update` | mutation | Update a resource |
+| `resource.unfile` | mutation | Take a resource out of its project, back to its owner unshared. The owner, or anyone who can edit the project |
 | `resource.archive` | mutation | Soft delete a resource |
 | `resource.unarchive` | mutation | Restore an archived resource |
 | `resource.delete` | mutation | Permanently delete a resource and its embeddings |
@@ -239,6 +243,25 @@ const { resource } = await api.resource.create.mutate({
   generateEmbeddings: true, // auto-embed
 });
 ```
+
+A save with a `url` is matched against the caller's Resources by the page's **identity**
+(`pageIdentity` in `src/lib/resources/identity.ts`), not the raw URL: the same page saved from
+another address (other dates, a tracking parameter) updates the one Resource, and `url` becomes
+the address of the latest save. A client that can see the page may pass `declaredUrl` (its
+`og:url` or canonical link); it is used for matching only, and ignored unless it names the same
+host and path as `url`.
+
+A Project lists a page once. Saving a page under a Project where someone else's Resource with
+the same identity is already filed files nothing there: a save for reference is refused with
+`CONFLICT` and `error.data.alreadyInProject` (`{ resourceId, title, projectId, owner }`), and a
+save that asks for the Reading list succeeds with the caller's own Resource, no Project, and the
+same object as `alreadyInProject` in the response. `resource.update` refuses such a move the
+same way.
+
+A page that is not an article (a listing, a search, a dashboard) can be saved with `pageText`
+in place of `rawContent`. It is stored apart from the body, cut at 100,000 characters, indexed
+when `generateEmbeddings` is on, and never returned by `resource.get`, so no reader renders it.
+A save that carries a body as well keeps the body and stores no Page text.
 
 ### Semantic Search
 

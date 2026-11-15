@@ -144,6 +144,33 @@ A user can **edit** a meeting if ANY of these are true:
 
 Attendance (path 2 for view) never grants edit.
 
+### Resources
+
+A Resource is owned by the person who saved it (`Resource.userId`), and **every write stays with
+the owner**: describing, moving, archiving, deleting, pinning, re-indexing and changing read
+state all go through `scopedRows()` in `src/server/api/routers/resource.ts`. The one exception is
+**unfile**, which anyone who can edit the Project may do.
+
+Reading has one more path. **Filing shares** ([ADR-0082](../docs/adr/0082-resource-filed-under-a-project-is-shared-with-it.md)):
+a user can **view** a Resource if ANY of these are true:
+
+1. They own it
+2. It is filed under a Project, and all of:
+   - it sits in that Project's workspace (filing sets this)
+   - they reach the Project by a membership path (`buildProjectInsiderWhere`: creator, Project
+     member, team or workspace member when unrestricted, workspace owner/admin when restricted).
+     A public Project's `isPublic` flag is **not** enough
+   - its owner still belongs to the Project's workspace, directly or through a team
+
+The rule lives in `resolvers/resourceResolver.ts` (`buildSharedResourceWhere`) and the router's
+`visibleRows()`. It applies to `resource.get`, `resource.identities`, `resource.list` when a
+`projectId` is given, and the Knowledge search (`resourceSharedWithViewer`), which restates it in
+SQL against the live Resource row. Every other list (the Knowledge page, the Reading list) is the
+caller's own. Read state is never returned for a Resource the caller does not own.
+
+An **agent principal** gets none of path 2: it works on its owner's rows in the workspaces
+delegated to it (ADR-0079). Callers pass `resourceSharedWithViewer` only for a person.
+
 ### Workspaces
 
 Access is based on `WorkspaceUser` membership and role. See the permission mapping table above.
@@ -322,6 +349,7 @@ archive: protectedProcedure
 | `src/server/services/access/resolvers/workspaceResolver.ts` | Workspace membership lookup |
 | `src/server/services/access/resolvers/teamResolver.ts` | Team membership lookup |
 | `src/server/services/access/resolvers/projectResolver.ts` | Multi-path project access resolution |
+| `src/server/services/access/resolvers/resourceResolver.ts` | Resources shared through a Project: `buildSharedResourceWhere()`, `listSharedResourceProjectIds()` |
 | `src/server/services/access/resolvers/actionResolver.ts` | Action access + `buildActionAccessWhere()` (read) / `buildActionEditWhere()` / `buildActionDeleteWhere()` (write) |
 
 ---
