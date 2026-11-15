@@ -259,6 +259,18 @@ describe("metering a run (billing V1)", () => {
     expect(recordedEvents()[0]).toMatchObject({ costMicros: RUN_COST_MICROS, refId: RUN });
   });
 
+  it("records a run on the workspace's own key without counting it", async () => {
+    runEndsAs("RUNNING");
+    mastraReplies({ ...RUN_OUTPUT, providerMetadata: { ownKey: { used: true } } });
+
+    await dispatchQueuedRuns(db, new Date());
+
+    expect(recordedEvents()).toEqual([
+      expect.objectContaining({ source: "AGENT_RUN", costMicros: RUN_COST_MICROS, onOwnKey: true, refId: RUN }),
+    ]);
+    expect(db.workspaceUsagePeriod.upsert).not.toHaveBeenCalled();
+  });
+
   it("uses the project's workspace when the action carries none", async () => {
     runEndsAs("RUNNING", {
       ...runRow,

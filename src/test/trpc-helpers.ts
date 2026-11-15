@@ -51,6 +51,8 @@ export function createMockCaller(opts: {
   tokenType?: string;
   /** The Agent run an agent-context token was minted for (ADR-0067). */
   agentRunId?: string;
+  /** Request headers the procedure reads (e.g. the Mastra server key). */
+  headers?: Headers;
 }) {
   return createCaller({
     db: opts.db,
@@ -66,7 +68,7 @@ export function createMockCaller(opts: {
       },
       expires: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
     },
-    headers: new Headers(),
+    headers: opts.headers ?? new Headers(),
   });
 }
 

@@ -65,6 +65,30 @@ export function maskTokenLike(text: string): string {
   return text.replace(TOKEN_LIKE, REDACTED);
 }
 
+// Substring, not suffix like SENSITIVE_KEY: this guards a debug log, where
+// hiding `keyResultId` costs nothing and missing `modelKeyOverride` would
+// print a credential.
+const SECRET_NAME = /key|secret|password|credential|token|jwt|auth/i;
+// An Anthropic API key by its shape, whatever the entry holding it is called.
+const ANTHROPIC_KEY_LIKE = /sk-ant-[A-Za-z0-9_-]+/g;
+
+/**
+ * RequestContext entries made safe to print in a debug log. An entry whose
+ * name looks like a credential (key, secret, password, token, JWT, auth) keeps
+ * its name and its length and nothing of its value, not even a prefix. Any
+ * other value has Anthropic-key-shaped runs removed.
+ *
+ * A workspace's own model key is never placed in RequestContext at all
+ * (Mastra pulls it through `mastra.getModelKey`); this is the second line of
+ * defence for the day something named like one is.
+ */
+export function maskContextEntriesForLog(entries: ReadonlyArray<readonly [string, string]>): [string, string][] {
+  return entries.map(([name, value]) => [
+    name,
+    SECRET_NAME.test(name) ? `${REDACTED} (${value.length} chars)` : value.replace(ANTHROPIC_KEY_LIKE, REDACTED),
+  ]);
+}
+
 /**
  * Calm, generic, plain-language line shown to the user when the agent
  * stream emits a top-level `error` chunk. Never embeds the raw error —

@@ -17,6 +17,7 @@ import {
   IconCalendarEvent,
   IconCheck,
   IconClockExclamation,
+  IconCreditCard,
   IconFileText,
   IconListDetails,
   IconMicrophone,
@@ -53,6 +54,7 @@ const CATEGORY_DISPLAY: Record<NotificationCategory, { label: string; icon: Icon
   [NOTIFICATION_CATEGORIES.PAGE_SHARED]: { label: 'Shared pages', icon: IconFileText },
   [NOTIFICATION_CATEGORIES.AGENT_RUN]: { label: 'Assistant runs', icon: IconRobot },
   [NOTIFICATION_CATEGORIES.POSITION_ASSIGNED]: { label: 'Positions', icon: IconBriefcase },
+  [NOTIFICATION_CATEGORIES.BILLING]: { label: 'Billing', icon: IconCreditCard },
 };
 
 const CATEGORY_OPTIONS = [

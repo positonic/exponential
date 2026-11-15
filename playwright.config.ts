@@ -100,6 +100,10 @@ export default defineConfig({
       // usage ledger and the Billing tab are covered (billing-usage.spec.ts).
       // Nothing is limited in this mode.
       BILLING_MODE: "meter",
+      // Fixed, so a Mastra stub can make the callbacks only the Mastra server
+      // may make (the model-key ones). Same value as E2E_MASTRA_SERVER_KEY in
+      // e2e/fixture-data.ts.
+      MASTRA_SERVER_API_KEY: "e2e-mastra-server-key",
     },
   },
 });

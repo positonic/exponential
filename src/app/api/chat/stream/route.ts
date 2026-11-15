@@ -20,6 +20,7 @@ import { getAiInteractionLogger } from "~/server/services/AiInteractionLogger";
 import {
   capToolCallsForTurn,
   formatUserFacingStreamError,
+  maskContextEntriesForLog,
   maskTokenLike,
   redactToolArgs,
   USER_FACING_PROVIDER_UNAVAILABLE,
@@ -40,6 +41,7 @@ import {
   turnTokenBreakdown,
 } from "~/server/services/ai/cost";
 import { recordTurnUsage, resolveMeteredWorkspaceId } from "~/server/services/billing/usage";
+import { readUsedOwnKey } from "~/server/services/billing/mastraUsage";
 import {
   assembleLoadedScope,
   loadScopeInstructions,
@@ -537,7 +539,7 @@ export async function POST(req: Request) {
     // includes SECURITY_POLICY if it handles user data.
 
     console.log(`🔗 [chat/stream] agentId=${agentId ?? "none"}, assistantId=${assistantId ?? "none"}, projectId=${projectId ?? "none"}, workspaceId=${workspaceId ?? "none"}, messages=${finalMessages.length}`);
-    console.log('📤 [chat/stream] RequestContext entries:', entries.map(([k, v]) => [k, k.includes('Token') || k.includes('token') || k.includes('JWT') || k.includes('auth') ? `${v.slice(0, 20)}...` : v]));
+    console.log('📤 [chat/stream] RequestContext entries:', maskContextEntriesForLog(entries));
     console.log('📤 [chat/stream] Messages to agent:', finalMessages.map(m => ({ role: m.role, contentLength: m.content.length, contentPreview: m.content.slice(0, 150) })));
     // Sources we control on this side. The actual prompt at Anthropic is
     // larger because Mastra layers in agent instructions (SOUL ~6K tokens),
@@ -687,6 +689,10 @@ export async function POST(req: Request) {
         let turnUsage: unknown;
         const stepUsages: unknown[] = [];
         let responseModelId: string | undefined;
+        // Whether Mastra ran the attempt on the workspace's own Anthropic key,
+        // as the latest step (and finally the `finish` chunk) reports it. Such
+        // a turn is recorded but never counted against the allowance.
+        let attemptOnOwnKey = false;
 
         // Record what the current model attempt cost (a no-op unless this
         // install meters), at most once per attempt. Never throws. `refId` is
@@ -696,7 +702,12 @@ export async function POST(req: Request) {
         const meterAttempt = (refId?: string): Promise<unknown> => {
           if (attemptMetered) return Promise.resolve();
           attemptMetered = true;
-          const attempt = { modelId: responseModelId, turnUsage, stepUsages: [...stepUsages] };
+          const attempt = {
+            modelId: responseModelId,
+            turnUsage,
+            stepUsages: [...stepUsages],
+            onOwnKey: attemptOnOwnKey,
+          };
           return resolveMeteredWorkspace().then((workspaceId) =>
             workspaceId
               ? recordTurnUsage(db, { workspaceId, source: "CHAT", ...attempt, refId })
@@ -793,6 +804,7 @@ export async function POST(req: Request) {
                 );
               } else if (chunk.type === "finish") {
                 turnUsage = readUnknown(readUnknown(chunk.payload, 'output'), 'usage');
+                attemptOnOwnKey = readUsedOwnKey(chunk.payload);
                 const fr = readString(chunk.payload, 'finishReason');
                 if (fr) lastStepFinishReason = fr;
               } else if (chunk.type === "tool-call") {
@@ -927,6 +939,7 @@ export async function POST(req: Request) {
                 if (modelId) responseModelId = modelId;
                 const stepUsage = readUnknown(readUnknown(chunk.payload, 'output'), 'usage');
                 if (stepUsage !== undefined) stepUsages.push(stepUsage);
+                attemptOnOwnKey = readUsedOwnKey(chunk.payload);
               } else if (chunk.type === "text-start") {
                 // Model text blocks stream as raw markdown deltas; blocks
                 // separated by tool calls (or step boundaries) would
@@ -1000,6 +1013,7 @@ export async function POST(req: Request) {
                 agentErrorKind = undefined;
                 turnUsage = undefined;
                 stepUsages.length = 0;
+                attemptOnOwnKey = false;
                 responseModelId = undefined;
                 activeAgentId = sonnetId;
                 agent = client.getAgent(activeAgentId);

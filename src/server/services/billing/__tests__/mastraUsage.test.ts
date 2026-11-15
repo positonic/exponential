@@ -5,7 +5,7 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { readGenerateUsage } from "../mastraUsage";
+import { readGenerateUsage, readUsedOwnKey } from "../mastraUsage";
 
 describe("readGenerateUsage", () => {
   it("reads the model, the turn's usage and every step's usage", () => {
@@ -26,6 +26,7 @@ describe("readGenerateUsage", () => {
         { inputTokens: 100, outputTokens: 10 },
         { inputTokens: 200, outputTokens: 30 },
       ],
+      onOwnKey: false,
     });
   });
 
@@ -44,6 +45,7 @@ describe("readGenerateUsage", () => {
       modelId: "gpt-4o-mini",
       turnUsage: { promptTokens: 10, completionTokens: 2 },
       stepUsages: [],
+      onOwnKey: false,
     });
   });
 
@@ -54,7 +56,7 @@ describe("readGenerateUsage", () => {
   });
 
   it("reports nothing for a reply with no usage, or that is not an object", () => {
-    const nothing = { modelId: undefined, turnUsage: undefined, stepUsages: [] };
+    const nothing = { modelId: undefined, turnUsage: undefined, stepUsages: [], onOwnKey: false };
 
     expect(readGenerateUsage({ text: "ok" })).toEqual(nothing);
     expect(readGenerateUsage("plain text")).toEqual(nothing);
@@ -62,3 +64,37 @@ describe("readGenerateUsage", () => {
     expect(readGenerateUsage({ steps: "not a list", response: { modelId: 42 } })).toEqual(nothing);
   });
 });
+
+describe("which key a turn ran on", () => {
+  const OWN_KEY = { ownKey: { used: true } };
+
+  it("is the workspace's own when Mastra stamps the result so", () => {
+    expect(readUsedOwnKey({ providerMetadata: OWN_KEY })).toBe(true);
+    expect(readGenerateUsage({ usage: {}, providerMetadata: { anthropic: {}, ...OWN_KEY } }).onOwnKey).toBe(true);
+  });
+
+  it("is read from a stream chunk's payload metadata too", () => {
+    expect(readUsedOwnKey({ metadata: { providerMetadata: OWN_KEY } })).toBe(true);
+  });
+
+  it("is the hosted key unless Mastra says otherwise, whatever else is present", () => {
+    expect(readUsedOwnKey({})).toBe(false);
+    expect(readUsedOwnKey(undefined)).toBe(false);
+    expect(readUsedOwnKey({ providerMetadata: { anthropic: { cacheCreationInputTokens: 10 } } })).toBe(false);
+    expect(readUsedOwnKey({ providerMetadata: { ownKey: { used: false } } })).toBe(false);
+    // Only the boolean true counts: a turn must never go uncounted on a loose match.
+    expect(readUsedOwnKey({ providerMetadata: { ownKey: { used: "true" } } })).toBe(false);
+    expect(readUsedOwnKey({ providerMetadata: { ownKey: true } })).toBe(false);
+    expect(readUsedOwnKey({ usedOwnKey: true })).toBe(false);
+  });
+
+  it("follows the result, not an earlier step, when a turn fell back to the hosted key part-way", () => {
+    const output = {
+      steps: [{ usage: { inputTokens: 5, outputTokens: 1 }, providerMetadata: OWN_KEY }],
+      providerMetadata: { anthropic: {} },
+    };
+
+    expect(readGenerateUsage(output).onOwnKey).toBe(false);
+  });
+});
+

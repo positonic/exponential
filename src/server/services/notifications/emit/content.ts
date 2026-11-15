@@ -436,6 +436,31 @@ export async function buildContent(
           : `meeting_ready:${sessionId}:${recipientId}`,
       };
     }
+    case NOTIFICATION_CATEGORIES.BILLING: {
+      const { workspaceId, keyLast4, occurredAt } = input.subject;
+      const workspace = await db.workspace.findUnique({
+        where: { id: workspaceId },
+        select: { slug: true, name: true },
+      });
+      if (!workspace) return null;
+      return {
+        category: NOTIFICATION_CATEGORIES.BILLING,
+        title: `The Anthropic key for ${workspace.name} stopped working`,
+        message:
+          `Anthropic is no longer accepting the key ending in ${keyLast4}. ` +
+          `The Assistant in ${workspace.name} is back on the monthly allowance until you replace the key.`,
+        deeplink: `/w/${workspace.slug}/settings?section=billing`,
+        metadata: {
+          event: input.subject.event,
+          keyLast4,
+          workspaceId,
+          workspaceSlug: workspace.slug,
+          workspaceName: workspace.name,
+        },
+        workspaceId,
+        dedupeKey: `billing:${input.subject.event}:${workspaceId}:${occurredAt.toISOString()}:${recipientId}`,
+      };
+    }
     case NOTIFICATION_CATEGORIES.MENTION:
       return buildMentionContent(input, recipientId);
     case NOTIFICATION_CATEGORIES.UPDATE_REVIEW:

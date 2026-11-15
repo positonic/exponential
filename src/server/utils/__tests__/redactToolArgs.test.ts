@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   capToolCallsForTurn,
   formatUserFacingStreamError,
+  maskContextEntriesForLog,
   maskTokenLike,
   redactToolArgs,
   USER_FACING_STREAM_ERROR,
@@ -70,6 +71,54 @@ describe("maskTokenLike", () => {
     expect(out).not.toContain(key);
     expect(out).toContain("Invalid API key");
     expect(out).toContain("check your dashboard");
+  });
+});
+
+describe("maskContextEntriesForLog", () => {
+  // Built at runtime so no scanner mistakes the fixture for a real key.
+  const ANTHROPIC_KEY = ["sk", "ant", "api03", "q".repeat(48)].join("-");
+  const JWT = `eyJhbGciOiJIUzI1NiJ9.${"p".repeat(60)}.${"s".repeat(43)}`;
+
+  it("prints nothing of a value whose name looks like a key, in any casing", () => {
+    const masked = maskContextEntriesForLog([
+      ["modelKey", ANTHROPIC_KEY],
+      ["anthropicApiKey", ANTHROPIC_KEY],
+      ["ANTHROPIC_API_KEY", ANTHROPIC_KEY],
+      ["webhookSecret", "whsec_0123456789"],
+    ]);
+
+    expect(masked.map(([name]) => name)).toEqual(["modelKey", "anthropicApiKey", "ANTHROPIC_API_KEY", "webhookSecret"]);
+    for (const [, value] of masked) {
+      expect(value).toMatch(/^\[redacted\] \(\d+ chars\)$/);
+    }
+    const printed = JSON.stringify(masked);
+    expect(printed).not.toContain("sk-ant");
+    expect(printed).not.toContain("qqqq");
+    expect(printed).not.toContain("whsec");
+  });
+
+  it("no longer prints the start of a token either, only that it is there and how long", () => {
+    const [[name, value] = []] = maskContextEntriesForLog([["authToken", JWT]]);
+
+    expect(name).toBe("authToken");
+    expect(value).toBe(`[redacted] (${JWT.length} chars)`);
+  });
+
+  it("removes an Anthropic key from a value whatever its entry is called", () => {
+    const [[, value] = []] = maskContextEntriesForLog([["workspaceContext", `Use ${ANTHROPIC_KEY} for this workspace`]]);
+
+    expect(value).toBe("Use [redacted] for this workspace");
+  });
+
+  it("leaves ordinary entries readable", () => {
+    const entries: [string, string][] = [
+      ["userId", "cmwi8vryv001blb084gjj2yue"],
+      ["userEmail", "andi@example.com"],
+      ["todoAppBaseUrl", "http://localhost:3000"],
+      ["toolsets", "core,crm"],
+    ];
+
+    expect(maskContextEntriesForLog(entries)).toEqual(entries);
   });
 });
 

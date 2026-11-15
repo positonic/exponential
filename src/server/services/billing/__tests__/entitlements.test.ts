@@ -132,9 +132,19 @@ describe("usedPercent", () => {
 describe("getEntitlements", () => {
   const NOVEMBER = new Date("2026-11-15T10:00:00Z");
 
-  function monthCounter(costMicros: number | null) {
+  /** A workspace's month counter and, optionally, its saved key's state. */
+  function monthCounter(costMicros: number | null, keyStatus?: "valid" | "failing") {
     const findUnique = vi.fn(async () => (costMicros === null ? null : { costMicros }));
-    return { db: { workspaceUsagePeriod: { findUnique } } as never, findUnique };
+    const findKey = vi.fn(async () =>
+      keyStatus
+        ? { providerConfig: { last4: "7Q4x", status: keyStatus, checkedAt: "2026-11-15T10:00:00.000Z" } }
+        : null,
+    );
+    return {
+      db: { workspaceUsagePeriod: { findUnique }, integration: { findFirst: findKey } } as never,
+      findUnique,
+      findKey,
+    };
   }
 
   it("gives a metered workspace the Free allowance and its spend so far this month", async () => {
@@ -166,12 +176,44 @@ describe("getEntitlements", () => {
     expect(entitlements).toMatchObject({ mode: "enforce", usedMicros: 0 });
   });
 
+  it("knows a workspace with a working key of its own, which is then never limited", async () => {
+    const { db } = monthCounter(FREE_ALLOWANCE_MICROS * 3, "valid");
+
+    const entitlements = await getEntitlements(db, "ws-1", { env: { BILLING_MODE: "enforce" }, now: NOVEMBER });
+
+    expect(entitlements.hasWorkingKey).toBe(true);
+    expect(decideAssistantAccess(entitlements, "agentRun")).toEqual({ allow: true, forceFastTier: false });
+  });
+
+  it("treats a key that has stopped working as no key: the allowance applies again", async () => {
+    const { db } = monthCounter(FREE_ALLOWANCE_MICROS * 3, "failing");
+
+    const entitlements = await getEntitlements(db, "ws-1", { env: { BILLING_MODE: "enforce" }, now: NOVEMBER });
+
+    expect(entitlements.hasWorkingKey).toBe(false);
+    expect(decideAssistantAccess(entitlements, "agentRun")).toMatchObject({ allow: false, reason: "HARD_CAP" });
+  });
+
+  it("uses a key status the caller already loaded instead of reading it again", async () => {
+    const { db, findKey } = monthCounter(0);
+
+    const entitlements = await getEntitlements(db, "ws-1", {
+      env: { BILLING_MODE: "meter" },
+      now: NOVEMBER,
+      modelKey: { last4: "7Q4x", status: "valid", checkedAt: NOVEMBER },
+    });
+
+    expect(entitlements.hasWorkingKey).toBe(true);
+    expect(findKey).not.toHaveBeenCalled();
+  });
+
   it("does not touch the database on an install that does not meter", async () => {
-    const { db, findUnique } = monthCounter(999_999_999);
+    const { db, findUnique, findKey } = monthCounter(999_999_999, "valid");
 
     const entitlements = await getEntitlements(db, "ws-1", { env: {} });
 
     expect(entitlements.mode).toBe("off");
+    expect(findKey).not.toHaveBeenCalled();
     expect(findUnique).not.toHaveBeenCalled();
     expect(decideAssistantAccess(entitlements, "agentRun")).toEqual({ allow: true, forceFastTier: false });
   });

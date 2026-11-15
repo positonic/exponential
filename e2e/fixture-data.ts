@@ -16,3 +16,9 @@ export function loadFixture(): SeededFixture {
 export const E2E_MASTRA_STUB_PORT = 4199;
 /** The dev server's CRON_SECRET under Playwright (see playwright.config.ts webServer.env). */
 export const E2E_CRON_SECRET = "e2e-cron-secret";
+/**
+ * The dev server's MASTRA_SERVER_API_KEY under Playwright: what a Mastra stub
+ * sends as `x-mastra-server-key` to be believed as the Mastra server. Not a
+ * real secret.
+ */
+export const E2E_MASTRA_SERVER_KEY = "e2e-mastra-server-key";

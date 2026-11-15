@@ -676,6 +676,10 @@ _Avoid_: token usage (`AiInteractionHistory.tokenUsage` is a per-turn log, not t
 The amount of Assistant use a workspace's plan includes each calendar month, held as model cost and shown to owners and admins only as a share ("62% of this month's assistant use"), never as a cost, a token count or a number of messages. Only Assistant chat and Agent runs count against it.
 _Avoid_: quota, credits, cap (the cap is what happens at 100%, not the allowance itself).
 
+**Own key**:
+A workspace's own Anthropic API key, saved by an owner or admin on the Billing tab. While it works, the workspace's Assistant runs on it: its turns are still written to the **Usage ledger**, marked `onOwnKey`, but never counted against the **Assistant allowance**, and Anthropic bills the workspace directly. Stored as one `Integration { type: "model_key" }` with an encrypted credential, shown again only by its last four characters, and decrypted in one place: `mastra.getModelKey`, which answers the Mastra server alone. It never travels in RequestContext. A key Anthropic refuses is marked as failing: the Assistant goes back to the hosted key and the allowance, and the workspace's owners and admins are notified. A turn counts as "on the own key" only when Mastra says so (`providerMetadata.ownKey.used`), never because a key happens to be saved.
+_Avoid_: BYOK integration (it is not listed among a workspace's integrations), API key or API token on its own (those are the app's own access tokens), model key in user-facing copy (the UI says "Your own Anthropic key").
+
 ### Workspace membership
 
 **Role**:

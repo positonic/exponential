@@ -355,6 +355,7 @@ async function runOne(
       modelId: used.modelId ?? RUN_AGENT_FALLBACK_MODEL_ID,
       turnUsage: used.turnUsage,
       stepUsages: used.stepUsages,
+      onOwnKey: used.onOwnKey,
       refId: run.id,
     });
   }

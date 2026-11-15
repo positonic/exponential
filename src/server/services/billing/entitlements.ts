@@ -22,6 +22,7 @@
 import type { PrismaClient } from "@prisma/client";
 
 import { FREE_ALLOWANCE_MICROS, resolveBillingMode, type BillingEnv, type BillingMode } from "./config";
+import { getModelKeyStatus, type ModelKeyStatus } from "./modelKey";
 import { getPeriodUsage } from "./usage";
 
 export type BillingPlan = "FREE" | "TEAM";
@@ -77,27 +78,32 @@ export function decideAssistantAccess(entitlements: Entitlements, kind: Assistan
 }
 
 /**
- * A workspace's plan facts. One indexed read of the month's counter; on an
- * install that does not meter, no read at all.
+ * A workspace's plan facts: one indexed read of the month's counter and one
+ * of its key's state, together. On an install that does not meter, no read
+ * at all.
  *
- * Every workspace is on Free with no key of its own until Team billing and
- * bring-your-own-key exist; they extend this function, not its callers.
+ * Every workspace is on Free until Team billing exists; that extends this
+ * function, not its callers. A caller that already loaded the key's status
+ * passes it in `modelKey` to save the second read.
  */
 export async function getEntitlements(
-  db: Pick<PrismaClient, "workspaceUsagePeriod">,
+  db: Pick<PrismaClient, "workspaceUsagePeriod" | "integration">,
   workspaceId: string,
-  options: { env?: BillingEnv; now?: Date } = {},
+  options: { env?: BillingEnv; now?: Date; modelKey?: ModelKeyStatus | null } = {},
 ): Promise<Entitlements> {
   const mode = resolveBillingMode(options.env ?? process.env);
   const plan: BillingPlan = "FREE";
   if (mode === "off") return { mode, plan, allowanceMicros: 0, usedMicros: 0, hasWorkingKey: false };
 
-  const usage = await getPeriodUsage(db, workspaceId, options.now);
+  const [usage, modelKey] = await Promise.all([
+    getPeriodUsage(db, workspaceId, options.now),
+    options.modelKey !== undefined ? options.modelKey : getModelKeyStatus(db, workspaceId),
+  ]);
   return {
     mode,
     plan,
     allowanceMicros: FREE_ALLOWANCE_MICROS,
     usedMicros: usage.usedMicros,
-    hasWorkingKey: false,
+    hasWorkingKey: modelKey?.status === "valid",
   };
 }

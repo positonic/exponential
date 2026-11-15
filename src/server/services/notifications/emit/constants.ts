@@ -25,6 +25,8 @@ export const NOTIFICATION_CATEGORIES = {
   AGENT_RUN: "agent_run",
   /** A workspace owner or admin made your agent (your Assistant) a holder of a Position (ADR-0068). */
   POSITION_ASSIGNED: "position_assigned",
+  /** Something about a workspace's plan or Assistant use its owners and admins must act on. */
+  BILLING: "billing",
 } as const;
 
 export type NotificationCategory =
@@ -86,6 +88,7 @@ export const CATEGORY_LIST = [
   NOTIFICATION_CATEGORIES.PAGE_SHARED,
   NOTIFICATION_CATEGORIES.AGENT_RUN,
   NOTIFICATION_CATEGORIES.POSITION_ASSIGNED,
+  NOTIFICATION_CATEGORIES.BILLING,
 ] as const;
 
 /** All channels, in stable delivery / matrix-column order. */
@@ -128,4 +131,7 @@ export const DEFAULT_MATRIX: Record<
   // Position assigned: the person is accountable for what their Assistant does
   // in the Position, so they hear about the appointment where they read mail.
   [NOTIFICATION_CATEGORIES.POSITION_ASSIGNED]: { push: true, email: true, matrix: false, whatsapp: false, zulip: false },
+  // Billing: owners and admins have to act (a key stopped working), so it
+  // reaches them where they read mail as well as in the app.
+  [NOTIFICATION_CATEGORIES.BILLING]: { push: true, email: true, matrix: false, whatsapp: false, zulip: false },
 };

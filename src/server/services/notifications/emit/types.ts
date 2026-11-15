@@ -174,6 +174,21 @@ export interface UpdateReviewSubject {
 }
 
 /**
+ * Billing: something about a workspace's plan or Assistant use that its
+ * owners and admins have to act on. One event so far: the workspace's own
+ * Anthropic key stopped working, so its Assistant is back on the monthly
+ * allowance. Recipients are the workspace's owners and admins.
+ */
+export interface BillingSubject {
+  workspaceId: string;
+  event: "model_key_failing";
+  /** The key's last four characters, so the reader can tell which key it is. Never more. */
+  keyLast4: string;
+  /** When the key was marked as failing: part of the dedup key, so one failure notifies once. */
+  occurredAt: Date;
+}
+
+/**
  * Discriminated union pairing each category with its subject. `emitNotification`
  * narrows on `category`, so recipient resolvers and content builders get a
  * fully-typed subject with no casts.
@@ -228,6 +243,10 @@ export type EmitNotificationInput = {
   | {
       category: typeof NOTIFICATION_CATEGORIES.POSITION_ASSIGNED;
       subject: PositionAssignedSubject;
+    }
+  | {
+      category: typeof NOTIFICATION_CATEGORIES.BILLING;
+      subject: BillingSubject;
     }
 );
 

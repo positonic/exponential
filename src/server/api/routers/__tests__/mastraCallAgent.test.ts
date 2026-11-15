@@ -279,6 +279,19 @@ describe("mastra.callAgent — metering a direct call (billing V1)", () => {
     expect(recordedEvents()[0]).toMatchObject({ workspaceId: "ws-personal" });
   });
 
+  it("records a call on the workspace's own key without counting it", async () => {
+    dbMock.workspaceUser.findFirst.mockResolvedValue({
+      workspace: { slug: "acme", name: "Acme", type: "team" },
+    } as never);
+    mastraReplies({ ...REPLY, providerMetadata: { ownKey: { used: true } } });
+
+    await call("ws-acme");
+
+    await vi.waitFor(() => expect(recordedEvents()).toHaveLength(1));
+    expect(recordedEvents()[0]).toMatchObject({ workspaceId: "ws-acme", onOwnKey: true, costMicros: REPLY_COST_MICROS });
+    expect(dbMock.workspaceUsagePeriod.upsert).not.toHaveBeenCalled();
+  });
+
   it("logs the turn's real cost and cache traffic on the interaction", async () => {
     dbMock.workspace.findFirst.mockResolvedValue({ id: "ws-personal" } as never);
 

@@ -118,6 +118,19 @@ export async function resolveRecipients(
       // Update review → the reviewers the generator resolved (configured
       // reviewers, else owners + admins). De-duplicate defensively.
       return Promise.resolve(Array.from(new Set(input.subject.reviewerIds)));
+    case NOTIFICATION_CATEGORIES.BILLING: {
+      // Billing → the people who can act on it: the workspace's owners and
+      // admins. Agent accounts hold neither role's responsibility here.
+      const managers = await input.db.workspaceUser.findMany({
+        where: {
+          workspaceId: input.subject.workspaceId,
+          role: { in: ["owner", "admin"] },
+          user: { isAgent: false },
+        },
+        select: { userId: true },
+      });
+      return managers.map((manager) => manager.userId);
+    }
     default:
       return Promise.resolve([]);
   }
