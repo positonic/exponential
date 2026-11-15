@@ -35,13 +35,21 @@ export const COMPLETE_META = {
   index: 4,
 };
 
+const WORKSPACE_GLYPH_VARS = [
+  "var(--brand-400)",
+  "var(--accent-meetings)",
+  "var(--accent-quick)",
+  "var(--accent-okr)",
+  "var(--accent-crm)",
+  "var(--accent-low)",
+] as const;
+
 /**
- * Pick a deterministic glyph color (CSS variable name) for a workspace.
- * Distributes across the 6 palette entries declared in globals.css.
+ * Pick a deterministic glyph color (CSS variable) for a workspace.
+ * Distributes across six of the shared accent tokens.
  */
 export function workspaceGlyphVar(idx: number): string {
-  const slot = (idx % 6) + 1;
-  return `var(--pr-ws-${slot})`;
+  return WORKSPACE_GLYPH_VARS[idx % WORKSPACE_GLYPH_VARS.length] ?? "var(--brand-400)";
 }
 
 export function workspaceShortName(name: string): string {

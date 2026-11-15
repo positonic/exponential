@@ -273,10 +273,10 @@ function ObjectiveRow({
         : "On track";
   const confDotVar =
     counts.off > 0
-      ? "var(--pr-off-track)"
+      ? "var(--accent-due)"
       : counts.atRisk > counts.on
-        ? "var(--pr-at-risk)"
-        : "var(--pr-on-track)";
+        ? "var(--accent-okr)"
+        : "var(--accent-crm)";
 
   return (
     <div className="pr-obj">
@@ -301,7 +301,7 @@ function ObjectiveRow({
         <div
           style={{
             fontSize: 11.5,
-            color: "var(--pr-text-muted)",
+            color: "var(--color-text-muted)",
             fontVariantNumeric: "tabular-nums",
           }}
         >
@@ -395,10 +395,10 @@ function KrRow({ kr, isFocused, onToggleFocus, onCheckInLogged }: KrRowProps) {
 
   const fillVar =
     kr.status === "off-track"
-      ? "var(--pr-off-track)"
+      ? "var(--accent-due)"
       : kr.status === "at-risk"
-        ? "var(--pr-at-risk)"
-        : "var(--pr-on-track)";
+        ? "var(--accent-okr)"
+        : "var(--accent-crm)";
 
   const owner = kr.driUser?.name ?? kr.user?.name ?? "—";
   const ownerInitials = owner
@@ -439,9 +439,9 @@ function KrRow({ kr, isFocused, onToggleFocus, onCheckInLogged }: KrRowProps) {
           autoFocus
           style={{
             width: 80,
-            background: "var(--pr-surface-muted)",
-            border: "1px solid var(--pr-border-subtle)",
-            color: "var(--pr-text-primary)",
+            background: "var(--color-surface-muted)",
+            border: "1px solid var(--color-border-subtle)",
+            color: "var(--color-text-primary)",
             borderRadius: 'var(--radius-sm)',
             padding: "3px 6px",
             fontFamily: "var(--font-mono)",

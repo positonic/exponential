@@ -100,19 +100,19 @@ export function PortfolioReviewIntro({ data, onStart }: Props) {
 
       <div className="pr-intro__streak">
         <span className="pr-streak-item">
-          <IconBolt size={14} style={{ color: "var(--pr-at-risk)" }} />
+          <IconBolt size={14} style={{ color: "var(--accent-okr)" }} />
           <span className="pr-streak-item__num">{data.streak.currentStreak}</span>
           -week streak
         </span>
         <span className="pr-streak-divider" />
         <span className="pr-streak-item">
-          <IconStar size={14} style={{ color: "var(--pr-brand-400)" }} />
+          <IconStar size={14} style={{ color: "var(--brand-400)" }} />
           <span className="pr-streak-item__num">{data.streak.totalReviews}</span>
           {" "}portfolio reviews
         </span>
         <span className="pr-streak-divider" />
         <span className="pr-streak-item">
-          <IconClock size={14} style={{ color: "var(--pr-text-muted)" }} />
+          <IconClock size={14} style={{ color: "var(--color-text-muted)" }} />
           ~12 min
         </span>
       </div>
@@ -227,10 +227,10 @@ export function ConfidenceStack({
   total: number;
 }) {
   const segs: Array<{ key: keyof ConfidenceCounts; cssVar: string }> = [
-    { key: "onTrack", cssVar: "var(--pr-on-track)" },
-    { key: "atRisk", cssVar: "var(--pr-at-risk)" },
-    { key: "offTrack", cssVar: "var(--pr-off-track)" },
-    { key: "noUpdate", cssVar: "var(--pr-no-update)" },
+    { key: "onTrack", cssVar: "var(--accent-crm)" },
+    { key: "atRisk", cssVar: "var(--accent-okr)" },
+    { key: "offTrack", cssVar: "var(--accent-due)" },
+    { key: "noUpdate", cssVar: "var(--accent-neutral)" },
   ];
   return (
     <div className="pr-conf-stack">
@@ -258,10 +258,10 @@ const LEGEND_LABELS: Record<keyof ConfidenceCounts, string> = {
 };
 
 const LEGEND_VARS: Record<keyof ConfidenceCounts, string> = {
-  onTrack: "var(--pr-on-track)",
-  atRisk: "var(--pr-at-risk)",
-  offTrack: "var(--pr-off-track)",
-  noUpdate: "var(--pr-no-update)",
+  onTrack: "var(--accent-crm)",
+  atRisk: "var(--accent-okr)",
+  offTrack: "var(--accent-due)",
+  noUpdate: "var(--accent-neutral)",
 };
 
 export function ConfidenceLegend({ counts }: { counts: ConfidenceCounts }) {

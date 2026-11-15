@@ -1493,7 +1493,7 @@ body {
 /* ==========================================================================
    Today desktop surface (/today, redesigned shell) - scoped design tokens.
    Consumed by src/app/_components/today-redesign/today-desktop.css.
-   Mirrors auth-surface / portfolio-review-surface: all hex lives here, the
+   Mirrors the auth-surface pattern: all hex lives here, the
    feature CSS uses only var(). Pre-commit hook only allows hex in this file,
    colors.ts, mantineTheme.ts, EmailService.ts.
    ========================================================================== */
@@ -1677,58 +1677,9 @@ body {
 }
 
 /* ==========================================================================
-   Portfolio review surface (/weekly-plan) - scoped design tokens.
-   Consumed by src/app/(sidemenu)/weekly-plan/_styles/portfolio-review.css.
-   Mirrors the auth-surface pattern: all hex lives here, feature CSS uses var().
-   ========================================================================== */
-.portfolio-review-surface,
-.pr-modal-surface {
-  /* Background scale (matches the dark slate the designer used) */
-  --pr-bg-primary: #0B0F17;
-  --pr-bg-secondary: #10151F;
-  --pr-bg-elevated: #141B27;
-  --pr-bg-hover: #1A2230;
-
-  /* Surfaces */
-  --pr-surface-muted: #161D2A;
-  --pr-surface-raised: #1C2433;
-
-  /* Borders */
-  --pr-border-primary: #1F2A3C;
-  --pr-border-subtle: #172030;
-  --pr-border-strong: #2A3850;
-
-  /* Text */
-  --pr-text-primary: #E6ECF5;
-  --pr-text-secondary: #96A2B5;
-  --pr-text-muted: #5E6A7E;
-  --pr-text-faint: #3F4A5C;
-
-  /* Brand scale */
-  --pr-brand-200: #A8C5FF;
-  --pr-brand-400: #4E89FF;
-  --pr-brand-500: #1F5DE0;
-  --pr-brand-600: #1A4EC4;
-
-  /* Semantic accents (KR confidence buckets, health) */
-  --pr-on-track: #4ADE8C;
-  --pr-at-risk: #F5B94A;
-  --pr-off-track: #F87171;
-  --pr-no-update: #5E6A7E;
-
-  /* Workspace glyph palette (deterministic by index) */
-  --pr-ws-1: #4E89FF;
-  --pr-ws-2: #A78BFA;
-  --pr-ws-3: #5AC8E0;
-  --pr-ws-4: #F5B94A;
-  --pr-ws-5: #4ADE8C;
-  --pr-ws-6: #9CA3B5;
-}
-
-/* ==========================================================================
    App sidebar (left nav) - scoped design tokens.
    Consumed by src/app/_components/layout/sidebar.css.
-   Mirrors the today-surface / portfolio-review-surface pattern: all hex lives
+   Mirrors the today-surface pattern: all hex lives
    here, the feature CSS uses only var(). Dark-only design.
    ========================================================================== */
 .app-sidebar {
@@ -1835,39 +1786,14 @@ body {
 }
 
 /*
-   Activity-dashboard scoped tokens.
-   All --activity-* CSS variables live here so the no-hardcoded-color rule can
-   be satisfied in components by referencing var(--activity-*). Mirrors the
-   coaching-home pattern above.
+   Activity dashboard: the one colour it does not share.
+   Its accents, washes and heatmap stops are the shared --accent-* and
+   --brand-400 tokens (activity-home.css builds the washes from the -rgb
+   triplets). Only the near-black that sits on the gold milestone chip has no
+   shared equivalent, so it is declared here.
 */
 .activity-layout {
-  /* Heatmap alpha stops - brand blue, used by the contribution-graph cells. */
-  --activity-heatmap-l1: rgba(78, 137, 255, 0.18);
-  --activity-heatmap-l2: rgba(78, 137, 255, 0.34);
-  --activity-heatmap-l3: rgba(78, 137, 255, 0.58);
-  --activity-heatmap-l4: rgba(78, 137, 255, 0.85);
-
-  /* Section accents - reuse the coaching palette to keep both home layouts
-     visually coherent (same accent meanings, e.g. crm-green = success). */
-  --activity-accent-ritual: #6B8CFF;
-  --activity-accent-knowledge: #5AC8E0;
-  --activity-accent-meetings: #A78BFA;
-  --activity-accent-crm: #4ADE8C;
-  --activity-accent-okr: #F5B94A;
-  --activity-accent-due: #F87171;
-
-  /* Translucent washes for delta pills and tinted icon backgrounds. */
-  --activity-accent-crm-soft: rgba(74, 222, 140, 0.10);
-  --activity-accent-crm-border: rgba(74, 222, 140, 0.22);
-  --activity-accent-due-soft: rgba(248, 113, 113, 0.10);
-  --activity-accent-due-border: rgba(248, 113, 113, 0.22);
-
-  /* Milestone (project-completed) accent - celebratory gold. Filled chip plus a
-     soft wash so completed-project rows stand out from routine task churn. */
-  --activity-accent-milestone: #F5B94A;
   --activity-accent-milestone-contrast: #1A1300;
-  --activity-accent-milestone-soft: rgba(245, 185, 74, 0.12);
-  --activity-accent-milestone-border: rgba(245, 185, 74, 0.34);
 }
 
 /* Pulsing dot used by active-timer indicators (sidebar widget, action surfaces,

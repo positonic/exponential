@@ -549,24 +549,16 @@ export function EditKeyResultModal({
 
   const isReview = variant === "review";
 
-  // Token map: in 'review' variant, swap to portfolio-review tokens so the
-  // modal blends with the weekly-plan surface. The `pr-modal-surface`
-  // class (defined in globals.css) re-declares `--pr-*` outside the
-  // surface element so they resolve inside the Mantine Portal.
-  const bgElevated = isReview
-    ? "var(--pr-bg-elevated)"
-    : "var(--color-bg-elevated)";
+  // In the 'review' variant the inputs take the quieter fill and hairline the
+  // weekly-plan surface uses, so the modal blends with it.
+  const bgElevated = "var(--color-bg-elevated)";
   const bgInput = isReview
-    ? "var(--pr-surface-muted)"
+    ? "var(--color-surface-muted)"
     : "var(--color-bg-secondary)";
-  const textPrimary = isReview
-    ? "var(--pr-text-primary)"
-    : "var(--color-text-primary)";
-  const textSecondary = isReview
-    ? "var(--pr-text-secondary)"
-    : "var(--color-text-secondary)";
+  const textPrimary = "var(--color-text-primary)";
+  const textSecondary = "var(--color-text-secondary)";
   const borderPrimary = isReview
-    ? "var(--pr-border-subtle)"
+    ? "var(--color-border-subtle)"
     : "var(--color-border-primary)";
 
   const inputStyles = {
@@ -593,7 +585,6 @@ export function EditKeyResultModal({
       onClose={onClose}
       size="lg"
       radius="md"
-      classNames={isReview ? { content: "pr-modal-surface", header: "pr-modal-surface" } : undefined}
       title={
         <Text fw={600} size="lg">
           {isCreate ? "Create Key Result" : "Edit Key Result"}

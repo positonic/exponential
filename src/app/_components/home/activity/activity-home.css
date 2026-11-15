@@ -2,10 +2,10 @@
    Workspace Home — Activity layout
    Feature stylesheet for the WorkspaceHomeActivityLayout surface.
 
-   All design tokens live in src/styles/globals.css under the .activity-layout
-   scope — this file uses var() exclusively. Hard rule: NO hex literals, NO
-   rgb()/rgba() literals here. The pre-commit hook will reject the commit if
-   you introduce one.
+   Colours are the shared tokens from src/styles/globals.css; a translucent
+   wash is built from a token's -rgb triplet, as rgb(var(--accent-crm-rgb) / 0.10).
+   Hard rule: NO hex literals and NO rgb()/rgba() with literal channels here.
+   The pre-commit hook will reject the commit if you introduce one.
 
    Mirrors the coaching-home.css pattern documented in
    dev-docs/styling-architecture.md.
@@ -190,9 +190,9 @@
   background: var(--color-text-muted);
 }
 
-.wsa-hero__focus-dot--on-track  { background: var(--activity-accent-crm); }
-.wsa-hero__focus-dot--at-risk   { background: var(--activity-accent-okr); }
-.wsa-hero__focus-dot--off-track { background: var(--activity-accent-due); }
+.wsa-hero__focus-dot--on-track  { background: var(--accent-crm); }
+.wsa-hero__focus-dot--at-risk   { background: var(--accent-okr); }
+.wsa-hero__focus-dot--off-track { background: var(--accent-due); }
 .wsa-hero__focus-dot--no-update { background: var(--color-text-muted); }
 
 .wsa-hero__focus-title {
@@ -322,7 +322,7 @@
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: var(--activity-accent-crm);
+  background: var(--accent-crm);
 }
 
 /* ---- hero number row ---- */
@@ -587,10 +587,10 @@
   outline: 1px solid var(--color-text-secondary);
   outline-offset: 1px;
 }
-.wsa-heatmap__cell[data-l='1'] { background: var(--activity-heatmap-l1); }
-.wsa-heatmap__cell[data-l='2'] { background: var(--activity-heatmap-l2); }
-.wsa-heatmap__cell[data-l='3'] { background: var(--activity-heatmap-l3); }
-.wsa-heatmap__cell[data-l='4'] { background: var(--activity-heatmap-l4); }
+.wsa-heatmap__cell[data-l='1'] { background: rgb(var(--brand-400-rgb) / 0.18); }
+.wsa-heatmap__cell[data-l='2'] { background: rgb(var(--brand-400-rgb) / 0.34); }
+.wsa-heatmap__cell[data-l='3'] { background: rgb(var(--brand-400-rgb) / 0.58); }
+.wsa-heatmap__cell[data-l='4'] { background: rgb(var(--brand-400-rgb) / 0.85); }
 
 .wsa-heatmap__cell[data-today='true'] {
   box-shadow: inset 0 0 0 1.5px var(--color-brand-primary);
@@ -635,10 +635,10 @@
   border-radius: 2.5px;
   background: var(--color-surface-muted);
 }
-.wsa-heatmap__legend-cell[data-l='1'] { background: var(--activity-heatmap-l1); }
-.wsa-heatmap__legend-cell[data-l='2'] { background: var(--activity-heatmap-l2); }
-.wsa-heatmap__legend-cell[data-l='3'] { background: var(--activity-heatmap-l3); }
-.wsa-heatmap__legend-cell[data-l='4'] { background: var(--activity-heatmap-l4); }
+.wsa-heatmap__legend-cell[data-l='1'] { background: rgb(var(--brand-400-rgb) / 0.18); }
+.wsa-heatmap__legend-cell[data-l='2'] { background: rgb(var(--brand-400-rgb) / 0.34); }
+.wsa-heatmap__legend-cell[data-l='3'] { background: rgb(var(--brand-400-rgb) / 0.58); }
+.wsa-heatmap__legend-cell[data-l='4'] { background: rgb(var(--brand-400-rgb) / 0.85); }
 
 .wsa-heatmap__tip {
   position: absolute;
@@ -676,15 +676,15 @@
 }
 
 .wsa-week__delta--up {
-  color: var(--activity-accent-crm);
-  background: var(--activity-accent-crm-soft);
-  border: 1px solid var(--activity-accent-crm-border);
+  color: var(--accent-crm);
+  background: rgb(var(--accent-crm-rgb) / 0.10);
+  border: 1px solid rgb(var(--accent-crm-rgb) / 0.22);
 }
 
 .wsa-week__delta--down {
-  color: var(--activity-accent-due);
-  background: var(--activity-accent-due-soft);
-  border: 1px solid var(--activity-accent-due-border);
+  color: var(--accent-due);
+  background: rgb(var(--accent-due-rgb) / 0.10);
+  border: 1px solid rgb(var(--accent-due-rgb) / 0.22);
 }
 
 .wsa-week__delta--flat {
@@ -727,7 +727,7 @@
 }
 
 .wsa-week-chart__peak b {
-  color: var(--activity-accent-okr);
+  color: var(--accent-okr);
   font-weight: 600;
 }
 
@@ -833,7 +833,7 @@
 }
 
 .wsa-week__compare-val--accent {
-  color: var(--activity-accent-okr);
+  color: var(--accent-okr);
 }
 
 .wsa-week__compare-lbl {
@@ -1002,12 +1002,12 @@ a.wsa-feed__avatar {
   color: var(--color-text-muted);
   flex-shrink: 0;
 }
-.wsa-feed__icon[data-kind='created']        { color: var(--activity-accent-meetings); }
+.wsa-feed__icon[data-kind='created']        { color: var(--accent-meetings); }
 .wsa-feed__icon[data-kind='updated']        { color: var(--color-brand-primary); }
-.wsa-feed__icon[data-kind='status_changed'] { color: var(--activity-accent-okr); }
-.wsa-feed__icon[data-kind='completed']      { color: var(--activity-accent-crm); }
-.wsa-feed__icon[data-kind='commented']      { color: var(--activity-accent-knowledge); }
-.wsa-feed__icon[data-kind='tracked']        { color: var(--activity-accent-ritual); }
+.wsa-feed__icon[data-kind='status_changed'] { color: var(--accent-okr); }
+.wsa-feed__icon[data-kind='completed']      { color: var(--accent-crm); }
+.wsa-feed__icon[data-kind='commented']      { color: var(--accent-quick); }
+.wsa-feed__icon[data-kind='tracked']        { color: var(--accent-ritual); }
 .wsa-feed__icon[data-kind='deleted']        { color: var(--color-text-muted); }
 .wsa-feed__icon[data-kind='failed']         { color: var(--color-brand-error); }
 .wsa-feed__icon[data-kind='channel_summary'] { color: var(--color-brand-success); }
@@ -1016,11 +1016,11 @@ a.wsa-feed__avatar {
    milestone, so shipping is visible when scanning a busy day. */
 .wsa-feed__icon[data-kind='shipped'] {
   color: var(--activity-accent-milestone-contrast);
-  background: var(--activity-accent-milestone);
+  background: var(--accent-okr);
 }
 .wsa-feed__row[data-kind='shipped'] {
-  background: var(--activity-accent-milestone-soft);
-  border: 1px solid var(--activity-accent-milestone-border);
+  background: rgb(var(--accent-okr-rgb) / 0.12);
+  border: 1px solid rgb(var(--accent-okr-rgb) / 0.34);
   border-left-width: 3px;
   border-radius: 8px;
   padding-left: 10px;
@@ -1032,14 +1032,14 @@ a.wsa-feed__avatar {
    so it reads as a celebration rather than another status change. */
 .wsa-feed__icon[data-kind='milestone'] {
   color: var(--activity-accent-milestone-contrast);
-  background: var(--activity-accent-milestone);
+  background: var(--accent-okr);
 }
 
 /* Emphasized milestone row: soft gold wash, a gold left rail, and a touch more
    breathing room so a completed project visibly punctuates the feed. */
 .wsa-feed__row[data-kind='milestone'] {
-  background: var(--activity-accent-milestone-soft);
-  border: 1px solid var(--activity-accent-milestone-border);
+  background: rgb(var(--accent-okr-rgb) / 0.12);
+  border: 1px solid rgb(var(--accent-okr-rgb) / 0.34);
   border-left-width: 3px;
   border-radius: 8px;
   padding-left: 10px;
@@ -1047,7 +1047,7 @@ a.wsa-feed__avatar {
   margin: 4px 0;
 }
 .wsa-feed__row[data-kind='milestone'] .wsa-feed__entity {
-  color: var(--activity-accent-milestone);
+  color: var(--accent-okr);
 }
 
 /* Day grouping (Person page): a quiet date heading over each day's rows. Each
@@ -1380,15 +1380,15 @@ a.wsa-feed__avatar {
 }
 
 .wsa-item__chip--go {
-  color: var(--activity-accent-crm);
-  background: var(--activity-accent-crm-soft);
-  border: 1px solid var(--activity-accent-crm-border);
+  color: var(--accent-crm);
+  background: rgb(var(--accent-crm-rgb) / 0.10);
+  border: 1px solid rgb(var(--accent-crm-rgb) / 0.22);
 }
 
 .wsa-item__chip--warn {
-  color: var(--activity-accent-due);
-  background: var(--activity-accent-due-soft);
-  border: 1px solid var(--activity-accent-due-border);
+  color: var(--accent-due);
+  background: rgb(var(--accent-due-rgb) / 0.10);
+  border: 1px solid rgb(var(--accent-due-rgb) / 0.22);
 }
 
 .wsa-item__dot {
@@ -1497,9 +1497,9 @@ a.wsa-feed__avatar {
 }
 
 .wsa-cycle__days--over {
-  color: var(--activity-accent-due);
-  background: var(--activity-accent-due-soft);
-  border: 1px solid var(--activity-accent-due-border);
+  color: var(--accent-due);
+  background: rgb(var(--accent-due-rgb) / 0.10);
+  border: 1px solid rgb(var(--accent-due-rgb) / 0.22);
 }
 
 .wsa-cycle__goal {
@@ -1563,8 +1563,8 @@ a.wsa-feed__avatar {
   color: var(--color-text-secondary);
 }
 
-.wsa-cycle__pace--ahead b   { color: var(--activity-accent-crm); }
-.wsa-cycle__pace--behind b  { color: var(--activity-accent-okr); }
+.wsa-cycle__pace--ahead b   { color: var(--accent-crm); }
+.wsa-cycle__pace--behind b  { color: var(--accent-okr); }
 
 /* ---- on-track health chips ---- */
 .wsa-health {
@@ -1595,9 +1595,9 @@ a.wsa-feed__avatar {
   background: var(--color-text-muted);
 }
 
-.wsa-health__dot--on-track  { background: var(--activity-accent-crm); }
-.wsa-health__dot--at-risk   { background: var(--activity-accent-okr); }
-.wsa-health__dot--off-track { background: var(--activity-accent-due); }
+.wsa-health__dot--on-track  { background: var(--accent-crm); }
+.wsa-health__dot--at-risk   { background: var(--accent-okr); }
+.wsa-health__dot--off-track { background: var(--accent-due); }
 
 .wsa-health__allclear {
   font-size: 13px;

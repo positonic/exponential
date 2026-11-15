@@ -15,8 +15,8 @@ import '~/app/_components/home/activity/activity-home.css';
  * full paginated `WorkspaceActivityEvent` history. Reached from the home
  * page's "Since yesterday" digest line and "All activity" CTAs.
  *
- * The `activity-layout` wrapper is required: the `--activity-*` tokens these
- * cards consume are scoped to it in globals.css.
+ * The `activity-layout` wrapper is required: the milestone chip's text colour
+ * is scoped to it in globals.css. Every other colour is a shared token.
  */
 export default function WorkspaceActivityPage() {
   return (

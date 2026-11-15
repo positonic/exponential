@@ -47,8 +47,8 @@ function TabCount({ count }: { count: number | undefined }) {
  * deliberately not here — it never clears — it's the "Mine" filter on
  * `/activity`.
  *
- * The `activity-layout` wrapper supplies the `--activity-*` chip tokens the
- * shared row styles use.
+ * The `activity-layout` wrapper supplies the milestone chip's text colour,
+ * the one colour the shared row styles do not take from the shared tokens.
  */
 export function InboxPageContent() {
   const router = useRouter();

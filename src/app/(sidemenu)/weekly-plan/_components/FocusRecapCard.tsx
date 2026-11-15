@@ -195,10 +195,10 @@ export function FocusRecapCard({
                     : 0;
                 const fillVar =
                   kr?.status === "off-track"
-                    ? "var(--pr-off-track)"
+                    ? "var(--accent-due)"
                     : kr?.status === "at-risk"
-                      ? "var(--pr-at-risk)"
-                      : "var(--pr-on-track)";
+                      ? "var(--accent-okr)"
+                      : "var(--accent-crm)";
                 return (
                   <div
                     key={krId}
