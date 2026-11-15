@@ -72,7 +72,13 @@ vi.mock("~/server/db", () => {
 
 import { createMockCaller } from "~/test/trpc-helpers";
 import { assembleScopeInstructions } from "~/server/services/ai/scopeInstructions";
-import { CONTEXT_DECISION_LIMIT, contextRevision, loadScopeInstructions } from "../context";
+import {
+  canReadAdrsInContext,
+  CONTEXT_ADR_LIMIT,
+  CONTEXT_DECISION_LIMIT,
+  contextRevision,
+  loadScopeInstructions,
+} from "../context";
 
 const USER_ID = "user-1";
 const WS = { id: "ws-1", slug: "acme", name: "Acme", type: "team", description: null };
@@ -334,5 +340,144 @@ describe("agentGuidance.context decisions", () => {
     const withOne = contextRevision(instructions, { items: [item], omitted: 0 });
     expect(withOne).not.toBe(bare);
     expect(contextRevision(instructions, { items: [{ ...item, statement: "B." }], omitted: 0 })).not.toBe(withOne);
+  });
+});
+
+describe("agentGuidance.context ADRs", () => {
+  let db: DeepMockProxy<PrismaClient>;
+
+  beforeEach(() => {
+    db = getDbMock();
+    mockReset(db);
+    db.decision.findMany.mockResolvedValue([]);
+    db.decision.count.mockResolvedValue(0);
+  });
+
+  const decidedAt = new Date("2026-10-01T00:00:00.000Z");
+  const PRODUCT = "prod-1";
+  function withProductProject() {
+    withProject(db, null, { productId: PRODUCT } as Partial<typeof PROJECT>);
+  }
+  function withAdrs(
+    rows: { id: string; number: number | null; title: string; repoProductId: string | null; shortCode?: string }[],
+    total?: number,
+  ) {
+    db.adrDocument.findMany.mockResolvedValue(
+      rows.map((r) => ({
+        id: r.id,
+        number: r.number,
+        title: r.title,
+        decidedAt,
+        repository: {
+          productId: r.repoProductId,
+          adrSyncConfigs: r.shortCode ? [{ shortCode: r.shortCode }] : [],
+        },
+      })) as never,
+    );
+    db.adrDocument.count.mockResolvedValue(total ?? rows.length);
+  }
+
+  it("lists accepted ADRs on the project's product with label, title, status and a link, never the body", async () => {
+    withWorkspace(db, null);
+    withProductProject();
+    withAdrs([
+      { id: "adr-1", number: 60, title: "Decisions beside ADRs", repoProductId: PRODUCT, shortCode: "EXP" },
+      { id: "adr-2", number: 3, title: "Shared auth", repoProductId: null },
+      { id: "adr-3", number: null, title: "Unnumbered", repoProductId: PRODUCT },
+    ]);
+    const context = await caller(db).agentGuidance.context({ workspaceId: WS.id, projectId: PROJECT.id });
+    expect(context.adrs.omitted).toBe(0);
+    expect(context.adrs.items).toMatchObject([
+      { id: "adr-1", label: "EXP-0060", title: "Decisions beside ADRs", status: "ACCEPTED", scope: "product", decidedAt: decidedAt.toISOString() },
+      { id: "adr-2", label: "ADR-0003", scope: "linked" },
+      { id: "adr-3", label: null },
+    ]);
+    expect(context.adrs.items[0]!.url).toMatch(/\/w\/acme\/decisions\/adr-1$/);
+    expect(context.adrs.items[0]).not.toHaveProperty("body");
+    expect(db.adrDocument.findMany.mock.calls[0]![0]!.select).not.toHaveProperty("body");
+  });
+
+  it("reads only accepted, live ADRs from enrolled repos, reached through the product, newest first, capped", async () => {
+    withWorkspace(db, null);
+    withProductProject();
+    withAdrs([]);
+    await caller(db).agentGuidance.context({ workspaceId: WS.id, projectId: PROJECT.id });
+    const args = db.adrDocument.findMany.mock.calls[0]![0]!;
+    expect(args.where).toEqual({
+      AND: [
+        { deletedAt: null, status: "ACCEPTED" },
+        { repository: { workspaceId: WS.id, adrSyncConfigs: { some: { workspaceId: WS.id } } } },
+        {
+          OR: [
+            { repository: { productId: PRODUCT } },
+            { ticketLinks: { some: { OR: [{ ticket: { productId: PRODUCT } }, { feature: { productId: PRODUCT } }] } } },
+          ],
+        },
+      ],
+    });
+    expect(args.take).toBe(CONTEXT_ADR_LIMIT);
+    expect(args.orderBy).toEqual([{ decidedAt: { sort: "desc", nulls: "last" } }, { number: { sort: "desc", nulls: "last" } }]);
+  });
+
+  it("says how many ADRs the cap left out", async () => {
+    withWorkspace(db, null);
+    withProductProject();
+    withAdrs([{ id: "adr-1", number: 1, title: "One", repoProductId: PRODUCT }], 31);
+    const context = await caller(db).agentGuidance.context({ workspaceId: WS.id, projectId: PROJECT.id });
+    expect(context.adrs.omitted).toBe(30);
+  });
+
+  it("reads no ADRs for a project with no product", async () => {
+    withWorkspace(db, null);
+    withProject(db, null);
+    const context = await caller(db).agentGuidance.context({ workspaceId: WS.id, projectId: PROJECT.id });
+    expect(context.adrs).toEqual({ items: [], omitted: 0 });
+    expect(db.adrDocument.findMany).not.toHaveBeenCalled();
+  });
+
+  it("gives agents none, as the human-only adr router does", async () => {
+    withWorkspace(db, null);
+    withProductProject();
+    withAdrs([{ id: "adr-1", number: 1, title: "One", repoProductId: PRODUCT }]);
+    db.user.findUnique.mockResolvedValue({ isAgent: true } as never);
+    db.externalAgent.findUnique.mockResolvedValue({ id: "agent-1", ownerId: "owner-1" } as never);
+    const viaKey = await caller(db, { tokenType: "agent-key" }).agentGuidance.context({ workspaceId: WS.id, projectId: PROJECT.id });
+    expect(viaKey.adrs).toEqual({ items: [], omitted: 0 });
+    db.user.findUnique.mockResolvedValue({ isAgent: false } as never);
+    const viaZoe = await caller(db, { tokenType: "agent-context" }).agentGuidance.context({ workspaceId: WS.id, projectId: PROJECT.id });
+    expect(viaZoe.adrs).toEqual({ items: [], omitted: 0 });
+    expect(db.adrDocument.findMany).not.toHaveBeenCalled();
+  });
+
+  it("gives a viewer none (ADRs are member-visible)", async () => {
+    db.workspaceUser.findUnique.mockResolvedValue({ role: "viewer", workspaceId: WS.id } as never);
+    db.workspace.findUnique.mockResolvedValue({ ...WS, aiInstructions: null } as never);
+    withProductProject();
+    const context = await caller(db).agentGuidance.context({ workspaceId: WS.id, projectId: PROJECT.id });
+    expect(context.adrs).toEqual({ items: [], omitted: 0 });
+    expect(db.adrDocument.findMany).not.toHaveBeenCalled();
+  });
+
+  it("applies the adr router's rule: a human with a write role", () => {
+    expect(canReadAdrsInContext("human", "member")).toBe(true);
+    expect(canReadAdrsInContext("human", "owner")).toBe(true);
+    expect(canReadAdrsInContext("human", "viewer")).toBe(false);
+    expect(canReadAdrsInContext("human", "guest")).toBe(false);
+    expect(canReadAdrsInContext("human", undefined)).toBe(false);
+    expect(canReadAdrsInContext("agent", "member")).toBe(false);
+    expect(canReadAdrsInContext("agent_for_human", "member")).toBe(false);
+    expect(canReadAdrsInContext(null, "member")).toBe(false);
+  });
+
+  it("folds ADRs into the revision, leaving it unchanged when there are none", () => {
+    const instructions = [{ scope: "workspace" as const, sourceId: WS.id, text: "Rules." }];
+    const none = { items: [], omitted: 0 };
+    const bare = contextRevision(instructions, none);
+    expect(contextRevision(instructions, none, none)).toBe(bare);
+    const item = { id: "a", label: "ADR-0001", title: "A", status: "ACCEPTED" as const, scope: "product" as const, decidedAt: null, url: "u" };
+    const withOne = contextRevision(instructions, none, { items: [item], omitted: 0 });
+    expect(withOne).not.toBe(bare);
+    expect(contextRevision(instructions, none, { items: [{ ...item, title: "B" }], omitted: 0 })).not.toBe(withOne);
+    expect(contextRevision(instructions, none, { items: [item], omitted: 1 })).not.toBe(withOne);
   });
 });

@@ -18,8 +18,11 @@ import { getPublicBaseUrlFromEnv } from "~/lib/urls";
 import {
   buildDecisionAccessWhere,
   buildProjectAccessWhere,
+  canEditWorkspaceContent,
   getWorkspaceMembership,
 } from "~/server/services/access";
+import type { Principal } from "~/server/services/access/principal";
+import type { WorkspaceRole } from "~/server/services/access/types";
 import {
   assembleScopeInstructions,
   type InstructionScope,
@@ -40,6 +43,8 @@ export interface LoadedScopeInstructions {
   } | null;
   /** Null when no project was asked for, or the caller cannot see it. */
   project: { id: string; name: string; productId: string | null; aiInstructions: string | null } | null;
+  /** The caller's role in the workspace (undefined when no workspace was asked for). */
+  workspaceRole?: WorkspaceRole;
 }
 
 /**
@@ -101,7 +106,7 @@ export async function loadScopeInstructions(
         : null;
   }
 
-  return { workspace, project };
+  return { workspace, project, ...(membership ? { workspaceRole: membership.role } : {}) };
 }
 
 /** The assembler's input, general → specific (the project wins on conflict). */
@@ -146,6 +151,33 @@ export interface ContextDecisions {
   omitted: number;
 }
 
+/** Most ADRs listed in the context; the rest are counted in `omitted`. */
+export const CONTEXT_ADR_LIMIT = 20;
+
+export interface ContextAdr {
+  id: string;
+  /** `API-0003` (the repo's short code, else `ADR`); null when the file has no number. */
+  label: string | null;
+  title: string;
+  /** Always ACCEPTED today: only accepted ADRs are listed. */
+  status: "ACCEPTED";
+  /**
+   * Why it is in scope: its repo is assigned to the project's product, or it
+   * is linked to a ticket or feature on that product.
+   */
+  scope: "product" | "linked";
+  decidedAt: string | null;
+  /** The full ADR in the app's Decision Log. */
+  url: string;
+}
+
+export interface ContextAdrs {
+  /** Newest first, at most `CONTEXT_ADR_LIMIT`. */
+  items: ContextAdr[];
+  /** Matching ADRs left out by the cap. */
+  omitted: number;
+}
+
 export interface ContextPayload {
   workspace: { id: string; slug: string; name: string };
   project: { id: string; name: string } | null;
@@ -163,13 +195,25 @@ export interface ContextPayload {
    * project.
    */
   decisions: ContextDecisions;
-  /** `sha256:<hex>` over the source ids and texts, in order, then the listed decisions. */
+  /**
+   * Accepted ADRs (git-synced, ADR-0060) on the project's product. Listed
+   * only for a person signed in as themselves with a write role, the same
+   * rule the `adr` router applies (ADR content is member-visible and
+   * human-only): every agent principal and every viewer gets an empty list.
+   * Titles only: fetch the link for the text. Guidance, not authority.
+   */
+  adrs: ContextAdrs;
+  /** `sha256:<hex>` over the source ids and texts, in order, then the listed decisions and ADRs. */
   revision: string;
   generatedAt: string;
 }
 
 /** Changes when, and only when, an instruction (or its source) changes. */
-export function contextRevision(instructions: ContextInstruction[], decisions?: ContextDecisions): string {
+export function contextRevision(
+  instructions: ContextInstruction[],
+  decisions?: ContextDecisions,
+  adrs?: ContextAdrs,
+): string {
   const hash = crypto.createHash("sha256");
   for (const i of instructions) {
     hash.update(`${i.scope}:${i.sourceId.length}:${i.sourceId}\n${i.text.length}:${i.text}\n`);
@@ -179,6 +223,14 @@ export function contextRevision(instructions: ContextInstruction[], decisions?: 
     hash.update(`decisions:${decisions.omitted}\n`);
     for (const d of decisions.items) {
       hash.update(`${d.id.length}:${d.id}\n${d.statement.length}:${d.statement}\n`);
+    }
+  }
+  // Same for ADRs: none leaves the hash as it was before ADRs were listed.
+  if (adrs && (adrs.items.length > 0 || adrs.omitted > 0)) {
+    hash.update(`adrs:${adrs.omitted}\n`);
+    for (const a of adrs.items) {
+      const label = a.label ?? "";
+      hash.update(`${a.id.length}:${a.id}\n${label.length}:${label}\n${a.title.length}:${a.title}\n`);
     }
   }
   return `sha256:${hash.digest("hex")}`;
@@ -235,9 +287,108 @@ export async function loadProjectDecisions(
   };
 }
 
+/**
+ * Whether ADRs may go into this caller's context: the `adr` router's rule,
+ * through the same central pieces. A `human` principal (`resolvePrincipal`,
+ * as `humanOnlyProcedure` uses) with a write role in the workspace
+ * (`canEditWorkspaceContent`, the role `requireWorkspaceMembership("edit")`
+ * demands). Agents, Zoe and gateways, and viewers or guests, get none.
+ */
+export function canReadAdrsInContext(principalKind: Principal["kind"] | null, role: WorkspaceRole | undefined): boolean {
+  return principalKind === "human" && canEditWorkspaceContent(role ?? null);
+}
+
+const EMPTY_ADRS: ContextAdrs = { items: [], omitted: 0 };
+
+/**
+ * Accepted, non-deleted ADRs on a project's product, from repos enrolled in
+ * this workspace's Decision Log. An ADR reaches a project only through its
+ * product — ADRs have no project link (ADR-0060):
+ *
+ * - its repo is assigned to the product (the Decision Log's own product
+ *   lens), or
+ * - it is linked (`AdrTicketLink`) to a ticket or feature on the product,
+ *   which reaches shared-architecture ADRs in product-less repos.
+ *
+ * A project with no product reaches no ADRs. The caller has already passed
+ * `canReadAdrsInContext`.
+ */
+export async function loadProjectAdrs(
+  db: PrismaClient,
+  opts: {
+    workspace: { id: string; slug: string };
+    project: { productId: string | null };
+    limit?: number;
+  },
+): Promise<ContextAdrs> {
+  const productId = opts.project.productId;
+  if (!productId) return EMPTY_ADRS;
+  const limit = opts.limit ?? CONTEXT_ADR_LIMIT;
+  const workspaceId = opts.workspace.id;
+  const where: Prisma.AdrDocumentWhereInput = {
+    AND: [
+      { deletedAt: null, status: "ACCEPTED" },
+      { repository: { workspaceId, adrSyncConfigs: { some: { workspaceId } } } },
+      {
+        OR: [
+          { repository: { productId } },
+          { ticketLinks: { some: { OR: [{ ticket: { productId } }, { feature: { productId } }] } } },
+        ],
+      },
+    ],
+  };
+  const [rows, total] = await Promise.all([
+    db.adrDocument.findMany({
+      where,
+      select: {
+        id: true,
+        number: true,
+        title: true,
+        decidedAt: true,
+        repository: {
+          select: {
+            productId: true,
+            adrSyncConfigs: { where: { workspaceId }, select: { shortCode: true }, take: 1 },
+          },
+        },
+      },
+      orderBy: [{ decidedAt: { sort: "desc", nulls: "last" } }, { number: { sort: "desc", nulls: "last" } }],
+      take: limit,
+    }),
+    db.adrDocument.count({ where }),
+  ]);
+  const list = rows ?? [];
+  const base = getPublicBaseUrlFromEnv();
+  return {
+    items: list.map((a) => {
+      const shortCode = a.repository.adrSyncConfigs[0]?.shortCode ?? "ADR";
+      return {
+        id: a.id,
+        label: a.number !== null ? `${shortCode}-${String(a.number).padStart(4, "0")}` : null,
+        title: a.title,
+        status: "ACCEPTED" as const,
+        scope: a.repository.productId === productId ? ("product" as const) : ("linked" as const),
+        decidedAt: a.decidedAt ? a.decidedAt.toISOString() : null,
+        url: `${base}/w/${opts.workspace.slug}/decisions/${a.id}`,
+      };
+    }),
+    omitted: Math.max(0, (total ?? list.length) - list.length),
+  };
+}
+
 export async function getContext(
   db: PrismaClient,
-  opts: { userId: string; workspaceId: string; projectId?: string | null; now?: Date },
+  opts: {
+    userId: string;
+    workspaceId: string;
+    projectId?: string | null;
+    now?: Date;
+    /**
+     * The caller's principal kind, resolved only when ADRs could be listed.
+     * Omitted, or returning null, lists no ADRs (fail closed).
+     */
+    resolvePrincipalKind?: () => Promise<Principal["kind"] | null>;
+  },
 ): Promise<ContextPayload> {
   const loaded = await loadScopeInstructions(db, opts);
   const workspace = loaded.workspace;
@@ -259,6 +410,14 @@ export async function getContext(
     ? await loadProjectDecisions(db, { userId: opts.userId, workspace, project: loaded.project })
     : { items: [], omitted: 0 };
 
+  let adrs = EMPTY_ADRS;
+  if (loaded.project?.productId && canEditWorkspaceContent(loaded.workspaceRole ?? null) && opts.resolvePrincipalKind) {
+    const kind = await opts.resolvePrincipalKind();
+    if (canReadAdrsInContext(kind, loaded.workspaceRole)) {
+      adrs = await loadProjectAdrs(db, { workspace, project: loaded.project });
+    }
+  }
+
   return {
     workspace: { id: workspace.id, slug: workspace.slug, name: workspace.name },
     project: loaded.project ? { id: loaded.project.id, name: loaded.project.name } : null,
@@ -266,7 +425,8 @@ export async function getContext(
     instructions,
     assembled: assembleLoadedScope(loaded),
     decisions,
-    revision: contextRevision(instructions, decisions),
+    adrs,
+    revision: contextRevision(instructions, decisions, adrs),
     generatedAt: (opts.now ?? new Date()).toISOString(),
   };
 }
