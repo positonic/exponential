@@ -18,6 +18,7 @@ import { createHash } from "crypto";
 import { Prisma, type PrismaClient } from "@prisma/client";
 import { encryptString } from "../../src/server/utils/encryption";
 import { createAssistantPrincipal } from "../../src/server/services/assistant/principal";
+import { memberGrant } from "../../src/server/services/externalAgentAccess";
 
 export const FIXTURE = {
   userEmail: "dev-fixture@exponential.test",
@@ -112,6 +113,7 @@ export const FIXTURE = {
 export interface SeededFixture {
   userId: string;
   workspaceSlug: string;
+  workspaceName: string;
   /** A second workspace the fixture user owns, for cross-workspace cases. */
   otherWorkspaceSlug: string;
   otherWorkspaceName: string;
@@ -547,21 +549,12 @@ export async function seedDevFixture(db: PrismaClient): Promise<SeededFixture> {
     });
     if (existing) {
       await db.assistant.update({ where: { id: existing.id }, data: { name } });
-      await db.workspaceUser.upsert({
-        where: {
-          userId_workspaceId: { userId: existing.externalAgent.shadowUserId, workspaceId: workspace.id },
-        },
-        create: { userId: existing.externalAgent.shadowUserId, workspaceId: workspace.id, role: "member" },
-        update: { role: "member" },
-      });
+      await memberGrant(db, existing.externalAgent.shadowUserId, workspace.id);
       return { id: existing.id };
     }
     return db.$transaction(async (tx) => {
-      const { externalAgentId } = await createAssistantPrincipal(tx, {
-        name,
-        ownerId,
-        workspaceId: workspace.id,
-      });
+      const { externalAgentId, shadowUserId } = await createAssistantPrincipal(tx, { name, ownerId });
+      await memberGrant(tx, shadowUserId, workspace.id);
       return tx.assistant.create({
         data: {
           name,
@@ -574,7 +567,17 @@ export async function seedDevFixture(db: PrismaClient): Promise<SeededFixture> {
       });
     });
   }
-  await ensureAssistant(user.id, FIXTURE.assistantName);
+  const fixtureAssistant = await ensureAssistant(user.id, FIXTURE.assistantName);
+  // Not a member of the second workspace on any run, so the Members page there
+  // offers "Add my Assistant" (Agent PRD V2) and the spec that clicks it starts
+  // from the same state every time.
+  const fixtureAssistantPrincipal = await db.assistant.findUniqueOrThrow({
+    where: { id: fixtureAssistant.id },
+    select: { externalAgent: { select: { shadowUserId: true } } },
+  });
+  await db.workspaceUser.deleteMany({
+    where: { userId: fixtureAssistantPrincipal.externalAgent.shadowUserId, workspaceId: otherWorkspace.id },
+  });
   const colleagueAssistant = await ensureAssistant(colleague.id, FIXTURE.colleagueAssistantName);
   // The agent's own description (on its ExternalAgent row, not per workspace)
   // is what the workspace Edit Role modal shows for an agent member.
@@ -1314,6 +1317,7 @@ export async function seedDevFixture(db: PrismaClient): Promise<SeededFixture> {
       offProjectParent: offProjectParentGoal.id,
       detachedChild: detachedChildGoal.id,
     },
+    workspaceName: FIXTURE.workspaceName,
     userId: user.id,
     workspaceSlug: FIXTURE.workspaceSlug,
     otherWorkspaceSlug: FIXTURE.otherWorkspaceSlug,

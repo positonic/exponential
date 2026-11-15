@@ -5,16 +5,20 @@ import { TRPCError } from "@trpc/server";
 import { blankToNull } from "~/server/utils/blankToNull";
 import type { PrismaClient } from "@prisma/client";
 import { ensureAssistantForUser } from "~/server/services/assistant/ensureAssistant";
-import { findPersonalWorkspaceId } from "~/server/services/assistant/personalWorkspace";
-import { canDelegateFromRole } from "~/lib/agentDelegation";
 import {
   activeAssistantQuery,
   assistantWorksInWorkspaceWhere,
   resolveAssistantForUser,
 } from "~/server/services/assistant/resolveAssistant";
+import { canDelegateFromRole } from "~/lib/agentDelegation";
 import { renameAssistantPrincipal } from "~/server/services/assistant/principal";
 import { retireAssistant } from "~/server/services/assistant/retire";
 import { generateExternalAgentKey } from "~/server/utils/external-agent-keys";
+import {
+  memberGrant,
+  requireDelegableWorkspaces,
+  revokeAgentWorkspace,
+} from "~/server/services/externalAgentAccess";
 
 /** Same ceiling as `externalAgent.createKey`: an Assistant's principal is an External agent. */
 const MAX_RUNNER_KEYS = 10;
@@ -109,28 +113,58 @@ export const assistantRouter = createTRPCRouter({
         });
       }
 
-      const personalWorkspaceId = await findPersonalWorkspaceId(ctx.db, userId);
-      if (!personalWorkspaceId) {
-        throw new TRPCError({
-          code: "PRECONDITION_FAILED",
-          message: "Your Personal workspace isn't set up yet. Open any workspace, then try again.",
-        });
-      }
-      // Delegation invariant (ADR-0049): the membership row only where the
-      // person holds a delegating role — in their own Personal workspace,
-      // always, but the allowlist is the rule, not the assumption.
-      const membership = await ctx.db.workspaceUser.findUnique({
-        where: { userId_workspaceId: { userId, workspaceId: personalWorkspaceId } },
-        select: { role: true },
-      });
-
-      // An Assistant is a principal (ADR-0067), created in one transaction.
-      const { assistant } = await ensureAssistantForUser(ctx.db, userId, {
-        workspaceId: personalWorkspaceId,
-        grantMembership: canDelegateFromRole(membership?.role),
-        ...input,
-      });
+      const { assistant } = await ensureAssistantForUser(ctx.db, userId, input);
       return assistant;
+    }),
+
+  /**
+   * Add the calling user's Assistant to a workspace (ADR-0072, Agent PRD D6):
+   * the Members page's "Add my Assistant" and Settings → Assistant's
+   * workspace list. Same delegation check as an External agent's grant — the
+   * person must hold at least `member` there — and the Assistant only ever
+   * holds `member`. Adding is a first need, so a person with no Assistant yet
+   * gets one ("Zoe"). Re-adding is a no-op.
+   */
+  addToWorkspace: humanOnlyProcedure
+    .input(z.object({ workspaceId: z.string() }))
+    .mutation(async ({ input, ctx }) => {
+      const userId = ctx.session.user.id;
+      // Checked before anything is written: a refusal must not even leave a
+      // lazily created Assistant behind.
+      await requireDelegableWorkspaces(ctx.db, userId, [input.workspaceId]);
+
+      const { assistant } = await ensureAssistantForUser(ctx.db, userId);
+      const principal = await ctx.db.externalAgent.findUniqueOrThrow({
+        where: { id: assistant.externalAgentId },
+        select: { shadowUserId: true },
+      });
+      await memberGrant(ctx.db, principal.shadowUserId, input.workspaceId);
+      return { assistantId: assistant.id, workspaceId: input.workspaceId };
+    }),
+
+  /**
+   * Take the calling user's Assistant out of a workspace: its membership and
+   * any project grants it held there. The person decides where their
+   * Assistant works; a workspace owner or admin can also remove it, from
+   * Members (`workspace.removeMember`). Removing it from a workspace it is
+   * not in is a no-op.
+   */
+  removeFromWorkspace: humanOnlyProcedure
+    .input(z.object({ workspaceId: z.string() }))
+    .mutation(async ({ input, ctx }) => {
+      const assistant = await ctx.db.assistant.findFirst({
+        ...activeAssistantQuery(ctx.session.user.id),
+        select: { id: true, externalAgent: { select: { shadowUserId: true } } },
+      });
+      if (!assistant) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "You don't have an Assistant yet" });
+      }
+      const removed = await revokeAgentWorkspace(
+        ctx.db,
+        assistant.externalAgent.shadowUserId,
+        input.workspaceId,
+      );
+      return { removed };
     }),
 
   /** Update an assistant owned by the calling user */
@@ -221,6 +255,42 @@ export const assistantRouter = createTRPCRouter({
       ...activeAssistantQuery(ctx.session.user.id),
       include: ASSISTANT_PRINCIPAL_INCLUDE,
     });
+  }),
+
+  /**
+   * Every workspace the calling user belongs to directly, with whether their
+   * Assistant works there and whether they may add it (a delegating role,
+   * ADR-0049) — Settings → Assistant's "Where it works" list. With no
+   * Assistant yet, it works nowhere.
+   */
+  myWorkspaces: protectedProcedure.query(async ({ ctx }) => {
+    const userId = ctx.session.user.id;
+    const [assistant, memberships] = await Promise.all([
+      ctx.db.assistant.findFirst({
+        ...activeAssistantQuery(userId),
+        select: { externalAgent: { select: { shadowUserId: true } } },
+      }),
+      ctx.db.workspaceUser.findMany({
+        where: { userId },
+        orderBy: { joinedAt: "asc" },
+        select: { role: true, workspace: { select: { id: true, name: true, slug: true, type: true } } },
+      }),
+    ]);
+    const worksIn = new Set(
+      assistant
+        ? (
+            await ctx.db.workspaceUser.findMany({
+              where: { userId: assistant.externalAgent.shadowUserId },
+              select: { workspaceId: true },
+            })
+          ).map((m) => m.workspaceId)
+        : [],
+    );
+    return memberships.map((m) => ({
+      ...m.workspace,
+      canAdd: canDelegateFromRole(m.role),
+      assistantIsMember: worksIn.has(m.workspace.id),
+    }));
   }),
 
   /**

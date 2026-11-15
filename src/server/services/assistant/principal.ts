@@ -7,21 +7,13 @@ import { Prisma, type PrismaClient } from "@prisma/client";
  * invariant, and what V2's `exp_agent_` runner key hangs off.
  *
  * Called by `ensureAssistantForUser`, the one entry point that creates an
- * Assistant (ADR-0072). Runs inside the caller's transaction. `workspaceId` is
- * the first membership — the person's Personal workspace; the Assistant itself
- * belongs to no workspace. The caller guarantees the owner holds a delegating
- * role there (the same precondition as `externalAgent.grantWorkspaces`), or
- * passes `grantMembership: false` to skip the membership row — the invariant
- * wins over completeness.
+ * Assistant (ADR-0072). Runs inside the caller's transaction and writes no
+ * membership: where the Assistant works is granted through the External-agent
+ * grant path (`memberGrant`, Agent PRD D5/D6).
  */
 export async function createAssistantPrincipal(
   tx: Prisma.TransactionClient,
-  input: {
-    name: string;
-    ownerId: string;
-    workspaceId: string;
-    grantMembership?: boolean;
-  },
+  input: { name: string; ownerId: string },
 ): Promise<{ externalAgentId: string; shadowUserId: string }> {
   const shadowUser = await tx.user.create({
     data: { name: input.name, isAgent: true },
@@ -36,17 +28,6 @@ export async function createAssistantPrincipal(
     },
     select: { id: true },
   });
-
-  if (input.grantMembership ?? true) {
-    await tx.workspaceUser.upsert({
-      where: {
-        userId_workspaceId: { userId: shadowUser.id, workspaceId: input.workspaceId },
-      },
-      // Agents only ever hold `member` (ADR-0049).
-      create: { userId: shadowUser.id, workspaceId: input.workspaceId, role: "member" },
-      update: { role: "member" },
-    });
-  }
 
   return { externalAgentId: agent.id, shadowUserId: shadowUser.id };
 }

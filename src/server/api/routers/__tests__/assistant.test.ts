@@ -283,3 +283,183 @@ describe("assistant.getMine — one Assistant per person (ADR-0072)", () => {
     await expect(caller.assistant.getMine()).resolves.toBeNull();
   });
 });
+
+describe("assistant.addToWorkspace — the External-agent grant path (Agent PRD D6)", () => {
+  let dbMock: DeepMockProxy<PrismaClient>;
+  const TEAM_WS = "ws-team";
+  const PERSONAL_WS = "ws-personal";
+
+  beforeEach(() => {
+    dbMock = getDbMock();
+    mockReset(dbMock);
+    dbMock.user.findUnique.mockResolvedValue({ isAgent: false } as never);
+    dbMock.assistant.findFirst.mockResolvedValue(ownedAssistant as never);
+    dbMock.externalAgent.findUniqueOrThrow.mockResolvedValue({ shadowUserId: "shadow-1" } as never);
+    dbMock.workspaceUser.upsert.mockResolvedValue({} as never);
+  });
+
+  it("grants `member`, and only `member`, where the person is at least a member", async () => {
+    dbMock.workspaceUser.findMany.mockResolvedValue([
+      { userId: OWNER_ID, workspaceId: TEAM_WS, role: "member" },
+    ] as never);
+    const caller = createMockCaller({ userId: OWNER_ID, db: dbMock });
+
+    await expect(caller.assistant.addToWorkspace({ workspaceId: TEAM_WS })).resolves.toEqual({
+      assistantId: ASSISTANT_ID,
+      workspaceId: TEAM_WS,
+    });
+
+    expect(dbMock.externalAgent.findUniqueOrThrow).toHaveBeenCalledWith({
+      where: { id: ownedAssistant.externalAgentId },
+      select: { shadowUserId: true },
+    });
+    expect(dbMock.workspaceUser.upsert).toHaveBeenCalledWith({
+      where: { userId_workspaceId: { userId: "shadow-1", workspaceId: TEAM_WS } },
+      create: { userId: "shadow-1", workspaceId: TEAM_WS, role: "member" },
+      update: { role: "member" },
+    });
+  });
+
+  it("refuses a person who is only a viewer there, and writes nothing", async () => {
+    dbMock.workspaceUser.findMany.mockResolvedValue([
+      { userId: OWNER_ID, workspaceId: TEAM_WS, role: "viewer" },
+    ] as never);
+    dbMock.workspace.findMany.mockResolvedValue([{ name: "Acme" }] as never);
+    const caller = createMockCaller({ userId: OWNER_ID, db: dbMock });
+
+    await expect(caller.assistant.addToWorkspace({ workspaceId: TEAM_WS })).rejects.toMatchObject({
+      code: "FORBIDDEN",
+      message: expect.stringContaining("Acme"),
+    });
+
+    expect(dbMock.workspaceUser.upsert).not.toHaveBeenCalled();
+    expect(dbMock.$transaction).not.toHaveBeenCalled();
+  });
+
+  it("refuses a workspace the person is not in at all, before creating an Assistant", async () => {
+    dbMock.assistant.findFirst.mockResolvedValue(null);
+    dbMock.workspaceUser.findMany.mockResolvedValue([] as never);
+    dbMock.workspace.findMany.mockResolvedValue([] as never);
+    const caller = createMockCaller({ userId: OWNER_ID, db: dbMock });
+
+    await expect(caller.assistant.addToWorkspace({ workspaceId: TEAM_WS })).rejects.toMatchObject({
+      code: "FORBIDDEN",
+    });
+
+    expect(dbMock.$transaction).not.toHaveBeenCalled();
+    expect(dbMock.workspaceUser.upsert).not.toHaveBeenCalled();
+  });
+
+  it("creates the person's Assistant on first need, then adds it (ADR-0072)", async () => {
+    dbMock.assistant.findFirst.mockResolvedValue(null);
+    dbMock.workspaceUser.findMany.mockResolvedValue([
+      { userId: OWNER_ID, workspaceId: TEAM_WS, role: "admin" },
+    ] as never);
+    dbMock.workspace.findFirst.mockResolvedValue({ id: PERSONAL_WS } as never);
+    dbMock.workspaceUser.findUnique.mockResolvedValue({ role: "owner" } as never);
+    dbMock.$transaction.mockImplementation(((cb: (tx: unknown) => unknown) =>
+      cb(dbMock)) as never);
+    dbMock.user.create.mockResolvedValue({ id: "shadow-1" } as never);
+    dbMock.externalAgent.create.mockResolvedValue({ id: "agent-1" } as never);
+    dbMock.assistant.create.mockResolvedValue(ownedAssistant as never);
+    const caller = createMockCaller({ userId: OWNER_ID, db: dbMock });
+
+    await caller.assistant.addToWorkspace({ workspaceId: TEAM_WS });
+
+    expect(dbMock.assistant.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ name: "Zoe", createdById: OWNER_ID }) }),
+    );
+    const grantedWorkspaces = dbMock.workspaceUser.upsert.mock.calls.map(
+      ([args]) => args.create.workspaceId,
+    );
+    expect(grantedWorkspaces).toEqual([PERSONAL_WS, TEAM_WS]);
+  });
+});
+
+describe("assistant.removeFromWorkspace", () => {
+  let dbMock: DeepMockProxy<PrismaClient>;
+
+  beforeEach(() => {
+    dbMock = getDbMock();
+    mockReset(dbMock);
+    dbMock.user.findUnique.mockResolvedValue({ isAgent: false } as never);
+    dbMock.workspaceUser.deleteMany.mockResolvedValue({ count: 1 } as never);
+    dbMock.projectMember.deleteMany.mockResolvedValue({ count: 0 } as never);
+  });
+
+  it("removes the caller's own Assistant from one workspace, with its project grants there", async () => {
+    dbMock.assistant.findFirst.mockResolvedValue({
+      id: ASSISTANT_ID,
+      externalAgent: { shadowUserId: "shadow-1" },
+    } as never);
+    const caller = createMockCaller({ userId: OWNER_ID, db: dbMock });
+
+    await expect(caller.assistant.removeFromWorkspace({ workspaceId: WORKSPACE_ID })).resolves.toEqual({
+      removed: true,
+    });
+
+    // Only ever the caller's own non-retired Assistant.
+    expect(dbMock.assistant.findFirst.mock.calls[0]?.[0]?.where).toEqual({
+      createdById: OWNER_ID,
+      retiredAt: null,
+    });
+    expect(dbMock.workspaceUser.deleteMany).toHaveBeenCalledWith({
+      where: { userId: "shadow-1", workspaceId: WORKSPACE_ID },
+    });
+    expect(dbMock.projectMember.deleteMany).toHaveBeenCalledWith({
+      where: { userId: { in: ["shadow-1"] }, project: { workspaceId: WORKSPACE_ID } },
+    });
+  });
+
+  it("is NOT_FOUND for a person with no Assistant, and deletes nothing", async () => {
+    dbMock.assistant.findFirst.mockResolvedValue(null);
+    const caller = createMockCaller({ userId: OWNER_ID, db: dbMock });
+
+    await expect(
+      caller.assistant.removeFromWorkspace({ workspaceId: WORKSPACE_ID }),
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
+    expect(dbMock.workspaceUser.deleteMany).not.toHaveBeenCalled();
+  });
+});
+
+describe("assistant.myWorkspaces — Settings → Assistant's list", () => {
+  let dbMock: DeepMockProxy<PrismaClient>;
+
+  beforeEach(() => {
+    dbMock = getDbMock();
+    mockReset(dbMock);
+  });
+
+  const memberships = [
+    { role: "owner", workspace: { id: "ws-personal", name: "Personal", slug: "p", type: "personal" } },
+    { role: "member", workspace: { id: "ws-team", name: "Team", slug: "t", type: "team" } },
+    { role: "viewer", workspace: { id: "ws-view", name: "Viewing", slug: "v", type: "team" } },
+  ];
+
+  it("marks where the Assistant works and where its person may add it", async () => {
+    dbMock.assistant.findFirst.mockResolvedValue({ externalAgent: { shadowUserId: "shadow-1" } } as never);
+    dbMock.workspaceUser.findMany.mockImplementation(((args: { where: { userId: string } }) =>
+      Promise.resolve(
+        args.where.userId === "shadow-1" ? [{ workspaceId: "ws-personal" }] : memberships,
+      )) as never);
+    const caller = createMockCaller({ userId: OWNER_ID, db: dbMock });
+
+    await expect(caller.assistant.myWorkspaces()).resolves.toEqual([
+      { id: "ws-personal", name: "Personal", slug: "p", type: "personal", canAdd: true, assistantIsMember: true },
+      { id: "ws-team", name: "Team", slug: "t", type: "team", canAdd: true, assistantIsMember: false },
+      // A viewer cannot delegate member-level access (ADR-0049).
+      { id: "ws-view", name: "Viewing", slug: "v", type: "team", canAdd: false, assistantIsMember: false },
+    ]);
+  });
+
+  it("with no Assistant yet, it works nowhere", async () => {
+    dbMock.assistant.findFirst.mockResolvedValue(null);
+    dbMock.workspaceUser.findMany.mockResolvedValue(memberships as never);
+    const caller = createMockCaller({ userId: OWNER_ID, db: dbMock });
+
+    const result = await caller.assistant.myWorkspaces();
+
+    expect(result.every((w) => !w.assistantIsMember)).toBe(true);
+    expect(dbMock.workspaceUser.findMany).toHaveBeenCalledTimes(1);
+  });
+});

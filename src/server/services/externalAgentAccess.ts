@@ -7,8 +7,68 @@ import {
   hasProjectAccess,
 } from "./access/resolvers/projectResolver";
 import { getWorkspaceMembership } from "./access/resolvers/workspaceResolver";
+import { canDelegateFromRole } from "~/lib/agentDelegation";
 
 type Db = PrismaClient | Prisma.TransactionClient;
+
+/**
+ * Delegation invariant, grant-time half: the owner must hold at least `member`
+ * in every target workspace themselves. A viewer cannot delegate member-level
+ * access (ADR-0049). All-or-nothing — a partial grant would read as a full one
+ * in the UI. Returns the deduplicated ids.
+ *
+ * Shared by `externalAgent.create` / `grantWorkspaces` and
+ * `assistant.addToWorkspace`, so an Assistant joins a workspace through the
+ * same check as any other External agent (Agent PRD D6). Only reads: callers
+ * run it before writing anything, so a refusal writes nothing.
+ */
+export async function requireDelegableWorkspaces(
+  db: PrismaClient,
+  ownerId: string,
+  requestedIds: string[],
+): Promise<string[]> {
+  const workspaceIds = [...new Set(requestedIds)];
+  if (workspaceIds.length === 0) return workspaceIds;
+
+  const ownerMemberships = await db.workspaceUser.findMany({
+    where: { userId: ownerId, workspaceId: { in: workspaceIds } },
+  });
+  const delegable = new Set(
+    ownerMemberships.filter((m) => canDelegateFromRole(m.role)).map((m) => m.workspaceId),
+  );
+  if (delegable.size !== workspaceIds.length) {
+    // Name the offenders — the picker is fed by `workspace.list`, which also
+    // surfaces team-based and project-guest workspaces where the owner holds
+    // no `WorkspaceUser` row at all. Without names, recovering from a
+    // rejected batch means bisecting the selection by hand.
+    const rejected = await db.workspace.findMany({
+      where: { id: { in: workspaceIds.filter((id) => !delegable.has(id)) } },
+      select: { name: true },
+    });
+    const names = rejected.map((w) => w.name).join(", ");
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message: names
+        ? `You need at least member access to add your agent to ${names} — nothing was granted`
+        : "You need at least member access in every workspace you add your agent to — nothing was granted",
+    });
+  }
+  return workspaceIds;
+}
+
+/**
+ * The one way an agent's shadow user joins a workspace: always `member`, never
+ * more (ADR-0049). An upsert, so re-adding is a no-op and an out-of-band role
+ * is put back to `member`. Callers check {@link requireDelegableWorkspaces}
+ * first.
+ */
+export function memberGrant(db: Db, shadowUserId: string, workspaceId: string) {
+  return db.workspaceUser.upsert({
+    where: { userId_workspaceId: { userId: shadowUserId, workspaceId } },
+    create: { userId: shadowUserId, workspaceId, role: "member" },
+    update: { role: "member" },
+  });
+}
 
 /**
  * Agents losing a workspace also lose every direct project membership in it.
@@ -29,6 +89,26 @@ export async function revokeAgentProjectMembershipsInWorkspace(
     },
   });
   return result.count;
+}
+
+/**
+ * An agent leaves one workspace: its membership row and every direct project
+ * grant it held there, which were made under the delegation being withdrawn.
+ * The one removal path for an agent's own membership — its owner revoking it
+ * (`externalAgent.revokeWorkspace`, `assistant.removeFromWorkspace`) or a
+ * workspace owner or admin removing it from Members. Returns whether a
+ * membership was removed.
+ */
+export async function revokeAgentWorkspace(
+  db: Db,
+  shadowUserId: string,
+  workspaceId: string,
+): Promise<boolean> {
+  const result = await db.workspaceUser.deleteMany({
+    where: { userId: shadowUserId, workspaceId },
+  });
+  await revokeAgentProjectMembershipsInWorkspace(db, [shadowUserId], workspaceId);
+  return result.count > 0;
 }
 
 /**
@@ -64,13 +144,6 @@ export async function cascadeOwnerRemovedFromWorkspace(
   return result.count;
 }
 
-/**
- * Owner's role changed in a workspace. Agents always hold role `member`; a
- * demotion to `viewer` means the owner can no longer delegate member-level
- * access, so their agents' memberships are removed (there is no viewer tier
- * for agents — see ADR-0049). Promotions and admin↔member moves keep the
- * delegation valid and are no-ops.
- */
 /**
  * Owner removed from a project → their agents' shadow users leave the project
  * too. The project-level half of the invariant: a restricted project an agent
@@ -205,6 +278,13 @@ export async function assertAgentProjectMembership(
   }
 }
 
+/**
+ * Owner's role changed in a workspace. Agents always hold role `member`; a
+ * demotion to `viewer` means the owner can no longer delegate member-level
+ * access, so their agents' memberships are removed (there is no viewer tier
+ * for agents — see ADR-0049). Promotions and admin↔member moves keep the
+ * delegation valid and are no-ops.
+ */
 export async function cascadeOwnerRoleChanged(
   db: Db,
   ownerId: string,

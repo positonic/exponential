@@ -58,6 +58,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { useRef, useState } from 'react';
 import { useWorkspace } from '~/providers/WorkspaceProvider';
 import { api } from '~/trpc/react';
+import { canDelegateFromRole } from '~/lib/agentDelegation';
 import { PersonLink } from '~/app/_components/people/PersonLink';
 import { InviteMemberModal } from '~/app/_components/InviteMemberModal';
 import { EditMemberRoleModal } from '~/app/_components/EditMemberRoleModal';
@@ -437,6 +438,30 @@ export default function WorkspaceSettingsPage() {
     },
   });
 
+  // "Add my Assistant" (ADR-0072, Agent PRD V2): a person's Assistant joins a
+  // workspace only when they add it, and only where they hold a delegating
+  // role — the same rule the server enforces in assistant.addToWorkspace.
+  const canAddMyAssistant = canDelegateFromRole(userRole);
+  const { data: myAssistant } = api.assistant.getMine.useQuery(undefined, {
+    enabled: section === 'members' && canAddMyAssistant,
+  });
+  const addMyAssistantMutation = api.assistant.addToWorkspace.useMutation({
+    onSuccess: () => {
+      refetchWorkspace();
+      void utils.assistant.getMine.invalidate();
+      void utils.assistant.myWorkspaces.invalidate();
+      notifications.show({
+        title: 'Assistant added',
+        message: `${myAssistant?.name ?? 'Your Assistant'} can now be assigned work in ${workspace?.name ?? 'this workspace'}.`,
+        color: 'green',
+        autoClose: 3000,
+      });
+    },
+    onError: (error) => {
+      notifications.show({ title: 'Could not add your Assistant', message: error.message, color: 'red' });
+    },
+  });
+
   const { data: emailStatus, refetch: refetchEmailStatus } = api.integration.getWorkspaceEmailStatus.useQuery(
     { workspaceId: workspaceId! },
     { enabled: !!workspaceId }
@@ -663,6 +688,10 @@ export default function WorkspaceSettingsPage() {
 
   const canEdit = userRole === 'owner' || userRole === 'admin';
   const canManageMembers = userRole === 'owner' || userRole === 'admin';
+  const myAssistantShadowId = myAssistant?.externalAgent.shadowUserId;
+  const myAssistantIsMember =
+    !!myAssistantShadowId && !!workspace.members?.some((member) => member.userId === myAssistantShadowId);
+  const showAddMyAssistant = canAddMyAssistant && !myAssistantIsMember;
 
   const memberCount = workspace.members?.length ?? 0;
   const pendingCount = pendingInvites?.length ?? 0;
@@ -960,14 +989,30 @@ export default function WorkspaceSettingsPage() {
               count={`${memberCount} · ${pendingCount} pending`}
               description="People with access to projects, goals, and integrations in this workspace."
               action={
-                canManageMembers && (
-                  <Button
-                    size="xs"
-                    leftSection={<IconUserPlus size={14} />}
-                    onClick={openInviteModal}
-                  >
-                    Invite member
-                  </Button>
+                (showAddMyAssistant || canManageMembers) && (
+                  <Group gap="xs">
+                    {showAddMyAssistant && (
+                      <Button
+                        size="xs"
+                        variant="default"
+                        leftSection={<IconRobotFace size={14} />}
+                        onClick={() => workspaceId && addMyAssistantMutation.mutate({ workspaceId })}
+                        loading={addMyAssistantMutation.isPending}
+                        data-testid="add-my-assistant"
+                      >
+                        Add my Assistant
+                      </Button>
+                    )}
+                    {canManageMembers && (
+                      <Button
+                        size="xs"
+                        leftSection={<IconUserPlus size={14} />}
+                        onClick={openInviteModal}
+                      >
+                        Invite member
+                      </Button>
+                    )}
+                  </Group>
                 )
               }
               flush

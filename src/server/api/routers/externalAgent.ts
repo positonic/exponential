@@ -6,8 +6,11 @@ import { createTRPCRouter, humanOnlyProcedure } from "~/server/api/trpc";
 import { generateExternalAgentKey } from "~/server/utils/external-agent-keys";
 import { deleteFromBlob, uploadToBlob } from "~/lib/blob";
 import { deleteExternalAgentPrincipal } from "~/server/services/assistant/principal";
-import { canDelegateFromRole } from "~/lib/agentDelegation";
-import { revokeAgentProjectMembershipsInWorkspace } from "~/server/services/externalAgentAccess";
+import {
+  memberGrant,
+  requireDelegableWorkspaces,
+  revokeAgentWorkspace,
+} from "~/server/services/externalAgentAccess";
 
 /**
  * External-agent management (ADR-0049).
@@ -50,59 +53,6 @@ async function requireOwnedAgent(
     throw new TRPCError({ code: "NOT_FOUND", message: "Agent not found" });
   }
   return agent;
-}
-
-/**
- * Delegation invariant, grant-time half: the owner must hold at least `member`
- * in every target workspace themselves. A viewer cannot delegate member-level
- * access (ADR-0049). All-or-nothing — a partial grant would read as a full one
- * in the UI. Returns the deduplicated ids.
- */
-async function requireDelegableWorkspaces(
-  db: PrismaClient,
-  ownerId: string,
-  requestedIds: string[],
-): Promise<string[]> {
-  const workspaceIds = [...new Set(requestedIds)];
-  if (workspaceIds.length === 0) return workspaceIds;
-
-  const ownerMemberships = await db.workspaceUser.findMany({
-    where: { userId: ownerId, workspaceId: { in: workspaceIds } },
-  });
-  const delegable = new Set(
-    ownerMemberships.filter((m) => canDelegateFromRole(m.role)).map((m) => m.workspaceId),
-  );
-  if (delegable.size !== workspaceIds.length) {
-    // Name the offenders — the picker is fed by `workspace.list`, which also
-    // surfaces team-based and project-guest workspaces where the owner holds
-    // no `WorkspaceUser` row at all. Without names, recovering from a
-    // rejected batch means bisecting the selection by hand.
-    const rejected = await db.workspace.findMany({
-      where: { id: { in: workspaceIds.filter((id) => !delegable.has(id)) } },
-      select: { name: true },
-    });
-    const names = rejected.map((w) => w.name).join(", ");
-    throw new TRPCError({
-      code: "FORBIDDEN",
-      message: names
-        ? `You need at least member access to add your agent to ${names} — nothing was granted`
-        : "You need at least member access in every workspace you add your agent to — nothing was granted",
-    });
-  }
-  return workspaceIds;
-}
-
-/** Agents only ever hold `member` (ADR-0049). */
-function memberGrant(
-  db: PrismaClient | Prisma.TransactionClient,
-  shadowUserId: string,
-  workspaceId: string,
-) {
-  return db.workspaceUser.upsert({
-    where: { userId_workspaceId: { userId: shadowUserId, workspaceId } },
-    create: { userId: shadowUserId, workspaceId, role: "member" },
-    update: { role: "member" },
-  });
 }
 
 export const externalAgentRouter = createTRPCRouter({
@@ -413,16 +363,9 @@ export const externalAgentRouter = createTRPCRouter({
     .input(z.object({ agentId: z.string(), workspaceId: z.string() }))
     .mutation(async ({ ctx, input }) => {
       const agent = await requireOwnedAgent(ctx.db, input.agentId, ctx.session.user.id);
-      await ctx.db.workspaceUser.deleteMany({
-        where: { userId: agent.shadowUserId, workspaceId: input.workspaceId },
-      });
       // Direct project grants in that workspace go with it — they were made
       // under the workspace delegation that is being withdrawn.
-      await revokeAgentProjectMembershipsInWorkspace(
-        ctx.db,
-        [agent.shadowUserId],
-        input.workspaceId,
-      );
+      await revokeAgentWorkspace(ctx.db, agent.shadowUserId, input.workspaceId);
       return { success: true };
     }),
 });

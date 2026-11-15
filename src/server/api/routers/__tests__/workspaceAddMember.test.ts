@@ -274,3 +274,71 @@ describe("workspace.removeMember (invite landing cleanup)", () => {
     expect(db.workspaceUser.delete).toHaveBeenCalledTimes(1);
   });
 });
+
+describe("workspace.removeMember — an owner or admin removes someone's agent (Agent PRD V2)", () => {
+  let db: DeepMockProxy<PrismaClient>;
+  const SHADOW_ID = "shadow-assistant";
+
+  beforeEach(() => {
+    db = getDbMock();
+    mockReset(db);
+    db.user.findUnique.mockResolvedValueOnce({ isAgent: false } as never);
+    db.workspaceUser.delete.mockResolvedValue({} as never);
+    db.externalAgent.findMany.mockResolvedValue([] as never);
+    db.projectMember.deleteMany.mockResolvedValue({ count: 1 } as never);
+  });
+
+  it.each(["owner", "admin"])("lets an %s remove an Assistant, taking its project grants too", async (role) => {
+    db.workspaceUser.findUnique
+      .mockResolvedValueOnce({ role } as never)
+      .mockResolvedValueOnce({ role: "member", user: { email: null, isAgent: true } } as never);
+
+    await expect(
+      caller(db).workspace.removeMember({ workspaceId: WORKSPACE_ID, userId: SHADOW_ID }),
+    ).resolves.toEqual({ success: true });
+
+    expect(db.workspaceUser.delete).toHaveBeenCalledWith({
+      where: { userId_workspaceId: { userId: SHADOW_ID, workspaceId: WORKSPACE_ID } },
+    });
+    expect(db.projectMember.deleteMany).toHaveBeenCalledWith({
+      where: { userId: { in: [SHADOW_ID] }, project: { workspaceId: WORKSPACE_ID } },
+    });
+  });
+
+  it("leaves a removed person's own project memberships to the existing rules", async () => {
+    db.workspaceUser.findUnique
+      .mockResolvedValueOnce({ role: "owner" } as never)
+      .mockResolvedValueOnce({ role: "member", user: { email: null, isAgent: false } } as never);
+
+    await caller(db).workspace.removeMember({ workspaceId: WORKSPACE_ID, userId: INVITEE_ID });
+
+    expect(db.projectMember.deleteMany).not.toHaveBeenCalled();
+  });
+
+  it("removing a person also removes their Assistant from the workspace (D7 regression)", async () => {
+    db.workspaceUser.findUnique
+      .mockResolvedValueOnce({ role: "owner" } as never)
+      .mockResolvedValueOnce({ role: "member", user: { email: null, isAgent: false } } as never);
+    db.externalAgent.findMany.mockResolvedValue([{ shadowUserId: SHADOW_ID }] as never);
+    db.workspaceUser.deleteMany.mockResolvedValue({ count: 1 } as never);
+
+    await caller(db).workspace.removeMember({ workspaceId: WORKSPACE_ID, userId: INVITEE_ID });
+
+    expect(db.externalAgent.findMany).toHaveBeenCalledWith({
+      where: { ownerId: INVITEE_ID },
+      select: { shadowUserId: true },
+    });
+    expect(db.workspaceUser.deleteMany).toHaveBeenCalledWith({
+      where: { workspaceId: WORKSPACE_ID, userId: { in: [SHADOW_ID] } },
+    });
+  });
+
+  it("refuses a plain member", async () => {
+    db.workspaceUser.findUnique.mockResolvedValueOnce({ role: "member" } as never);
+
+    await expect(
+      caller(db).workspace.removeMember({ workspaceId: WORKSPACE_ID, userId: SHADOW_ID }),
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
+    expect(db.workspaceUser.delete).not.toHaveBeenCalled();
+  });
+});

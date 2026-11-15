@@ -191,3 +191,41 @@ describe("toAssignableUser: assistantExecutor", () => {
     expect(toAssignableUser(row).assistantExecutor).toBe("MASTRA");
   });
 });
+
+describe("an Assistant is assignable only where it works (Agent PRD V2, D7 regression)", () => {
+  // An Assistant's principal is an External agent whose shadow user holds
+  // ordinary WorkspaceUser rows (ADR-0067). No code special-cases it: the
+  // same membership resolver that admits a person admits it, and refuses it
+  // in a workspace its person has not added it to.
+  const ASSISTANT_SHADOW_ID = "user-assistant-shadow";
+  let db: DeepMockProxy<PrismaClient>;
+
+  beforeEach(() => {
+    db = mockDeep<PrismaClient>();
+    mockReset(db);
+    db.teamUser.findFirst.mockResolvedValue(null);
+    db.team.findFirst.mockResolvedValue(null);
+  });
+
+  it("refuses it in a workspace it has not joined", async () => {
+    stubDirectMembers(db, [CALLER_ID]);
+
+    await expect(
+      assertAssignableUser(db, WORKSPACE_ID, ASSISTANT_SHADOW_ID),
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
+    await expect(
+      canAssignToUnscopedAction(db, CALLER_ID, WORKSPACE_ID, ASSISTANT_SHADOW_ID),
+    ).resolves.toBe(false);
+  });
+
+  it("accepts it once its person has added it", async () => {
+    stubDirectMembers(db, [CALLER_ID, ASSISTANT_SHADOW_ID]);
+
+    await expect(
+      assertAssignableUser(db, WORKSPACE_ID, ASSISTANT_SHADOW_ID),
+    ).resolves.toBeUndefined();
+    await expect(
+      canAssignToUnscopedAction(db, CALLER_ID, WORKSPACE_ID, ASSISTANT_SHADOW_ID),
+    ).resolves.toBe(true);
+  });
+});

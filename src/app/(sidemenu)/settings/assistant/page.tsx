@@ -116,9 +116,37 @@ export default function AssistantSettingsPage() {
     },
   });
 
+  // Where it works (ADR-0072, Agent PRD V2): the Assistant joins a workspace
+  // only when its person adds it, and only where they are at least a member.
+  const { data: myWorkspaces } = api.assistant.myWorkspaces.useQuery(undefined, {
+    enabled: !!assistant,
+  });
+  const [workspaceToAdd, setWorkspaceToAdd] = useState<string | null>(null);
+  const invalidateWorkspaces = () => {
+    void utils.assistant.myWorkspaces.invalidate();
+    void utils.assistant.list.invalidate();
+  };
+  const addToWorkspaceMutation = api.assistant.addToWorkspace.useMutation({
+    onSuccess: () => {
+      setWorkspaceToAdd(null);
+      invalidateWorkspaces();
+    },
+  });
+  const removeFromWorkspaceMutation = api.assistant.removeFromWorkspace.useMutation({
+    onSuccess: invalidateWorkspaces,
+  });
+  const joinedWorkspaces = (myWorkspaces ?? []).filter((w) => w.assistantIsMember);
+  const addableWorkspaces = (myWorkspaces ?? []).filter((w) => w.canAdd && !w.assistantIsMember);
+
   const isSaving = createMutation.isPending || updateMutation.isPending;
   const error =
-    createMutation.error ?? updateMutation.error ?? executorMutation.error ?? createKeyMutation.error ?? revokeKeyMutation.error;
+    createMutation.error ??
+    updateMutation.error ??
+    executorMutation.error ??
+    createKeyMutation.error ??
+    revokeKeyMutation.error ??
+    addToWorkspaceMutation.error ??
+    removeFromWorkspaceMutation.error;
 
   const handleSave = () => {
     console.log('[AssistantSettings] handleSave called', {
@@ -316,6 +344,73 @@ export default function AssistantSettingsPage() {
           </Paper>
         )}
 
+        {/* Where it works (ADR-0072, Agent PRD V2) */}
+        {assistant && (
+          <Paper p="lg" withBorder className="bg-surface-secondary" data-testid="assistant-workspaces">
+            <Text fw={500} className="text-text-primary mb-1">
+              Where it works
+            </Text>
+            <Text size="xs" c="dimmed" mb="md">
+              {assistant.name} can be assigned work only in these workspaces. It is in your
+              Personal workspace from the start; add it anywhere else you are at least a member.
+            </Text>
+            <Stack gap="xs">
+              {joinedWorkspaces.map((workspace) => (
+                <Group
+                  key={workspace.id}
+                  justify="space-between"
+                  wrap="nowrap"
+                  data-testid="assistant-workspace-row"
+                >
+                  <Text size="sm" className="text-text-primary" truncate>
+                    {workspace.name}
+                  </Text>
+                  <Tooltip label={`Remove from ${workspace.name}`}>
+                    <ActionIcon
+                      variant="subtle"
+                      color="red"
+                      aria-label={`Remove ${assistant.name} from ${workspace.name}`}
+                      loading={
+                        removeFromWorkspaceMutation.isPending &&
+                        removeFromWorkspaceMutation.variables?.workspaceId === workspace.id
+                      }
+                      onClick={() => removeFromWorkspaceMutation.mutate({ workspaceId: workspace.id })}
+                    >
+                      <IconTrash size={14} />
+                    </ActionIcon>
+                  </Tooltip>
+                </Group>
+              ))}
+              {myWorkspaces && joinedWorkspaces.length === 0 && (
+                <Text size="sm" c="dimmed">
+                  Not in any workspace yet, so nobody can assign it work. Add it to one below.
+                </Text>
+              )}
+            </Stack>
+            {addableWorkspaces.length > 0 && (
+              <Group mt="md" align="flex-end" wrap="nowrap">
+                <Select
+                  className="flex-1"
+                  label="Add to a workspace"
+                  placeholder="Pick a workspace"
+                  data={addableWorkspaces.map((w) => ({ value: w.id, label: w.name }))}
+                  value={workspaceToAdd}
+                  onChange={setWorkspaceToAdd}
+                  data-testid="assistant-add-workspace"
+                />
+                <Button
+                  variant="default"
+                  disabled={!workspaceToAdd}
+                  loading={addToWorkspaceMutation.isPending}
+                  onClick={() => workspaceToAdd && addToWorkspaceMutation.mutate({ workspaceId: workspaceToAdd })}
+                >
+                  Add
+                </Button>
+              </Group>
+            )}
+          </Paper>
+        )}
+
         {/* Delegation (ADR-0067) */}
         {assistant && (
           <Paper p="lg" withBorder className="bg-surface-secondary">
@@ -324,8 +419,8 @@ export default function AssistantSettingsPage() {
             </Text>
             <Text size="sm" c="dimmed">
               <b>{assistant.name}</b> can be assigned work. Pick it from the Assign
-              modal on any action in this workspace and it will research, delegate,
-              or do the work inside Exponential, asking you when it gets stuck.
+              modal on any action in a workspace it works in and it will research,
+              delegate, or do the work inside Exponential, asking you when it gets stuck.
               Everything it writes is attributed to it, never to you.
             </Text>
             <Select
