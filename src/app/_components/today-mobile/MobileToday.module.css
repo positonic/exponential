@@ -129,11 +129,11 @@
 }
 
 .selected .dow {
-  color: var(--accent-okr);
+  color: var(--color-link);
 }
 
 .selected .date {
-  color: var(--accent-okr);
+  color: var(--color-link);
 }
 
 /* ── Filter pills ──────────────────────────── */
@@ -211,17 +211,17 @@
   height: 60px;
   border-radius: 50%;
   border: 0;
-  background: var(--accent-okr);
-  color: var(--color-bg-primary);
+  background: var(--color-brand-primary);
+  color: var(--color-text-inverse);
   place-items: center;
   cursor: pointer;
-  box-shadow: 0 12px 28px color-mix(in srgb, var(--accent-okr) 45%, transparent);
+  box-shadow: 0 12px 28px color-mix(in srgb, var(--color-brand-primary) 45%, transparent);
   transition: transform 120ms ease, box-shadow 120ms ease;
 }
 
 .fab:hover {
   transform: translateY(-1px);
-  box-shadow: 0 16px 32px color-mix(in srgb, var(--accent-okr) 55%, transparent);
+  box-shadow: 0 16px 32px color-mix(in srgb, var(--color-brand-primary) 55%, transparent);
 }
 
 .fab:active {

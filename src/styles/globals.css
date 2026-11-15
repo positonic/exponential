@@ -1499,12 +1499,13 @@ body {
    ========================================================================== */
 .today-surface {
   /* Core */
-  --td-accent: #F4B96A;
-  --td-accent-04: rgba(244, 185, 106, 0.04);
-  --td-accent-10: rgba(244, 185, 106, 0.10);
-  --td-accent-12: rgba(244, 185, 106, 0.12);
-  --td-accent-30: rgba(244, 185, 106, 0.30);
-  --td-accent-40: rgba(244, 185, 106, 0.40);
+  /* The page's interactive accent (focus, selection, the now line, links) is
+     the shared brand blue, read straight from --brand-400 / --color-link in
+     today-desktop.css. Amber is one decorative tone: pipeline tags and the
+     agenda's non-calendar blocks. It also means "high priority" (--td-prio-p2),
+     which is why it is not the accent. */
+  --td-amber: #F4B96A;
+  --td-amber-10: rgba(244, 185, 106, 0.10);
 
   /* Page background tracks the global theme so /today matches the rest of
      the workspace shell (workspace pages use --color-bg-primary). */
@@ -1540,9 +1541,9 @@ body {
   --td-tag-unas-bg: rgba(140, 140, 170, 0.10);
   --td-tag-unas-dot: #9292B0;
 
-  --td-tag-pipe-fg: var(--td-accent);
-  --td-tag-pipe-bg: var(--td-accent-10);
-  --td-tag-pipe-dot: var(--td-accent);
+  --td-tag-pipe-fg: var(--td-amber);
+  --td-tag-pipe-bg: var(--td-amber-10);
+  --td-tag-pipe-dot: var(--td-amber);
 
   /* Priority - encodes the checkbox ring color.
      Solid = priority hue. Dim = resting ring (~55-65% alpha).
@@ -1579,7 +1580,7 @@ body {
   --td-prio-low:        #7A8294;
   --td-prio-low-dim:    rgba(122, 130, 148, 0.55);
 
-  /* Agenda blue tone (non-amber events) */
+  /* Agenda blue tone (calendar events; other blocks use --td-amber) */
   --td-event-blue-bg: rgba(140, 170, 210, 0.12);
   --td-event-blue-border: #7C9BD0;
   --td-event-blue-title: #9DB5D8;
@@ -1600,12 +1601,8 @@ body {
    contrast on a white page. */
 [data-mantine-color-scheme="light"] .today-surface {
   /* Core */
-  --td-accent: #B9791E;
-  --td-accent-04: rgba(185, 121, 30, 0.05);
-  --td-accent-10: rgba(185, 121, 30, 0.10);
-  --td-accent-12: rgba(185, 121, 30, 0.12);
-  --td-accent-30: rgba(185, 121, 30, 0.30);
-  --td-accent-40: rgba(185, 121, 30, 0.40);
+  --td-amber: #B9791E;
+  --td-amber-10: rgba(185, 121, 30, 0.10);
 
   --td-sidebar: #f8f9fa;
   --td-surface: #f8f9fa;

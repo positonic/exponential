@@ -87,7 +87,7 @@ html[data-sidebar="closed"] .td-topbar {
   font-feature-settings: "tnum";
 }
 
-.td-score-chip__value { font-size: 13px; font-weight: 600; color: var(--td-accent); }
+.td-score-chip__value { font-size: 13px; font-weight: 600; color: var(--color-link); }
 .td-score-chip__max   { font-size: 10.5px; color: var(--td-faint); }
 
 .td-btn {
@@ -308,15 +308,15 @@ html[data-sidebar="closed"] .td-topbar {
   cursor: pointer;
 }
 
-.td-task:hover { background: var(--td-accent-04); }
+.td-task:hover { background: var(--color-brand-subtle); }
 
-.td-task--focused { background: var(--td-accent-04); }
+.td-task--focused { background: var(--color-brand-subtle); }
 .td-task--focused::before {
   content: "";
   position: absolute;
   left: 0; top: 0; bottom: 0;
   width: 2px;
-  background: var(--td-accent);
+  background: var(--brand-400);
 }
 
 .td-task--done .td-task__title {
@@ -329,13 +329,13 @@ html[data-sidebar="closed"] .td-topbar {
 .td-task--bulk {
   grid-template-columns: 16px 20px 1fr auto;
 }
-.td-task--bulk-selected { background: var(--td-accent-04); }
+.td-task--bulk-selected { background: var(--color-brand-subtle); }
 
 .td-task__bulk-check {
   width: 14px;
   height: 14px;
   cursor: pointer;
-  accent-color: var(--td-accent);
+  accent-color: var(--brand-400);
 }
 
 /* Checkbox — selectors prefixed with `.td ` to win over the
@@ -351,7 +351,7 @@ html[data-sidebar="closed"] .td-topbar {
   justify-content: center;
   flex-shrink: 0;
   --_ring: var(--td-check-border);
-  --_fill: var(--td-accent);
+  --_fill: var(--brand-400);
   cursor: pointer;
   padding: 0;
   transition: background 120ms, border-color 120ms;
@@ -372,7 +372,7 @@ html[data-sidebar="closed"] .td-topbar {
 .td .td-checkbox--prio-normal    { --_ring: var(--td-prio-normal-dim);    --_fill: var(--td-prio-normal);    border-color: var(--_ring); }
 .td .td-checkbox--prio-low       { --_ring: var(--td-prio-low-dim);       --_fill: var(--td-prio-low);       border-color: var(--_ring); }
 
-.td .td-checkbox--focused { border-color: var(--td-accent); }
+.td .td-checkbox--focused { border-color: var(--brand-400); }
 .td .td-checkbox--done    { background: var(--_fill); border-color: var(--_fill); }
 
 .td-task__body { min-width: 0; }
@@ -389,10 +389,10 @@ html[data-sidebar="closed"] .td-topbar {
 }
 
 .td-task__ref {
-  color: var(--td-accent);
+  color: var(--color-link);
   margin-left: 6px;
   font-weight: 500;
-  border-bottom: 1px dashed var(--td-accent-40);
+  border-bottom: 1px dashed rgb(var(--color-link-rgb) / 0.40);
 }
 
 .td-task__meta {
@@ -537,8 +537,8 @@ html[data-sidebar="closed"] .td-topbar {
 .td-pill--today {
   padding: 3px 8px;
   border-radius: 999px;
-  background: var(--td-accent-10);
-  color: var(--td-accent);
+  background: rgb(var(--color-link-rgb) / 0.10);
+  color: var(--color-link);
   font-size: 9.5px;
   font-weight: 600;
   letter-spacing: 0.6px;
@@ -595,7 +595,7 @@ html[data-sidebar="closed"] .td-topbar {
   width: 6px;
   height: 6px;
   border-radius: 999px;
-  background: var(--td-accent);
+  background: var(--brand-400);
   margin-right: -3px;
   z-index: 2;
 }
@@ -603,7 +603,7 @@ html[data-sidebar="closed"] .td-topbar {
 .td-timeline__now-line {
   flex: 1;
   height: 1px;
-  background: var(--td-accent);
+  background: var(--brand-400);
   opacity: 0.7;
 }
 
@@ -649,10 +649,10 @@ html[data-sidebar="closed"] .td-topbar {
    than a busy hour. Mixing into --td-surface rather than `transparent` keeps
    the same tint while making the fill solid. */
 .td-event--amber {
-  background: color-mix(in srgb, var(--td-accent) 14%, var(--td-surface));
-  border-left: 2px solid var(--td-accent);
+  background: color-mix(in srgb, var(--td-amber) 14%, var(--td-surface));
+  border-left: 2px solid var(--td-amber);
 }
-.td-event--amber .td-event__title { color: var(--td-accent); }
+.td-event--amber .td-event__title { color: var(--td-amber); }
 
 .td-event--blue {
   background: color-mix(in srgb, var(--td-event-blue-border) 14%, var(--td-surface));
@@ -692,7 +692,7 @@ html[data-sidebar="closed"] .td-topbar {
 
 .td .td-event-more__btn:hover {
   color: var(--td-text);
-  border-color: var(--td-accent-40);
+  border-color: rgb(var(--brand-400-rgb) / 0.40);
 }
 
 .td-event-more__panel {
@@ -739,7 +739,7 @@ html[data-sidebar="closed"] .td-topbar {
 .td-ring { position: relative; flex-shrink: 0; }
 .td-ring__svg { transform: rotate(-90deg); display: block; }
 .td-ring__track { stroke: var(--td-hair-2); fill: none; }
-.td-ring__fill  { stroke: var(--td-accent); fill: none; stroke-linecap: round; }
+.td-ring__fill  { stroke: var(--brand-400); fill: none; stroke-linecap: round; }
 
 /* ============================================================
    Hide built-in MultiSelect / SegmentedControl when nested under
