@@ -1,4 +1,14 @@
-import type { AgentRunStatus } from "@prisma/client";
+import type { AgentRunStatus, Prisma } from "@prisma/client";
+
+/**
+ * The External agents assignment can start a hosted run for (ADR-0067 V1):
+ * an Assistant's principal, and only a non-retired one (ADR-0072). Retirement
+ * keeps the Assistant row, so `assistant: { isNot: null }` alone would leave a
+ * retired Assistant run-eligible. Every eligibility filter spreads this.
+ */
+export const RUN_ELIGIBLE_AGENT_WHERE = {
+  assistant: { is: { retiredAt: null } },
+} as const satisfies Prisma.ExternalAgentWhereInput;
 
 /** Runs that are still going: the title spinner, the pill's "Working", the 2 s poll. */
 export const LIVE_RUN_STATUSES: readonly AgentRunStatus[] = ["QUEUED", "RUNNING"];

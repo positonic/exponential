@@ -143,7 +143,8 @@ describe("mastra.callAgent — assistant lookup is owner-scoped", () => {
     expect(dbMock.assistant.findFirst).toHaveBeenCalledTimes(1);
     expect(dbMock.assistant.findFirst).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: expect.objectContaining({ id: ASSISTANT_ID, createdById: USER_ID }),
+        // A retired Assistant (ADR-0072) never lends its persona.
+        where: expect.objectContaining({ id: ASSISTANT_ID, createdById: USER_ID, retiredAt: null }),
       }),
     );
     expect(dbMock.assistant.findUnique).not.toHaveBeenCalled();

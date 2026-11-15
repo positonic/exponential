@@ -1474,7 +1474,7 @@ describe("action router (mocked)", () => {
       expect(result.assignees[0]?.user.isAgent).toBe(true);
       // Only an Assistant's principal: the same gate as `assign`.
       expect(dbMock.externalAgent.findMany.mock.calls[0]?.[0]).toMatchObject({
-        where: { shadowUserId: { in: [assistantShadowId] }, assistant: { isNot: null } },
+        where: { shadowUserId: { in: [assistantShadowId] }, assistant: { is: { retiredAt: null } } },
       });
       expect(dbMock.agentRun.create).toHaveBeenCalledTimes(1);
       expect(dbMock.agentRun.create.mock.calls[0]?.[0]).toMatchObject({
@@ -1794,7 +1794,7 @@ describe("action router (mocked)", () => {
 
     it("reports 0 runs for a plain External agent, which picks the action up itself", async () => {
       stubAssistantInWorkspace();
-      // `enqueueAgentRunsForAssignees` filters on `assistant: { isNot: null }`,
+      // `enqueueAgentRunsForAssignees` filters on a non-retired `assistant`,
       // so a plain External agent's shadow user matches no row.
       dbMock.externalAgent.findMany.mockResolvedValue([] as never);
 
@@ -1803,7 +1803,7 @@ describe("action router (mocked)", () => {
 
       expect(result.agentRunsQueued).toBe(0);
       expect(dbMock.externalAgent.findMany.mock.calls[0]?.[0]).toMatchObject({
-        where: { shadowUserId: { in: ["external-agent-shadow"] }, assistant: { isNot: null } },
+        where: { shadowUserId: { in: ["external-agent-shadow"] }, assistant: { is: { retiredAt: null } } },
       });
       expect(dbMock.agentRun.create).not.toHaveBeenCalled();
     });
