@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import { redirect } from "next/navigation";
 import { auth } from "~/server/auth";
 import { AdminSidebar } from "~/app/_components/admin/AdminSidebar";
+import { isMeteringOn, resolveBillingMode } from "~/server/services/billing/config";
 
 interface AdminLayoutProps {
   children: ReactNode;
@@ -22,7 +23,7 @@ export default async function AdminLayout({ children }: AdminLayoutProps) {
 
   return (
     <div className="-m-4 flex min-h-screen lg:-m-8">
-      <AdminSidebar />
+      <AdminSidebar isMeteringOn={isMeteringOn(resolveBillingMode(process.env))} />
       <main className="flex-1 overflow-auto p-6">{children}</main>
     </div>
   );

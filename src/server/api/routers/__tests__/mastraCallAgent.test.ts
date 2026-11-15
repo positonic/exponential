@@ -189,3 +189,120 @@ describe("mastra.callAgent — assistant lookup is owner-scoped", () => {
     expect(body.messages.some((m) => m.content.includes("# Your Identity"))).toBe(false);
   });
 });
+
+describe("mastra.callAgent — metering a direct call (billing V1)", () => {
+  let dbMock: DeepMockProxy<PrismaClient>;
+  const originalMode = process.env.BILLING_MODE;
+
+  /** A one-step gpt-4o-mini reply: 2,000 prompt tokens of which 1,000 cached, 500 out. */
+  const REPLY = {
+    text: "Your health score dipped this month.",
+    usage: {
+      inputTokens: 2_000,
+      outputTokens: 500,
+      cachedInputTokens: 1_000,
+      raw: {
+        inputTokens: { total: 2_000, noCache: 1_000, cacheRead: 1_000, cacheWrite: 0 },
+        outputTokens: { total: 500 },
+      },
+    },
+    response: { modelId: "gpt-4o-mini" },
+  };
+  // 1,000 × $0.15/M + 1,000 × $0.075/M + 500 × $0.60/M = 0.00015 + 0.000075 + 0.0003
+  const REPLY_COST_MICROS = 525;
+
+  function mastraReplies(body: unknown) {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(JSON.stringify(body), { status: 200, headers: { "Content-Type": "application/json" } })),
+    );
+  }
+
+  const recordedEvents = () => dbMock.usageEvent.create.mock.calls.map(([args]) => args.data);
+  const call = (workspaceId?: string) =>
+    createMockCaller({ userId: USER_ID, db: dbMock }).mastra.callAgent({
+      agentId: "zoeAgent",
+      workspaceId,
+      messages: [{ role: "user", content: "How is my wheel of life?" }],
+    });
+
+  beforeEach(() => {
+    process.env.BILLING_MODE = "meter";
+    dbMock = getDbMock();
+    mockReset(dbMock);
+    mastraReplies(REPLY);
+    dbMock.integrationUserMapping.findFirst.mockResolvedValue(null as never);
+    dbMock.aiInteractionHistory.create.mockResolvedValue({ id: "log-1" } as never);
+  });
+
+  afterEach(() => {
+    if (originalMode === undefined) delete process.env.BILLING_MODE;
+    else process.env.BILLING_MODE = originalMode;
+    vi.unstubAllGlobals();
+  });
+
+  it("records one priced event against the caller's workspace, pointing at the logged interaction", async () => {
+    dbMock.workspaceUser.findFirst.mockResolvedValue({
+      workspace: { slug: "acme", name: "Acme", type: "team" },
+    } as never);
+
+    const result = await call("ws-acme");
+
+    expect(result.response).toBe(REPLY.text);
+    await vi.waitFor(() => expect(recordedEvents()).toHaveLength(1));
+    expect(recordedEvents()[0]).toEqual({
+      workspaceId: "ws-acme",
+      source: "DIRECT",
+      modelId: "gpt-4o-mini",
+      costMicros: REPLY_COST_MICROS,
+      onOwnKey: false,
+      refId: "log-1",
+    });
+  });
+
+  it("meters a call with no workspace to the caller's Personal workspace", async () => {
+    dbMock.workspace.findFirst.mockResolvedValue({ id: "ws-personal" } as never);
+
+    await call();
+
+    await vi.waitFor(() => expect(recordedEvents()).toHaveLength(1));
+    expect(recordedEvents()[0]).toMatchObject({ workspaceId: "ws-personal", costMicros: REPLY_COST_MICROS });
+  });
+
+  it("never meters to a workspace the caller named but does not belong to", async () => {
+    dbMock.workspaceUser.findFirst.mockResolvedValue(null as never);
+    dbMock.workspace.findFirst.mockResolvedValue({ id: "ws-personal" } as never);
+
+    await call("ws-someone-elses");
+
+    await vi.waitFor(() => expect(recordedEvents()).toHaveLength(1));
+    expect(recordedEvents()[0]).toMatchObject({ workspaceId: "ws-personal" });
+  });
+
+  it("logs the turn's real cost and cache traffic on the interaction", async () => {
+    dbMock.workspace.findFirst.mockResolvedValue({ id: "ws-personal" } as never);
+
+    await call();
+
+    const logged = dbMock.aiInteractionHistory.create.mock.calls[0]?.[0].data as { tokenUsage?: string; model?: string };
+    expect(logged.model).toBe("gpt-4o-mini");
+    expect(JSON.parse(logged.tokenUsage ?? "{}")).toMatchObject({
+      prompt: 2_000,
+      completion: 500,
+      total: 2_500,
+      cost: 0.000525,
+      cacheReadInput: 1_000,
+    });
+  });
+
+  it("returns the reply and records nothing on an install that does not meter", async () => {
+    delete process.env.BILLING_MODE;
+
+    const result = await call();
+
+    expect(result.response).toBe(REPLY.text);
+    await vi.waitFor(() => expect(dbMock.aiInteractionHistory.create).toHaveBeenCalled());
+    expect(recordedEvents()).toEqual([]);
+    expect(dbMock.workspace.findFirst).not.toHaveBeenCalled();
+  });
+});

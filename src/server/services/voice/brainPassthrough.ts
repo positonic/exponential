@@ -19,6 +19,9 @@
  * Confirmation: writes are allowed; zoe self-confirms destructive/irreversible
  * actions conversationally via the guard below (the structured confirmation gate
  * stays on the dedicated complete_action coarse tool).
+ *
+ * Metering: on an install that meters Assistant use, the turn's cost is
+ * recorded to the usage ledger once the reply has gone back.
  */
 import { requireMastraUrl } from "~/server/services/ai/requireAi";
 import type { PrismaClient } from "@prisma/client";
@@ -35,6 +38,9 @@ import { resolveUserTimezone } from "~/server/services/voice/dailyContext";
 import { parseTimezone } from "~/server/services/voice/dailyContextSpeakable";
 import { userClockNote } from "~/server/services/voice/userClock";
 import { withTimeout } from "~/server/utils/withTimeout";
+import { readGenerateUsage } from "~/server/services/billing/mastraUsage";
+import { recordTurnUsage, resolveMeteredWorkspaceId } from "~/server/services/billing/usage";
+import { runAfterResponse } from "~/server/utils/runAfterResponse";
 
 
 /**
@@ -130,6 +136,14 @@ export async function askExponential(
     GENERATE_TIMEOUT_MS,
     "zoeAgent.generate",
   );
+
+  // Meter the turn to the session's workspace (verified above), or to the
+  // person's Personal workspace when the session has none. Never throws.
+  runAfterResponse(async () => {
+    const meteredWorkspaceId = await resolveMeteredWorkspaceId(db, { workspaceId: effectiveWorkspaceId, userId });
+    if (!meteredWorkspaceId) return;
+    await recordTurnUsage(db, { workspaceId: meteredWorkspaceId, source: "VOICE", ...readGenerateUsage(res) });
+  });
 
   const text = (res.text ?? "").trim();
   return {

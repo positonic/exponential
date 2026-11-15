@@ -5,7 +5,7 @@ import { usePathname } from "next/navigation";
 import { adminNavigation } from "~/lib/admin/navigation";
 import { SectionHeader } from "~/app/_components/ui";
 
-export function AdminSidebar() {
+export function AdminSidebar({ isMeteringOn }: { isMeteringOn: boolean }) {
   const pathname = usePathname();
 
   return (
@@ -25,7 +25,7 @@ export function AdminSidebar() {
 
             {/* Section items */}
             <ul className="space-y-1">
-              {section.items.map((item) => {
+              {section.items.filter((item) => isMeteringOn || !item.meteredOnly).map((item) => {
                 const isActive = pathname === item.href;
                 const Icon = item.icon;
 

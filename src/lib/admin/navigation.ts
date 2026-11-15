@@ -6,6 +6,7 @@ import {
   IconBulb,
   IconUsers,
   IconDatabase,
+  IconGauge,
 } from "@tabler/icons-react";
 import type { ElementType } from "react";
 
@@ -13,6 +14,8 @@ export interface AdminNavItem {
   title: string;
   href?: string;
   icon?: ElementType;
+  /** Listed only on an install that meters Assistant use (`BILLING_MODE` is not `off`). */
+  meteredOnly?: boolean;
 }
 
 export interface AdminNavSection {
@@ -53,6 +56,12 @@ export const adminNavigation: AdminNavSection[] = [
         title: "Knowledge index",
         href: "/admin/knowledge-index",
         icon: IconDatabase,
+      },
+      {
+        title: "Assistant usage",
+        href: "/admin/assistant-usage",
+        icon: IconGauge,
+        meteredOnly: true,
       },
     ],
   },

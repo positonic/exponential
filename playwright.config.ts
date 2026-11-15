@@ -29,6 +29,12 @@ const SHARED_VIEW_PREFS_SPECS = [
   "ticket-short-id-search.spec.ts",
 ];
 
+/**
+ * Specs that start their own Mastra stub on E2E_MASTRA_STUB_URL. One port, so
+ * they run one file at a time.
+ */
+const MASTRA_STUB_SPECS = ["agent-run.spec.ts", "billing-usage.spec.ts"];
+
 export default defineConfig({
   testDir: "./e2e",
   // e2e/perf/ has its own config (production build, one worker). A project's
@@ -53,7 +59,7 @@ export default defineConfig({
     {
       name: "chromium",
       use: { ...devices["Desktop Chrome"] },
-      testIgnore: [...NOT_E2E, ...SHARED_VIEW_PREFS_SPECS],
+      testIgnore: [...NOT_E2E, ...SHARED_VIEW_PREFS_SPECS, ...MASTRA_STUB_SPECS],
     },
     {
       // These specs rewrite the fixture user's saved Backlog view prefs (one
@@ -63,6 +69,12 @@ export default defineConfig({
       name: "chromium-shared-prefs",
       use: { ...devices["Desktop Chrome"] },
       testMatch: SHARED_VIEW_PREFS_SPECS,
+      workers: 1,
+    },
+    {
+      name: "chromium-mastra-stub",
+      use: { ...devices["Desktop Chrome"] },
+      testMatch: MASTRA_STUB_SPECS,
       workers: 1,
     },
   ],
@@ -84,6 +96,10 @@ export default defineConfig({
       // secret is fixed so a spec can kick the dispatcher deterministically.
       MASTRA_API_URL: E2E_MASTRA_STUB_URL,
       CRON_SECRET: E2E_CRON_SECRET,
+      // The suite runs as a hosted install that meters Assistant use, so the
+      // usage ledger and the Billing tab are covered (billing-usage.spec.ts).
+      // Nothing is limited in this mode.
+      BILLING_MODE: "meter",
     },
   },
 });

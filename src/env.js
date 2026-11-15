@@ -57,6 +57,13 @@ export const env = createEnv({
     // Bearer secret the cron routes require (Vercel Cron, or the self-host
     // scheduler). The routes fail closed without it.
     CRON_SECRET: z.string().optional(),
+    // Whether this install meters and limits Assistant use
+    // (src/server/services/billing/config.ts). Unset means "off": no usage
+    // ledger, no Billing tab, no limits, which is how a self-hosted install runs.
+    // Strict on purpose: a misspelt value should fail the deploy, not quietly
+    // leave metering off. The resolver accepts the same three words and
+    // nothing else, for the builds that skip this validation.
+    BILLING_MODE: z.enum(["off", "meter", "enforce"]).optional(),
     MICROSOFT_ENTRA_ID_CLIENT_ID: z.string().optional(),
     MICROSOFT_ENTRA_ID_CLIENT_SECRET: z.string().optional(),
     MICROSOFT_ENTRA_ID_TENANT_ID: z.string().optional(),
@@ -147,6 +154,7 @@ export const env = createEnv({
     EMAIL_FROM: process.env.EMAIL_FROM,
     AUTH_LOG_SIGN_IN_CODES: process.env.AUTH_LOG_SIGN_IN_CODES,
     CRON_SECRET: process.env.CRON_SECRET,
+    BILLING_MODE: process.env.BILLING_MODE,
     MICROSOFT_ENTRA_ID_CLIENT_ID: process.env.MICROSOFT_ENTRA_ID_CLIENT_ID,
     MICROSOFT_ENTRA_ID_CLIENT_SECRET: process.env.MICROSOFT_ENTRA_ID_CLIENT_SECRET,
     MICROSOFT_ENTRA_ID_TENANT_ID: process.env.MICROSOFT_ENTRA_ID_TENANT_ID,

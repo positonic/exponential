@@ -1,5 +1,6 @@
 import { MastraClient } from "@mastra/client-js";
 import { TRPCError } from "@trpc/server";
+import { after } from "next/server";
 import { RequestContext } from "@mastra/core/di";
 import type { MessageListInput } from "@mastra/core/agent/message-list";
 
@@ -33,7 +34,12 @@ import {
 } from "~/server/services/ai/providerError";
 import { composePromptVersion } from "~/server/services/promptVersion";
 import { reportHandledErrorServer } from "~/server/utils/reportHandledErrorServer";
-import { computeRequestCost, PER_REQUEST_COST_ALERT_USD } from "~/server/services/ai/cost";
+import {
+  PER_REQUEST_COST_ALERT_USD,
+  priceTokenBreakdown,
+  turnTokenBreakdown,
+} from "~/server/services/ai/cost";
+import { recordTurnUsage, resolveMeteredWorkspaceId } from "~/server/services/billing/usage";
 import {
   assembleLoadedScope,
   loadScopeInstructions,
@@ -308,6 +314,19 @@ export async function POST(req: Request) {
       }
       throw error;
     }
+
+    // The workspace this turn's cost is metered to: the one the scope load
+    // above verified membership of (never the raw request body), or, for a
+    // chat with no workspace (the global drawer, /agent), the person's
+    // Personal workspace. Resolved lazily, once, when the turn is metered, so
+    // it adds nothing to the path that streams the reply. Null on an install
+    // that does not meter.
+    let meteredWorkspace: Promise<string | null> | undefined;
+    const resolveMeteredWorkspace = () =>
+      (meteredWorkspace ??= resolveMeteredWorkspaceId(db, {
+        workspaceId: scope.workspace?.id,
+        userId: session.user.id,
+      }));
 
     let workspaceInfo: { slug: string; name: string; type: string; description: string | null } | null = null;
     if (workspaceId) {
@@ -623,6 +642,16 @@ export async function POST(req: Request) {
     // the Sonnet retry (same key, same outcome) and change the user line.
     let agentErrorKind: ProviderErrorKind | undefined;
     const firstToolErrorMessages: string[] = [];
+    // The turn's usage is written to the ledger once the stream has finished
+    // (one write per model attempt). `after()` keeps the function alive until
+    // every write lands, so metering never holds the response open and is not
+    // lost when the platform freezes the function at the end of the stream.
+    const usageWrites: Promise<unknown>[] = [];
+    let releaseUsageWrites: () => void = () => undefined;
+    const usageWritesSettled = new Promise<void>((resolve) => {
+      releaseUsageWrites = resolve;
+    });
+    after(() => usageWritesSettled);
     const textStream = new ReadableStream({
       async start(controller) {
         // Timer-based heartbeat: emit U+200B every HEARTBEAT_MS regardless
@@ -651,15 +680,29 @@ export async function POST(req: Request) {
         // call indicators, keepalive zwsp) we inject. Used by the Haiku→
         // Sonnet retry safety net to detect "model produced nothing".
         let modelTextChars = 0;
-        let finishUsage:
-          | {
-              inputTokens: number;
-              outputTokens: number;
-              cacheReadInputTokens?: number;
-              cacheCreationInputTokens?: number;
-            }
-          | undefined;
+        // What Mastra reported the turn used: the summed total from the
+        // `finish` chunk, and each model step's own usage from `step-finish`.
+        // The steps are what price cache reads and writes exactly; see
+        // `services/ai/cost.ts` for why the total alone cannot.
+        let turnUsage: unknown;
+        const stepUsages: unknown[] = [];
         let responseModelId: string | undefined;
+
+        // Record what the current model attempt cost (a no-op unless this
+        // install meters), at most once per attempt. Never throws. `refId` is
+        // the AiInteractionHistory row, when there is one. The attempt's usage
+        // is captured here and now: a retry resets it straight afterwards.
+        let attemptMetered = false;
+        const meterAttempt = (refId?: string): Promise<unknown> => {
+          if (attemptMetered) return Promise.resolve();
+          attemptMetered = true;
+          const attempt = { modelId: responseModelId, turnUsage, stepUsages: [...stepUsages] };
+          return resolveMeteredWorkspace().then((workspaceId) =>
+            workspaceId
+              ? recordTurnUsage(db, { workspaceId, source: "CHAT", ...attempt, refId })
+              : undefined,
+          );
+        };
 
         const emit = (snippet: string) => {
           const { text: safeText, redacted } = sanitizeAIOutput(snippet);
@@ -749,29 +792,7 @@ export async function POST(req: Request) {
                   new TextEncoder().encode(safeText),
                 );
               } else if (chunk.type === "finish") {
-                const usage = chunk.payload.output.usage as {
-                  inputTokens?: number;
-                  outputTokens?: number;
-                  cachedInputTokens?: number;
-                  raw?: {
-                    cache_read_input_tokens?: number;
-                    cache_creation_input_tokens?: number;
-                  };
-                };
-                const providerMeta = (chunk.payload.metadata as { providerMetadata?: Record<string, Record<string, unknown>> } | undefined)
-                  ?.providerMetadata?.anthropic;
-                const cacheCreationFromMeta =
-                  typeof providerMeta?.cacheCreationInputTokens === 'number'
-                    ? providerMeta.cacheCreationInputTokens
-                    : undefined;
-                finishUsage = {
-                  inputTokens: usage.inputTokens ?? 0,
-                  outputTokens: usage.outputTokens ?? 0,
-                  cacheReadInputTokens:
-                    usage.raw?.cache_read_input_tokens ?? usage.cachedInputTokens,
-                  cacheCreationInputTokens:
-                    usage.raw?.cache_creation_input_tokens ?? cacheCreationFromMeta,
-                };
+                turnUsage = readUnknown(readUnknown(chunk.payload, 'output'), 'usage');
                 const fr = readString(chunk.payload, 'finishReason');
                 if (fr) lastStepFinishReason = fr;
               } else if (chunk.type === "tool-call") {
@@ -896,8 +917,16 @@ export async function POST(req: Request) {
                   }
                 }
                 const response = readUnknown(chunk.payload, 'response');
-                const modelId = readString(response, 'modelId');
+                // Mastra 1.28 carries the model on the step's metadata; older
+                // builds put it on the response.
+                const stepMetadata = readUnknown(chunk.payload, 'metadata');
+                const modelId =
+                  readString(response, 'modelId') ??
+                  readString(stepMetadata, 'modelId') ??
+                  readString(stepMetadata, 'model');
                 if (modelId) responseModelId = modelId;
+                const stepUsage = readUnknown(readUnknown(chunk.payload, 'output'), 'usage');
+                if (stepUsage !== undefined) stepUsages.push(stepUsage);
               } else if (chunk.type === "text-start") {
                 // Model text blocks stream as raw markdown deltas; blocks
                 // separated by tool calls (or step boundaries) would
@@ -953,6 +982,10 @@ export async function POST(req: Request) {
                     firstToolErrorMessages: [...firstToolErrorMessages],
                   },
                 );
+                // The discarded attempt was still paid for: meter it before
+                // its usage is reset for the retry.
+                usageWrites.push(meterAttempt());
+                attemptMetered = false;
                 chunkCount = 0;
                 textChunkCount = 0;
                 nonTextChunkTypes.clear();
@@ -965,7 +998,8 @@ export async function POST(req: Request) {
                 hadAgentError = false;
                 agentErrorMessage = undefined;
                 agentErrorKind = undefined;
-                finishUsage = undefined;
+                turnUsage = undefined;
+                stepUsages.length = 0;
                 responseModelId = undefined;
                 activeAgentId = sonnetId;
                 agent = client.getAgent(activeAgentId);
@@ -991,14 +1025,19 @@ export async function POST(req: Request) {
           // tool-only turns trigger the "No response from the assistant"
           // warning even though the agent successfully did the work.
           const emptyResponse = fullText.trim() === '' && toolCallNames.length === 0;
-          const cost = finishUsage
-            ? computeRequestCost(responseModelId, {
-                inputTokens: finishUsage.inputTokens,
-                outputTokens: finishUsage.outputTokens,
-                cacheReadInputTokens: finishUsage.cacheReadInputTokens,
-                cacheCreationInputTokens: finishUsage.cacheCreationInputTokens,
-              })
+          const tokens = turnTokenBreakdown(turnUsage, stepUsages);
+          // `inputTokens` stays the whole prompt (cache traffic included), as
+          // the logs and AiInteractionHistory have always recorded it.
+          const finishUsage = tokens
+            ? {
+                inputTokens:
+                  tokens.noCacheInputTokens + tokens.cacheReadInputTokens + tokens.cacheWriteInputTokens,
+                outputTokens: tokens.outputTokens,
+                cacheReadInputTokens: tokens.cacheReadInputTokens,
+                cacheCreationInputTokens: tokens.cacheWriteInputTokens,
+              }
             : undefined;
+          const cost = tokens ? priceTokenBreakdown(responseModelId, tokens) : undefined;
           // Mastra-side overhead = inputTokens - (route-side chars / 4).
           // Knowing this number tells us how much of every prompt is
           // unobservable (agent SOUL, tool schema deltas, memory recall,
@@ -1111,6 +1150,7 @@ export async function POST(req: Request) {
               console.error("Failed to save AI history:", err);
               return undefined;
             });
+          usageWrites.push(logPromise.then(meterAttempt));
 
           const interactionId = await Promise.race([
             logPromise,
@@ -1154,6 +1194,8 @@ export async function POST(req: Request) {
               partialChars: String(fullText.length),
             },
           });
+          // The steps that finished before the failure were still billed.
+          usageWrites.push(meterAttempt());
           // Persist the failed turn so stream failures are queryable in the DB,
           // not just the server console. hadError=true keeps these rows out of
           // success analytics (the onFinish path above uses the same flag). No
@@ -1207,6 +1249,7 @@ export async function POST(req: Request) {
           controller.error(err);
         } finally {
           clearInterval(heartbeat);
+          void Promise.allSettled(usageWrites).then(releaseUsageWrites);
         }
       },
     });

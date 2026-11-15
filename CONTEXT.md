@@ -662,6 +662,20 @@ The order, names and visibility of the sections and items in the workspace sideb
 The plain-language way to choose what the sidebar shows, for people who should never need the customiser: one question ("what would you like to use this for?" — *my own to-do list*, *working with a team*, or *both*) that applies a preset, then every built-in item explained in a sentence with its own switch. It is the first screen of the **Welcome flow** and lives on afterwards at `/welcome/menu`, reached from **More** in the sidebar. Each choice saves at once and the real sidebar follows. It changes **visibility only**, and for the person everywhere: the user-wide layout and every per-workspace **Sidebar layout** they have, because a workspace row would otherwise mask the choice (and folding a section is enough to create one). The answer to the question is kept on `welcomeSetupState.useCase` (`unsure` for someone who carried on without choosing); *with a team* is the default layout itself, so skipping the question and answering it that way land in the same place. In the interface the sidebar is called "your menu"; "sidebar" is kept for the existing command name.
 _Avoid_: Onboarding (see **Welcome flow**), feature flags / enabling features (nothing is switched off, only left out of the menu; every page stays reachable by link, search and **More**).
 
+### Billing
+
+**Billing mode**:
+Whether an install meters and limits Assistant use: `off`, `meter` or `enforce`, read from `BILLING_MODE` through `src/server/services/billing/config.ts` and nowhere else. `off` is the default and is how every self-hosted install runs: no **Usage ledger**, no Billing tab, no limits. `meter` records what each Assistant turn costs and shows the usage bar, and never blocks or downgrades anything. `enforce` applies the **Assistant allowance**. Decisions D-0070 to D-0087.
+_Avoid_: hosted mode / SaaS mode (an install is not inferred to be hosted; the switch is explicit), feature flag.
+
+**Usage ledger**:
+The append-only record of what Assistant use cost a workspace: one `UsageEvent` per chat turn, **Agent run**, voice turn or direct Assistant call, priced from the model's reported token usage (`services/ai/cost.ts`) in micro-USD, plus a per-calendar-month (UTC) counter, `WorkspaceUsagePeriod`, that the usage bar and the allowance gate read. Written only through `recordUsage`, which never throws and never delays a turn. A turn on a workspace's own Anthropic key is recorded but left out of the counter. Background AI (meeting summaries, embeddings, digests, workspace updates) is never metered.
+_Avoid_: token usage (`AiInteractionHistory.tokenUsage` is a per-turn log, not the ledger), credits, messages (D-0072: the unit is model cost, shown without a unit).
+
+**Assistant allowance**:
+The amount of Assistant use a workspace's plan includes each calendar month, held as model cost and shown to owners and admins only as a share ("62% of this month's assistant use"), never as a cost, a token count or a number of messages. Only Assistant chat and Agent runs count against it.
+_Avoid_: quota, credits, cap (the cap is what happens at 100%, not the allowance itself).
+
 ### Workspace membership
 
 **Role**:

@@ -25,6 +25,7 @@ import {
   IconUserPlus,
   IconPlug,
   IconCalendarRepeat,
+  IconCreditCard,
   IconFolder,
   IconUsers,
   IconRocket,
@@ -93,6 +94,7 @@ import {
 } from '~/app/_components/settings/SettingsShell';
 import { WorkspaceUpdatesSettings } from '~/app/_components/settings/WorkspaceUpdatesSettings';
 import { AiFeaturesSettings } from '~/app/_components/settings/AiFeaturesSettings';
+import { BillingSettings } from '~/app/_components/settings/BillingSettings';
 
 const SECTION_IDS = [
   'general',
@@ -103,6 +105,7 @@ const SECTION_IDS = [
   'plugins',
   'ceremonies',
   'updates',
+  'billing',
   'danger',
 ] as const;
 
@@ -579,6 +582,17 @@ export default function WorkspaceSettingsPage() {
     }
   );
 
+  // Answers `{ mode: 'off' }` on an install that does not meter Assistant use
+  // (every self-hosted one), and then there is no Billing tab at all.
+  const { data: billingStatus } = api.billing.getStatus.useQuery(
+    { workspaceId: workspaceId! },
+    {
+      enabled:
+        !!workspaceId && (userRole === 'owner' || userRole === 'admin'),
+    }
+  );
+  const showBilling = !!billingStatus && billingStatus.mode !== 'off';
+
   const handleSaveEmail = () => {
     if (!workspaceId || !emailAddress || !emailAppPassword) return;
     createEmailMutation.mutate({
@@ -717,6 +731,9 @@ export default function WorkspaceSettingsPage() {
         { id: 'ceremonies', label: 'Ceremonies', icon: IconCalendarRepeat },
         ...(userRole === 'owner' || userRole === 'admin'
           ? [{ id: 'updates' as const, label: 'Updates', icon: IconSparkles }]
+          : []),
+        ...(showBilling
+          ? [{ id: 'billing' as const, label: 'Billing', icon: IconCreditCard }]
           : []),
       ],
     },
@@ -1750,6 +1767,8 @@ export default function WorkspaceSettingsPage() {
             members={workspace.members ?? []}
           />
         )}
+
+        {section === 'billing' && showBilling && <BillingSettings workspaceId={workspace.id} />}
 
         {section === 'danger' && userRole === 'owner' && (
           <SettingsDangerZone icon={IconShieldExclamation}>

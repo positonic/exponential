@@ -6502,3 +6502,39 @@ model InstanceSettings {
   setupTokenExpiresAt DateTime?
   updatedAt           DateTime  @updatedAt
 }
+
+/// Usage ledger: one row for every Assistant chat turn, agent run, voice turn
+/// or direct Assistant call on an install that meters (`BILLING_MODE` is not
+/// `off`). Append-only; never updated or deleted by the app. No relation to
+/// Workspace on purpose: a ledger outlives the thing it measured.
+model UsageEvent {
+  id          String   @id @default(cuid())
+  workspaceId String
+  /// "CHAT" | "AGENT_RUN" | "VOICE" | "DIRECT"
+  source      String
+  modelId     String?
+  /// Model cost in USD × 1e6, priced by `services/ai/cost.ts`.
+  costMicros  Int
+  /// The turn ran on the workspace's own Anthropic key: recorded, never counted.
+  onOwnKey    Boolean  @default(false)
+  /// AiInteractionHistory.id or AgentRun.id, when there is one.
+  refId       String?
+  createdAt   DateTime @default(now())
+
+  @@index([workspaceId, createdAt])
+}
+
+/// A workspace's hosted-key spend for one calendar month (UTC): the O(1)
+/// counter the allowance gate and the usage bar read. Incremented in the same
+/// transaction that inserts the UsageEvent; turns on the workspace's own key
+/// are left out.
+model WorkspaceUsagePeriod {
+  workspaceId String
+  /// First instant of the calendar month, UTC.
+  periodStart DateTime
+  /// USD × 1e6. BigInt: a 32-bit Int tops out near USD 2,147, and while usage
+  /// is only metered nothing stops a workspace passing that in a month.
+  costMicros  BigInt   @default(0)
+
+  @@id([workspaceId, periodStart])
+}

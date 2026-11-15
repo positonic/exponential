@@ -13,6 +13,10 @@ import { after } from "next/server";
 import type OpenAI from "openai";
 import { getOpenAIClient } from "~/server/services/ai/clients";
 import { isAiConfigured, requireAi, requireMastraUrl } from "~/server/services/ai/requireAi";
+import { priceTokenBreakdown, turnTokenBreakdown } from "~/server/services/ai/cost";
+import { readGenerateUsage } from "~/server/services/billing/mastraUsage";
+import { recordTurnUsage, resolveMeteredWorkspaceId } from "~/server/services/billing/usage";
+import { runAfterResponse } from "~/server/utils/runAfterResponse";
 import { TRPCError } from "@trpc/server";
 // import { mastraClient } from "~/lib/mastra";
 import { PRIORITY_VALUES } from "~/types/priority";
@@ -125,26 +129,6 @@ function hashApiKey(key: string): string {
 const API_KEY_ENC_PREFIX = 'enc:';
 function encryptApiKey(key: string): string {
   return API_KEY_ENC_PREFIX + encryptToBase64(key);
-}
-
-// Approximate costs in USD per 1M tokens (prices as of April 2026)
-const MODEL_COSTS: Record<string, { input: number; output: number }> = {
-  'gpt-4o': { input: 2.50, output: 10.00 },
-  'gpt-4o-mini': { input: 0.15, output: 0.60 },
-  'gpt-4-turbo': { input: 10.00, output: 30.00 },
-  'gpt-3.5-turbo': { input: 0.50, output: 1.50 },
-};
-
-function estimateCost(
-  modelId: string | undefined,
-  usage: { promptTokens?: number; completionTokens?: number }
-): number | undefined {
-  if (!modelId) return undefined;
-  const rates = Object.entries(MODEL_COSTS).find(([k]) => modelId.toLowerCase().includes(k))?.[1];
-  if (!rates || !usage.promptTokens) return undefined;
-  const inputCost = ((usage.promptTokens ?? 0) / 1_000_000) * rates.input;
-  const outputCost = ((usage.completionTokens ?? 0) / 1_000_000) * rates.output;
-  return Math.round((inputCost + outputCost) * 100_000) / 100_000;
 }
 
 type AgentEmbedding = { id: string; vector: number[] };
@@ -670,20 +654,21 @@ export const mastraRouter = createTRPCRouter({
           console.warn('🔒 [mastra/callAgent] Redacted potential secret leak from AI response');
         }
 
-        // Extract token usage from Mastra response (fire-and-forget — don't block return)
-        const rawUsage = (responseData.usage ?? responseData.tokenUsage) as
-          | { promptTokens?: number; completionTokens?: number; totalTokens?: number; prompt_tokens?: number; completion_tokens?: number; total_tokens?: number }
-          | undefined
-          | null;
-        const tokenUsage = rawUsage
+        // What the turn used, priced the same way as chat (services/ai/cost.ts).
+        const used = readGenerateUsage(responseData);
+        const tokens = turnTokenBreakdown(used.turnUsage, used.stepUsages);
+        const promptTokens = tokens
+          ? tokens.noCacheInputTokens + tokens.cacheReadInputTokens + tokens.cacheWriteInputTokens
+          : undefined;
+        const tokenUsage = tokens && promptTokens !== undefined
           ? {
-              prompt: rawUsage.promptTokens ?? rawUsage.prompt_tokens,
-              completion: rawUsage.completionTokens ?? rawUsage.completion_tokens,
-              total: rawUsage.totalTokens ?? rawUsage.total_tokens,
-              cost: estimateCost(responseData.model as string | undefined, {
-                promptTokens: rawUsage.promptTokens ?? rawUsage.prompt_tokens,
-                completionTokens: rawUsage.completionTokens ?? rawUsage.completion_tokens,
-              }),
+              prompt: promptTokens,
+              completion: tokens.outputTokens,
+              total: promptTokens + tokens.outputTokens,
+              cost: priceTokenBreakdown(used.modelId, tokens),
+              cacheReadInput: tokens.cacheReadInputTokens,
+              cacheCreationInput: tokens.cacheWriteInputTokens,
+              modelId: used.modelId,
             }
           : undefined;
 
@@ -714,22 +699,40 @@ export const mastraRouter = createTRPCRouter({
           }),
         );
 
-        void getAiInteractionLogger(ctx.db).logInteraction({
-          platform: 'direct',
-          systemUserId: ctx.session.user.id,
-          userName: ctx.session.user.name ?? undefined,
-          userMessage: lastUserMessage,
-          aiResponse: safeResponse,
-          agentId,
-          agentName: agentId,
-          model: (responseData.model as string | undefined) ?? 'mastra-agent',
-          conversationId: input.threadId ?? undefined,
-          projectId: input.resourceId ?? undefined,
-          workspaceId: input.workspaceId ?? undefined,
-          responseTime: Date.now() - startTime,
-          tokenUsage,
-          toolsUsed,
-          toolCalls: loggedToolCalls.length > 0 ? loggedToolCalls : undefined,
+        // Logged and metered once the reply has gone back: neither blocks the return.
+        const logged = getAiInteractionLogger(ctx.db)
+          .logInteraction({
+            platform: 'direct',
+            systemUserId: ctx.session.user.id,
+            userName: ctx.session.user.name ?? undefined,
+            userMessage: lastUserMessage,
+            aiResponse: safeResponse,
+            agentId,
+            agentName: agentId,
+            model: used.modelId ?? 'mastra-agent',
+            conversationId: input.threadId ?? undefined,
+            projectId: input.resourceId ?? undefined,
+            workspaceId: input.workspaceId ?? undefined,
+            responseTime: Date.now() - startTime,
+            tokenUsage,
+            toolsUsed,
+            toolCalls: loggedToolCalls.length > 0 ? loggedToolCalls : undefined,
+          })
+          .catch((err: unknown) => {
+            console.error('[mastra/callAgent] Failed to save AI history:', err);
+            return undefined;
+          });
+        // Metered to the workspace the caller is a member of (checked above),
+        // or to their Personal workspace when the call names none.
+        const userId = ctx.session.user.id;
+        runAfterResponse(async () => {
+          const refId = await logged;
+          const meteredWorkspaceId = await resolveMeteredWorkspaceId(ctx.db, {
+            workspaceId: workspaceContext.workspaceId,
+            userId,
+          });
+          if (!meteredWorkspaceId) return;
+          await recordTurnUsage(ctx.db, { workspaceId: meteredWorkspaceId, source: 'DIRECT', ...used, refId });
         });
 
         return {

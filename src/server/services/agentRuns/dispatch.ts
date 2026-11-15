@@ -4,6 +4,8 @@ import { generateJWT } from "~/server/utils/jwt";
 import { getPublicBaseUrlFromEnv } from "~/lib/urls";
 import { reportHandledErrorServer } from "~/server/utils/reportHandledErrorServer";
 import { assembleLoadedScope, loadScopeInstructions } from "~/server/services/agentGuidance";
+import { readGenerateUsage } from "~/server/services/billing/mastraUsage";
+import { recordTurnUsage } from "~/server/services/billing/usage";
 import { onRunFinished } from "./finish";
 
 /**
@@ -36,6 +38,12 @@ export interface DispatchResult {
   cancelled: string[];
   failed: Array<{ id: string; error: string }>;
 }
+
+/**
+ * The model `assistantRunAgent` runs on, used to price a run only when
+ * Mastra's reply does not name the model itself.
+ */
+const RUN_AGENT_FALLBACK_MODEL_ID = "claude-sonnet-4-5";
 
 /** What the Mastra `generate` endpoint returns that we read (defensively). */
 interface GenerateOutput {
@@ -229,7 +237,7 @@ export async function loadRunBrief(db: PrismaClient, runId: string, options: { c
   const run = await db.agentRun.findUniqueOrThrow({
     where: { id: runId },
     include: {
-      action: { include: { project: { select: { name: true } } } },
+      action: { include: { project: { select: { name: true, workspaceId: true } } } },
       agent: {
         include: {
           shadowUser: { select: { id: true, email: true, name: true, image: true } },
@@ -333,6 +341,23 @@ async function runOne(
     throw new Error(`Mastra assistantRunAgent failed (${res.status}): ${errText.slice(0, 500)}`);
   }
   const output = (await res.json()) as GenerateOutput;
+
+  // Meter what the run cost, whatever becomes of it below: a run that ends
+  // waiting on its owner, or that a human cancelled meanwhile, was still
+  // paid for. A no-op unless this install meters, and it never throws.
+  // `AgentRun` has no workspace of its own: it is the action's (as finish.ts).
+  const meteredWorkspaceId = run.action.workspaceId ?? run.action.project?.workspaceId;
+  if (meteredWorkspaceId) {
+    const used = readGenerateUsage(output);
+    await recordTurnUsage(db, {
+      workspaceId: meteredWorkspaceId,
+      source: "AGENT_RUN",
+      modelId: used.modelId ?? RUN_AGENT_FALLBACK_MODEL_ID,
+      turnUsage: used.turnUsage,
+      stepUsages: used.stepUsages,
+      refId: run.id,
+    });
+  }
 
   // Re-read: the callbacks may have recorded a finish or a question while
   // the HTTP call was in flight, and a human may have cancelled.

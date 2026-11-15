@@ -10,21 +10,50 @@
  * names. When that hook does reach this server, it races the spec's kick.
  * The spec accepts either winner and asserts on the run's outcome.
  *
+ * The dev server meters Assistant use (BILLING_MODE=meter in
+ * playwright.config.ts), so the finished run also leaves one priced event in
+ * the usage ledger.
+ *
  * Fixture: `Aria` (the fixture user's Assistant) and an unassigned action.
  * See dev-docs/AGENT_VISUAL_TESTING.md.
  */
 import { test, expect } from "@playwright/test";
 import http from "node:http";
+import type { PrismaClient } from "@prisma/client";
+import { loadDevEnvOrThrow } from "../scripts/dev-fixture/env";
 import { loadFixture, E2E_MASTRA_STUB_PORT, E2E_CRON_SECRET } from "./fixture-data";
+
+// Specs run in their own worker process, so env loading (and its
+// production/managed-DB guards) has to happen here as well as in global-setup.
+loadDevEnvOrThrow();
 
 const fixture = loadFixture();
 const FIRST_PAINT_TIMEOUT = 60_000;
 
+/** One model step's usage as Mastra reports it: `inputTokens` is the whole prompt. */
+const STUB_STEP_USAGE = {
+  inputTokens: 30_000,
+  outputTokens: 1_000,
+  cachedInputTokens: 20_000,
+  raw: {
+    inputTokens: { total: 30_000, noCache: 2_000, cacheRead: 20_000, cacheWrite: 8_000 },
+    outputTokens: { total: 1_000 },
+  },
+};
+/**
+ * Sonnet 4.5 is $3 in / $15 out per million tokens, cache reads at 0.1x and
+ * cache writes at 1.25x:
+ *   2,000 × $3 + 20,000 × $0.30 + 8,000 × $3.75 + 1,000 × $15, per million
+ *   = $0.006 + $0.006 + $0.03 + $0.015 = $0.057
+ */
+const STUB_RUN_COST_MICROS = 57_000;
+
 /** A canned FullOutput: one tool step and a public summary. */
 const STUB_OUTPUT = {
   text: "Shortlisted two venues; details in the comments.",
-  steps: [{ toolCalls: [{ toolName: "get-run-context" }] }],
-  usage: { totalTokens: 42 },
+  steps: [{ toolCalls: [{ toolName: "get-run-context" }], usage: STUB_STEP_USAGE }],
+  usage: STUB_STEP_USAGE,
+  response: { modelId: "claude-sonnet-4-5-20250929" },
 };
 
 /** The dev server Playwright started (playwright.config.ts PORT). */
@@ -46,9 +75,12 @@ interface StubCall {
 }
 
 let stub: http.Server;
+let db: PrismaClient;
 const stubCalls: StubCall[] = [];
 
 test.beforeAll(async () => {
+  const { PrismaClient: Client } = await import("@prisma/client");
+  db = new Client();
   stub = http.createServer((req, res) => {
     let raw = "";
     req.on("data", (chunk: Buffer) => (raw += chunk.toString()));
@@ -77,6 +109,7 @@ test.beforeAll(async () => {
 
 test.afterAll(async () => {
   await new Promise<void>((resolve) => stub.close(() => resolve()));
+  await db.$disconnect();
 });
 
 test("assigning your Assistant starts a run: spinner, then the pill flips from Queued to Worked for", async ({ page, request }) => {
@@ -144,6 +177,24 @@ test("assigning your Assistant starts a run: spinner, then the pill flips from Q
   expect(body.messages[1]!.content).toContain(fixture.agentRunActionName);
 
   await expect(pill).toContainText(/Worked for .* · called 1 tool$/);
+
+  // The run was metered once, to the action's workspace, at its real cost.
+  const usageEvents = await db.usageEvent.findMany({
+    where: { refId: runId },
+    select: { source: true, modelId: true, costMicros: true, workspaceId: true },
+  });
+  const workspace = await db.workspace.findUniqueOrThrow({
+    where: { slug: fixture.workspaceSlug },
+    select: { id: true },
+  });
+  expect(usageEvents).toEqual([
+    {
+      source: "AGENT_RUN",
+      modelId: STUB_OUTPUT.response.modelId,
+      costMicros: STUB_RUN_COST_MICROS,
+      workspaceId: workspace.id,
+    },
+  ]);
   await expect(page.getByTestId("action-running-ring")).toHaveCount(0);
   await expect(pill.getByRole("button", { name: "Cancel" })).toHaveCount(0);
 
