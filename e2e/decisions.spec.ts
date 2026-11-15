@@ -251,9 +251,14 @@ test("Decision graph: clicking a decision opens it in the peek drawer, in both v
 
   // Network view: a node click peeks the same way.
   await page.goto(`${graphUrl}?view=network`);
-  const node = page.locator(".react-flow__node", { hasText: fixture.decisionLabel });
+  // Anchored: the network also draws synced ADRs, and "FIND-0001" contains "D-0001".
+  const node = page.locator(".react-flow__node", { hasText: new RegExp(`^${fixture.decisionLabel}\\s`) });
   await expect(node).toBeVisible({ timeout: FIRST_PAINT_TIMEOUT });
-  await node.click();
+  // Dispatched rather than a pointer click: on a long-lived dev database the
+  // workspace has far more nodes than a fresh seed, `fitView` stops at the
+  // canvas's minimum zoom, and the node can sit outside the visible canvas,
+  // where a pointer click can't reach (the canvas pans, it doesn't scroll).
+  await node.dispatchEvent("click");
   await expect(drawer).toBeVisible();
   await expect(page).toHaveURL(new RegExp(`[?&]peek=${peekKey}$`));
   await expect(page).toHaveURL(/view=network/);

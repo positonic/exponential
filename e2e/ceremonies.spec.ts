@@ -38,10 +38,19 @@ test("recording page shows the ceremony occurrence it captured, and can unlink a
   // The picker also offers "Add occurrence" per ceremony, at the recording's
   // own date, for a meeting held off the cadence (ADR-0059 amendment,
   // 2026-10-21) — asserted, not clicked, so no row is added to the fixture.
+  // The seeded recording starts two minutes after its 09:00 tick; one dated
+  // exactly on a tick gets no Add, since that slot is already taken.
   await partOf.click();
   await expect(page.getByRole("option", { name: /Add occurrence at/ }).first()).toBeVisible();
-  await page.getByRole("option", { name: /Sep/ }).first().click();
+  // The picker lists every tick around the recording (Sep 1, 2, …), so pick the
+  // 8th by its day rather than whichever option comes first.
+  await page
+    .getByRole("option", { name: /\b8\b/ })
+    .filter({ hasNotText: "Add occurrence" })
+    .first()
+    .click();
   await expect(partOf).toContainText("Part of: Daily Standup", { timeout: FIRST_PAINT_TIMEOUT });
+  await expect(partOf).toContainText(/\b8\b/);
 });
 
 test("meetings list filters by ceremony", async ({ page }) => {

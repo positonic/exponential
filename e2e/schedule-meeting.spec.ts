@@ -69,8 +69,9 @@ test("schedules a meeting with an agenda from a project's Meetings tab", async (
   // Lands on the meeting's agenda.
   await page.waitForURL(/\/ceremonies\/[^/]+\/[^/]+$/, { timeout: FIRST_PAINT_TIMEOUT });
   await expect(page.getByTestId("meeting-purpose")).toContainText(PURPOSE, { timeout: FIRST_PAINT_TIMEOUT });
-  // Both the pre-read and the section itself are headed "Project state".
-  await expect(page.getByRole("heading", { name: "Project state" }).first()).toBeVisible();
+  // The agenda's Project state section (the pre-read left the page in PR 1019,
+  // and section titles are plain text, not headings).
+  await expect(page.getByText("Project state", { exact: true }).first()).toBeVisible();
   // A one-off reads as a meeting: the crumb never says "Ceremonies".
   await expect(page.getByRole("link", { name: "Meetings" }).first()).toBeVisible();
   await expect(page.getByText(/ceremon/i)).toHaveCount(0);

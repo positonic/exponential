@@ -114,6 +114,21 @@ async function setNesting(page: Page, on: boolean) {
   await page.keyboard.press("Escape");
 }
 
+/**
+ * Wait until the saved Backlog filters do (or don't) include status BACKLOG.
+ * Both tabs save filters on a 500ms debounce, and a hard navigation
+ * (`page.goto`) inside that window drops the save, so the next page would
+ * restore the old filters.
+ */
+async function expectSavedStatusFilter(hasBacklog: boolean) {
+  await expect
+    .poll(async () => {
+      const filters = (await readSavedPrefs(BACKLOG_PREFS_KEY)).filters as { status?: unknown } | undefined;
+      return Array.isArray(filters?.status) && filters.status.includes("BACKLOG");
+    })
+    .toBe(hasBacklog);
+}
+
 /** A rendered ticket row (table `tr` or list `div`) carrying its nesting depth. */
 const rowAtDepth = (page: Page, title: string, depth: number) =>
   page.locator(`[data-depth="${depth}"]`, { hasText: title });
@@ -160,6 +175,7 @@ test("the graph applies the Backlog's filters and clears them for both tabs", as
   const backlogPills = page.getByRole("list", { name: "Active filters" });
   await expect(backlogPills.getByText("Backlog", { exact: true })).toBeVisible();
   await expect(page.getByText(PARENT_TITLE)).toHaveCount(0);
+  await expectSavedStatusFilter(true);
 
   // The Graph tab shows the same pill and the same narrowing: FP-3 is drawn,
   // FP-2 (a dependent, not a blocker, and not Backlog) is not.
@@ -175,6 +191,7 @@ test("the graph applies the Backlog's filters and clears them for both tabs", as
   await expect(page.getByText(PARENT_TITLE)).toBeVisible();
   await expect(page.getByRole("list", { name: "Active filters" })).toHaveCount(0);
   await attachScreenshot(page, "graph-unfiltered");
+  await expectSavedStatusFilter(false);
 
   // ...and the Backlog, reading the same saved filters, is unfiltered too.
   await openBacklog(page);

@@ -28,6 +28,11 @@
   display: flex;
   align-items: center;
   gap: 8px;
+  /* Shrink rather than push the help icon past the viewport: on a phone a
+     long trail (workspace / Products / product / ticket) is wider than the
+     row, and each crumb already ellipsises. */
+  min-width: 0;
+  overflow: hidden;
   font-size: 13px;
   color: var(--color-text-secondary);
 }

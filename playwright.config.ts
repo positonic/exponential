@@ -20,10 +20,16 @@ const PORT = Number(process.env.E2E_PORT ?? 3100);
 const E2E_MASTRA_STUB_URL = "http://127.0.0.1:4199";
 const E2E_CRON_SECRET = "e2e-cron-secret";
 
+const NOT_E2E = ["perf/**", "docs-screenshots/**"];
+
+/** Specs that write the fixture user's saved product view prefs directly. */
+const SHARED_VIEW_PREFS_SPECS = ["product-view-prefs.spec.ts", "ticket-dependency-nesting.spec.ts"];
+
 export default defineConfig({
   testDir: "./e2e",
-  // e2e/perf/ has its own config (production build, one worker).
-  testIgnore: ["perf/**", "docs-screenshots/**"],
+  // e2e/perf/ has its own config (production build, one worker). A project's
+  // own testIgnore replaces this one, so projects spread it in.
+  testIgnore: NOT_E2E,
   globalSetup: "./e2e/global-setup",
   outputDir: "./e2e/.results",
   // First hit on a `next dev` route pays compile + data-fetch cost; give each
@@ -39,7 +45,23 @@ export default defineConfig({
     screenshot: "only-on-failure",
     trace: "on-first-retry",
   },
-  projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }],
+  projects: [
+    {
+      name: "chromium",
+      use: { ...devices["Desktop Chrome"] },
+      testIgnore: [...NOT_E2E, ...SHARED_VIEW_PREFS_SPECS],
+    },
+    {
+      // These specs rewrite the fixture user's saved Backlog view prefs (one
+      // row every spec shares). Each file is serial on its own, but two files
+      // in parallel overwrite each other's filters mid-test, so they run one
+      // file at a time.
+      name: "chromium-shared-prefs",
+      use: { ...devices["Desktop Chrome"] },
+      testMatch: SHARED_VIEW_PREFS_SPECS,
+      workers: 1,
+    },
+  ],
   webServer: {
     command: `npx next dev --turbo -p ${PORT}`,
     url: `http://localhost:${PORT}`,
