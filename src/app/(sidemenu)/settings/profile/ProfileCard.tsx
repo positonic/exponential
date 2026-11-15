@@ -17,6 +17,7 @@ import {
 import { notifications } from '@mantine/notifications';
 import { IconCamera, IconCheck, IconPencil, IconX } from '@tabler/icons-react';
 import { api } from '~/trpc/react';
+import { HandleField } from './HandleField';
 
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
 
@@ -204,6 +205,7 @@ export function ProfileCard() {
               {profile?.email ?? 'No email'}
             </Text>
           </div>
+          <HandleField handle={profile?.handle ?? null} />
         </Stack>
       </Group>
     </Paper>

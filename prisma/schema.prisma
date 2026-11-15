@@ -87,6 +87,8 @@ model User {
   email                          String?                         @unique
   emailVerified                  DateTime?
   image                          String?
+  /// Opt-in vanity name for the Person page URL (`/people/<handle>`). Humans only, lowercase, unique across the install; freed at once when changed or cleared. Rules: `src/lib/personHandle.ts`.
+  handle                         String?                         @unique
   /// Deprecated (unread since the onboarding wizard was retired for the /welcome flow — ADR-0044); dropped in a later migration (V4).
   onboardingCompletedAt          DateTime?
   /// Deprecated (unread since the onboarding wizard was retired for the /welcome flow — ADR-0044); dropped in a later migration (V4).

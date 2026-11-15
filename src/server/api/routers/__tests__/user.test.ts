@@ -184,6 +184,155 @@ describe("user.updateProfile", () => {
   });
 });
 
+describe("user.setHandle", () => {
+  let db: DeepMockProxy<PrismaClient>;
+
+  /** The caller as the database knows them. */
+  function givenCaller(row: { isAgent?: boolean; handle?: string | null } = {}) {
+    db.user.findUnique.mockResolvedValue({
+      isAgent: row.isAgent ?? false,
+      handle: row.handle ?? null,
+    } as unknown as User);
+  }
+
+  async function errorOf(promise: Promise<unknown>) {
+    try {
+      await promise;
+    } catch (error) {
+      const { code, message } = error as { code?: string; message?: string };
+      return { code, message };
+    }
+    throw new Error("expected the call to throw");
+  }
+
+  beforeEach(() => {
+    db = getDbMock();
+    mockReset(db);
+    db.user.findFirst.mockResolvedValue(null);
+    db.user.update.mockResolvedValue({} as unknown as User);
+  });
+
+  it("stores the handle lowercased and trimmed", async () => {
+    givenCaller();
+
+    const result = await caller(db).user.setHandle({ handle: "  James-F " });
+
+    expect(result).toEqual({ handle: "james-f" });
+    expect(db.user.update).toHaveBeenCalledWith({
+      where: { id: USER_ID },
+      data: { handle: "james-f" },
+    });
+  });
+
+  it("changes a handle, leaving nothing behind to hold the old one", async () => {
+    givenCaller({ handle: "james" });
+
+    const result = await caller(db).user.setHandle({ handle: "jim" });
+
+    expect(result).toEqual({ handle: "jim" });
+    expect(db.user.update).toHaveBeenCalledTimes(1);
+    expect(db.user.update).toHaveBeenCalledWith({
+      where: { id: USER_ID },
+      data: { handle: "jim" },
+    });
+  });
+
+  it("clears the handle on null", async () => {
+    givenCaller({ handle: "james" });
+
+    const result = await caller(db).user.setHandle({ handle: null });
+
+    expect(result).toEqual({ handle: null });
+    expect(db.user.update).toHaveBeenCalledWith({
+      where: { id: USER_ID },
+      data: { handle: null },
+    });
+  });
+
+  it("does not write when the handle is unchanged", async () => {
+    givenCaller({ handle: "james" });
+
+    const result = await caller(db).user.setHandle({ handle: "James" });
+
+    expect(result).toEqual({ handle: "james" });
+    expect(db.user.update).not.toHaveBeenCalled();
+  });
+
+  it("refuses an invalid handle with the rule it broke, without writing", async () => {
+    givenCaller();
+
+    const tooShort = await errorOf(caller(db).user.setHandle({ handle: "ab" }));
+    const badCharacters = await errorOf(caller(db).user.setHandle({ handle: "james_f" }));
+    const edgeHyphen = await errorOf(caller(db).user.setHandle({ handle: "-james" }));
+
+    expect(tooShort).toEqual({
+      code: "BAD_REQUEST",
+      message: "A handle is 3 to 30 characters long.",
+    });
+    expect(badCharacters.code).toBe("BAD_REQUEST");
+    expect(badCharacters.message).toContain("letters, digits and hyphens");
+    expect(edgeHyphen).toEqual(badCharacters);
+    expect(db.user.findFirst).not.toHaveBeenCalled();
+    expect(db.user.update).not.toHaveBeenCalled();
+  });
+
+  it("refuses a reserved word and anything shaped like a user id", async () => {
+    givenCaller();
+    const reserved = {
+      code: "BAD_REQUEST",
+      message: "That handle is reserved. Pick another.",
+    };
+
+    expect(await errorOf(caller(db).user.setHandle({ handle: "admin" }))).toEqual(reserved);
+    expect(await errorOf(caller(db).user.setHandle({ handle: "Settings" }))).toEqual(reserved);
+    expect(
+      await errorOf(caller(db).user.setHandle({ handle: "cmwg8yc350011l207pb3hzvea" })),
+    ).toEqual(reserved);
+    expect(db.user.update).not.toHaveBeenCalled();
+  });
+
+  it("refuses a handle someone else holds, or that spells an existing user id", async () => {
+    givenCaller();
+    db.user.findFirst.mockResolvedValue({ id: "user-2" } as unknown as User);
+
+    const result = await errorOf(caller(db).user.setHandle({ handle: "james" }));
+
+    expect(result).toEqual({
+      code: "CONFLICT",
+      message: "That handle is taken. Pick another.",
+    });
+    expect(db.user.findFirst).toHaveBeenCalledWith({
+      where: { OR: [{ handle: "james" }, { id: "james" }] },
+      select: { id: true },
+    });
+    expect(db.user.update).not.toHaveBeenCalled();
+  });
+
+  it("answers a lost race for the same handle as taken", async () => {
+    givenCaller();
+    db.user.update.mockRejectedValue(
+      Object.assign(new Error("Unique constraint failed"), { code: "P2002" }),
+    );
+
+    const result = await errorOf(caller(db).user.setHandle({ handle: "james" }));
+
+    expect(result).toEqual({
+      code: "CONFLICT",
+      message: "That handle is taken. Pick another.",
+    });
+  });
+
+  it("refuses an agent, even to clear", async () => {
+    givenCaller({ isAgent: true });
+    const forbidden = { code: "FORBIDDEN", message: "Agents cannot have a handle." };
+
+    expect(await errorOf(caller(db).user.setHandle({ handle: "helper" }))).toEqual(forbidden);
+    expect(await errorOf(caller(db).user.setHandle({ handle: null }))).toEqual(forbidden);
+    expect(db.user.findFirst).not.toHaveBeenCalled();
+    expect(db.user.update).not.toHaveBeenCalled();
+  });
+});
+
 describe("user.updateTimezone", () => {
   let db: DeepMockProxy<PrismaClient>;
 

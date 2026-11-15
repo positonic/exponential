@@ -4,8 +4,10 @@ import { buildWorkspaceAccessWhere } from "~/server/services/access";
 import { hasVisibleActivity } from "~/server/services/activity/feed";
 
 /**
- * Person page (`/people/<userId>`): who the viewer may look at, and through
- * which workspaces.
+ * Person page (`/people/<userId>`, or `/people/<handle>` for someone who
+ * picked a handle): who the viewer may look at, and through which workspaces.
+ * Everything here works on a user id; a handle is resolved to one beforehand
+ * (`handle.ts`), so it meets the same rules.
  *
  * The page is a lens on activity the viewer can already see, so its scope is
  * the viewer's own workspaces — never the subject's. Two consequences:
@@ -97,6 +99,11 @@ export interface PersonSummary {
     name: string | null;
     image: string | null;
     isAgent: boolean;
+    /**
+     * The subject's opt-in handle, so the page can show its canonical URL
+     * (`/people/<handle>`). Only ever returned to a viewer who can see them.
+     */
+    handle: string | null;
   };
   /** The person who owns the agent; `null` for a human subject. */
   owner: { id: string; name: string | null; image: string | null } | null;
@@ -126,7 +133,7 @@ export async function getPersonSummary(
   const [user, holdings] = await Promise.all([
     db.user.findUnique({
       where: { id: subjectId },
-      select: { id: true, name: true, image: true, isAgent: true },
+      select: { id: true, name: true, image: true, isAgent: true, handle: true },
     }),
     // A holder is a `WorkspaceUser` row (ADR-0068), so a subject who reaches a
     // workspace only through a team holds no Position there. That is correct.

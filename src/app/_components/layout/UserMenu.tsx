@@ -33,6 +33,7 @@ import { useNavigationPreferences } from "~/hooks/useNavigationPreferences";
 import { useWorkspace } from "~/providers/WorkspaceProvider";
 import { getDarkTheme, setDarkTheme } from "~/lib/dark-theme";
 import { personHref } from "~/lib/personHref";
+import { api } from "~/trpc/react";
 
 interface UserMenuProps {
   session: {
@@ -60,6 +61,12 @@ export function UserMenu({ session, onClose }: UserMenuProps) {
   const kbHref = workspaceSlug ? `/w/${workspaceSlug}/knowledge-base` : "/knowledge-base";
 
   const user = session.user;
+  // "Your page" links by handle once you have one. The session does not carry
+  // it, so read the profile (shared with Settings, which refreshes it on save).
+  const { data: profile } = api.user.getProfile.useQuery(undefined, {
+    enabled: !!user.id,
+    staleTime: 5 * 60 * 1000,
+  });
   const initials = user.name
     ? user.name
         .split(" ")
@@ -116,7 +123,7 @@ export function UserMenu({ session, onClose }: UserMenuProps) {
               <Menu.Item
                 leftSection={<IconUserCircle size={16} />}
                 component={Link}
-                href={personHref(user.id)}
+                href={personHref(user.id, profile?.handle)}
                 onClick={onClose}
                 className="text-text-primary hover:bg-surface-hover"
               >

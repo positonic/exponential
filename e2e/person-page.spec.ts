@@ -4,7 +4,7 @@
  *
  * Covers the three ways in — an actor's name on an activity row, "Your page" in
  * the user menu, and a member in workspace settings — plus the header for an
- * agent and the not-found rule.
+ * agent, the not-found rule, and handles (`/people/<handle>`).
  *
  * Fixture: the colleague has two seeded activity events in `dev-fixture`;
  * `Aria` is the fixture user's Assistant and holds the seeded Position.
@@ -19,6 +19,10 @@ const FIRST_PAINT_TIMEOUT = 60_000;
 function personHeading(page: Page, name: string) {
   return page.getByRole("heading", { level: 1, name, exact: true });
 }
+
+// One worker, in order: the handle test changes the signed-in user's own URL,
+// which the "Your page" test reads.
+test.describe.configure({ mode: "default" });
 
 test.describe("Person page", () => {
   test("an actor's name on the activity feed opens their Person page", async ({ page }) => {
@@ -146,6 +150,70 @@ test.describe("Person page", () => {
   test("an unknown person is the ordinary not-found page", async ({ page }) => {
     await page.goto("/people/not-a-real-user-id");
 
+    await expect(page.getByText("This page could not be found.")).toBeVisible({
+      timeout: FIRST_PAINT_TIMEOUT,
+    });
+  });
+
+  test("a handle set in profile settings opens the page, and the id URL lands on it", async ({
+    page,
+  }) => {
+    const handle = "dev-fixture-e2e";
+    const field = () => page.getByTestId("handle-value");
+    // "Your workspaces" is the header of your own page only.
+    const ownHeader = () => page.getByTestId("person-header").getByText("Your workspaces");
+
+    await page.goto("/settings/profile");
+    await expect(field()).toBeVisible({ timeout: FIRST_PAINT_TIMEOUT });
+
+    try {
+      // A reserved word is refused before anything is sent.
+      await page.getByTestId("handle-edit").click();
+      await page.getByTestId("handle-input").fill("admin");
+      await expect(page.getByText("That handle is reserved. Pick another.")).toBeVisible();
+      await expect(page.getByTestId("handle-save")).toBeDisabled();
+      await page.screenshot({ path: test.info().outputPath("handle-refused.png") });
+
+      // Typed in capitals, stored lowercase.
+      await page.getByTestId("handle-input").fill(handle.toUpperCase());
+      await page.getByTestId("handle-save").click();
+      await expect(field()).toHaveText(`/people/${handle}`);
+      await page.screenshot({ path: test.info().outputPath("handle-saved.png") });
+
+      // The handle URL is the page.
+      await page.goto(`/people/${handle}`);
+      await expect(ownHeader()).toBeVisible({ timeout: FIRST_PAINT_TIMEOUT });
+      expect(new URL(page.url()).pathname).toBe(`/people/${handle}`);
+
+      // The id URL still works, and lands on the handle URL with its filters.
+      await page.goto(`/people/${fixture.userId}?source=internal`);
+      await page.waitForURL(`**/people/${handle}?source=internal`, {
+        timeout: FIRST_PAINT_TIMEOUT,
+      });
+      await expect(ownHeader()).toBeVisible();
+
+      // "Your page" now links by handle.
+      await page.locator(".sb-user").click();
+      await expect(page.getByRole("menuitem", { name: "Your page" })).toHaveAttribute(
+        "href",
+        `/people/${handle}`,
+      );
+      await page.keyboard.press("Escape");
+
+      await page.screenshot({ path: test.info().outputPath("person-handle.png") });
+    } finally {
+      // Leave the fixture user without a handle, whatever happened above.
+      await page.goto("/settings/profile");
+      await expect(field()).toBeVisible({ timeout: FIRST_PAINT_TIMEOUT });
+      const remove = page.getByTestId("handle-remove");
+      if (await remove.isVisible()) {
+        await remove.click();
+        await expect(field()).toHaveText("Not set");
+      }
+    }
+
+    // Freed at once: the old handle is nobody's page now.
+    await page.goto(`/people/${handle}`);
     await expect(page.getByText("This page could not be found.")).toBeVisible({
       timeout: FIRST_PAINT_TIMEOUT,
     });

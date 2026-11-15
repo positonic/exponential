@@ -7,7 +7,9 @@ import {
   useRouter,
   useSearchParams,
 } from 'next/navigation';
+import { useEffect } from 'react';
 import { WeeklyWorkDigestPanel } from '~/app/_components/home/activity/WeeklyWorkDigestPanel';
+import { personHref } from '~/lib/personHref';
 import { api } from '~/trpc/react';
 import { PersonFeed } from './PersonFeed';
 import { PersonHeader } from './PersonHeader';
@@ -16,7 +18,8 @@ import { PersonWeekSummaryPanel } from './PersonWeekSummaryPanel';
 import '~/app/_components/home/activity/activity-home.css';
 
 interface PersonPageProps {
-  userId: string;
+  /** The `/people/<segment>` route segment: a user id or a handle. */
+  personRef: string;
 }
 
 /**
@@ -26,13 +29,31 @@ interface PersonPageProps {
  * confirms the account exists.
  *
  * Both filters live in the URL: `?workspace=<id>` and `?source=<source>`.
+ *
+ * The page is reachable by id or by handle. When the subject has a handle and
+ * the URL says anything else, the URL is replaced with `/people/<handle>`.
  */
-export function PersonPage({ userId }: PersonPageProps) {
+export function PersonPage({ personRef }: PersonPageProps) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
+  const utils = api.useUtils();
 
-  const person = api.person.get.useQuery({ userId }, { retry: false });
+  const person = api.person.get.useQuery({ userId: personRef }, { retry: false });
+
+  // Canonical URL. Only `person.get` is keyed by the route segment (the feed
+  // and the summary below are keyed by the subject's id), so handing it the
+  // answer under the handle makes the swap free: nothing is fetched again.
+  const handle = person.data?.user.handle ?? null;
+  const queryString = searchParams.toString();
+  useEffect(() => {
+    if (!person.data || handle === null || handle === personRef) return;
+    utils.person.get.setData({ userId: handle }, person.data);
+    const href = personHref(person.data.user.id, handle);
+    router.replace(queryString ? `${href}?${queryString}` : href, {
+      scroll: false,
+    });
+  }, [person.data, handle, personRef, queryString, router, utils]);
 
   // Only a shared workspace is a valid filter; anything else in the URL (a
   // stale or hand-typed id) falls back to every workspace.
@@ -67,6 +88,7 @@ export function PersonPage({ userId }: PersonPageProps) {
   }
 
   const name = person.data.user.name ?? 'Unnamed';
+  const userId = person.data.user.id;
 
   return (
     <Container size="md" className="w-full py-8">

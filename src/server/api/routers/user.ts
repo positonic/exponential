@@ -3,6 +3,7 @@ import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 import { TRPCError } from "@trpc/server";
 import { uploadToBlob } from "~/lib/blob";
 import { isGoogleOAuthTester } from "~/lib/googleAuth";
+import { setOwnHandle } from "~/server/services/person/handle";
 
 export const userRouter = createTRPCRouter({
   /**
@@ -232,6 +233,7 @@ export const userRouter = createTRPCRouter({
           name: true,
           email: true,
           image: true,
+          handle: true,
         },
       });
 
@@ -260,6 +262,18 @@ export const userRouter = createTRPCRouter({
 
       return { success: true, name: updatedUser.name };
     }),
+
+  /**
+   * Set, change or clear (`null`) your own Person page handle
+   * (`/people/<handle>`). Opt-in and humans only. Refuses an invalid or
+   * reserved handle (`BAD_REQUEST`) and a taken one (`CONFLICT`); the rules
+   * live in `~/lib/personHandle` and `services/person/handle.ts`.
+   */
+  setHandle: protectedProcedure
+    .input(z.object({ handle: z.string().max(100).nullable() }))
+    .mutation(({ ctx, input }) =>
+      setOwnHandle(ctx.db, ctx.session.user.id, input.handle),
+    ),
 
   getTimezone: protectedProcedure.query(async ({ ctx }) => {
     const user = await ctx.db.user.findUnique({

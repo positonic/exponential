@@ -114,7 +114,14 @@ interface World {
   openablePages: string[];
   workspaces: WorkspaceFixture[];
   events: EventFixture[];
-  users: Array<{ id: string; name: string; image: string | null; isAgent: boolean }>;
+  users: Array<{
+    id: string;
+    name: string;
+    image: string | null;
+    isAgent: boolean;
+    /** The person's opt-in handle (`/people/<handle>`), when they picked one. */
+    handle?: string | null;
+  }>;
   /** `ExternalAgent` rows: shadow user → owner. */
   agents: Array<{ shadowUserId: string; ownerId: string }>;
   /** Positions held, each through a `WorkspaceUser` row of that workspace. */
@@ -290,6 +297,18 @@ function installWorld(dbMock: DeepMockProxy<PrismaClient>, world: World) {
     Promise.resolve(
       world.users.find((u) => u.id === args.where.id) ?? null,
     )) as never);
+
+  // The handle resolver's only question: who has this id, or this handle?
+  dbMock.user.findMany.mockImplementation(((args: {
+    where: { OR: [{ id: string }, { handle: string }] };
+  }) => {
+    const [{ id }, { handle }] = args.where.OR;
+    return Promise.resolve(
+      world.users
+        .filter((u) => u.id === id || (u.handle ?? null) === handle)
+        .map((u) => ({ id: u.id })),
+    );
+  }) as never);
 
   dbMock.externalAgent.findUnique.mockImplementation(((args: {
     where: { shadowUserId?: string };
@@ -529,6 +548,7 @@ describe("person router", () => {
         image: null,
         isAgent: false,
       });
+      expect(result.user.handle ?? null).toBeNull();
       const select = dbMock.user.findUnique.mock.calls[0]?.[0]?.select;
       expect(select).toBeDefined();
       expect(select).not.toHaveProperty("email");
@@ -670,6 +690,91 @@ describe("person router", () => {
       const result = await errorOf(asViewer().person.get({ userId: SUBJECT }));
 
       expect(result.code).toBe("NOT_FOUND");
+    });
+  });
+
+  describe("handles", () => {
+    beforeEach(() => {
+      world.users.find((u) => u.id === SUBJECT)!.handle = "sam";
+      world.users.find((u) => u.id === STRANGER)!.handle = "stan";
+    });
+
+    it("opens the same page by handle as by id", async () => {
+      const caller = asViewer();
+
+      const byHandle = await caller.person.get({ userId: "sam" });
+      const byId = await caller.person.get({ userId: SUBJECT });
+
+      expect(byHandle).toEqual(byId);
+      expect(byHandle.user.id).toBe(SUBJECT);
+    });
+
+    it("returns the subject's handle, so an id link can land on the handle URL", async () => {
+      const result = await asViewer().person.get({ userId: SUBJECT });
+
+      expect(result.user.handle).toBe("sam");
+    });
+
+    it("reads a handle in the URL without regard to case", async () => {
+      const result = await asViewer().person.get({ userId: "Sam" });
+
+      expect(result.user.id).toBe(SUBJECT);
+    });
+
+    it("serves the feed by handle with the same events as by id", async () => {
+      const caller = asViewer();
+
+      const byHandle = await caller.person.getFeed({ userId: "sam" });
+      const byId = await caller.person.getFeed({ userId: SUBJECT });
+
+      expect(byHandle.events.map((e) => e.entityRef)).toEqual([
+        "Alpha new",
+        "Beta before leaving",
+        "Alpha old",
+      ]);
+      expect(byHandle.events).toEqual(byId.events);
+    });
+
+    it("answers an unknown handle and a handle the viewer cannot see like an unknown id", async () => {
+      const caller = asViewer();
+
+      const unknownId = await errorOf(caller.person.get({ userId: "no-such-user" }));
+      const unknownHandle = await errorOf(caller.person.get({ userId: "nobody-here" }));
+      // "stan" exists, but Stan shares nothing with the viewer.
+      const hiddenHandle = await errorOf(caller.person.get({ userId: "stan" }));
+
+      expect(unknownId).toEqual({ code: "NOT_FOUND", message: "Person not found" });
+      expect(unknownHandle).toEqual(unknownId);
+      expect(hiddenHandle).toEqual(unknownId);
+    });
+
+    it("guards the feed and the week summary the same way for a hidden handle", async () => {
+      const caller = asViewer();
+      const notFound = { code: "NOT_FOUND", message: "Person not found" };
+
+      expect(await errorOf(caller.person.getFeed({ userId: "stan" }))).toEqual(notFound);
+      expect(await errorOf(caller.person.getFeed({ userId: "nobody-here" }))).toEqual(notFound);
+      expect(await errorOf(caller.person.getWeekSummary({ userId: "stan" }))).toEqual(notFound);
+      expect(await errorOf(caller.person.getWeekSummary({ userId: "nobody-here" }))).toEqual(notFound);
+      expect(await errorOf(caller.person.getWeekSummary({ userId: STRANGER }))).toEqual(notFound);
+    });
+
+    it("lets an id win over a handle spelled the same", async () => {
+      // Cannot be set through the app; the resolver must still not be fooled.
+      world.users.find((u) => u.id === STRANGER)!.handle = SUBJECT;
+
+      const result = await asViewer().person.get({ userId: SUBJECT });
+
+      expect(result.user.id).toBe(SUBJECT);
+    });
+
+    it("never looks a generated id up as a handle", async () => {
+      const generatedId = "cmwg8yc350011l207pb3hzvea";
+
+      const result = await errorOf(asViewer().person.get({ userId: generatedId }));
+
+      expect(result).toEqual({ code: "NOT_FOUND", message: "Person not found" });
+      expect(dbMock.user.findMany).not.toHaveBeenCalled();
     });
   });
 });
