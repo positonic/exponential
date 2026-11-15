@@ -206,8 +206,13 @@ describe("page activity", () => {
 
   it("a Markdown write records its own event every time, even right after another", async () => {
     // An open editor revision by the same author would fold an editor save,
-    // but a Markdown write never looks for one.
-    db.knowledgePageRevision.findFirst.mockResolvedValue(openEditorRevision(60_000) as never);
+    // but a Markdown write never looks for one. The editing-session guard asks
+    // for someone *else's* open revision (`authorId: { not }`), which the
+    // owner's own is not, so honour that filter here.
+    const open = openEditorRevision(60_000);
+    db.knowledgePageRevision.findFirst.mockImplementation(((args?: {
+      where?: { authorId?: { not?: string } };
+    }) => Promise.resolve(args?.where?.authorId?.not === open.authorId ? null : open)) as never);
 
     await asOwner("api-token").page.update({ id: PAGE_ID, body: "# Rewritten", baseVersion: 3 });
     await asOwner("api-token").page.update({ id: PAGE_ID, body: "# Rewritten again", baseVersion: 3 });

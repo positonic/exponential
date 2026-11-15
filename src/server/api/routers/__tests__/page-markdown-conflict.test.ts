@@ -189,11 +189,15 @@ describe("page.update: Markdown-source writes are conflict-checked", () => {
       input: undefined,
       ctx: undefined,
     } as never) as { data: { conflict: unknown } };
+    // No revision exists at v2 in this harness, so there is nothing to merge
+    // against: a plain stale conflict that still carries the current body.
     expect(formatted.data.conflict).toEqual({
       kind: "revision_conflict",
       entity: "page",
       id: PAGE_ID,
       field: "body",
+      reason: "stale",
+      current: { body: "original" },
       expectedRevision: 2,
       currentRevision: 3,
     });
