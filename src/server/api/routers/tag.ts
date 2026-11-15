@@ -2,6 +2,7 @@ import { z } from "zod";
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 import { TRPCError } from "@trpc/server";
 import { TAG_COLORS } from "~/types/tag";
+import { assertWorkspaceWriteRole } from "~/server/services/access";
 import { assertTagsInWorkspace } from "~/server/services/actions";
 import {
   listForEntity as listForEntityService,
@@ -120,22 +121,9 @@ export const tagRouter = createTRPCRouter({
       })
     )
     .mutation(async ({ ctx, input }) => {
-      // Verify user is a member of the workspace
-      const membership = await ctx.db.workspaceUser.findUnique({
-        where: {
-          userId_workspaceId: {
-            userId: ctx.session.user.id,
-            workspaceId: input.workspaceId,
-          },
-        },
-      });
-
-      if (!membership) {
-        throw new TRPCError({
-          code: "FORBIDDEN",
-          message: "You must be a member of the workspace to create tags",
-        });
-      }
+      // A tag is workspace content: membership alone (a read-only viewer)
+      // is not permission to create one.
+      await assertWorkspaceWriteRole(ctx.db, ctx.session.user.id, input.workspaceId);
 
       // Generate slug from name
       const slug = input.name
@@ -203,23 +191,9 @@ export const tagRouter = createTRPCRouter({
         });
       }
 
-      // Verify user has permission (workspace member)
+      // Verify user has permission (a write role in the tag's workspace)
       if (tag.workspaceId) {
-        const membership = await ctx.db.workspaceUser.findUnique({
-          where: {
-            userId_workspaceId: {
-              userId: ctx.session.user.id,
-              workspaceId: tag.workspaceId,
-            },
-          },
-        });
-
-        if (!membership) {
-          throw new TRPCError({
-            code: "FORBIDDEN",
-            message: "You must be a member of the workspace to update tags",
-          });
-        }
+        await assertWorkspaceWriteRole(ctx.db, ctx.session.user.id, tag.workspaceId);
       }
 
       // If name is changing, update slug and check for conflicts
@@ -548,18 +522,7 @@ export const tagRouter = createTRPCRouter({
       if (!ticket) {
         throw new TRPCError({ code: "NOT_FOUND", message: "Ticket not found" });
       }
-      // Verify workspace membership
-      const membership = await ctx.db.workspaceUser.findUnique({
-        where: {
-          userId_workspaceId: {
-            userId: ctx.session.user.id,
-            workspaceId: ticket.product.workspaceId,
-          },
-        },
-      });
-      if (!membership) {
-        throw new TRPCError({ code: "FORBIDDEN", message: "Not a workspace member" });
-      }
+      await assertWorkspaceWriteRole(ctx.db, ctx.session.user.id, ticket.product.workspaceId);
 
       const uniqueTagIds = [...new Set(input.tagIds)];
       if (uniqueTagIds.length > 0) {
@@ -607,17 +570,7 @@ export const tagRouter = createTRPCRouter({
       if (!feature) {
         throw new TRPCError({ code: "NOT_FOUND", message: "Feature not found" });
       }
-      const membership = await ctx.db.workspaceUser.findUnique({
-        where: {
-          userId_workspaceId: {
-            userId: ctx.session.user.id,
-            workspaceId: feature.product.workspaceId,
-          },
-        },
-      });
-      if (!membership) {
-        throw new TRPCError({ code: "FORBIDDEN", message: "Not a workspace member" });
-      }
+      await assertWorkspaceWriteRole(ctx.db, ctx.session.user.id, feature.product.workspaceId);
 
       const uniqueFeatureTagIds = [...new Set(input.tagIds)];
       if (uniqueFeatureTagIds.length > 0) {

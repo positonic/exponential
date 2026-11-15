@@ -37,7 +37,13 @@ import { userEmailService } from "~/server/services/UserEmailService";
 import { slugify } from "~/utils/slugify";
 import { sanitizeAIOutput } from "~/lib/sanitize-output";
 import { getProjectAccess, hasProjectAccess, canEditProject } from "~/server/services/access/resolvers/projectResolver";
-import { getWorkspaceMembership } from "~/server/services/access/resolvers/workspaceResolver";
+import {
+  assertWorkspaceWriteRole,
+  canEditWorkspaceContent,
+  getWorkspaceMembership,
+} from "~/server/services/access/resolvers/workspaceResolver";
+import type { WorkspaceRole } from "~/server/services/access/types";
+import type { PrismaClient } from "@prisma/client";
 import { buildMeetingTranscriptionsWhere } from "~/server/services/meetings/meetingTranscriptionsWhere";
 import { getAiInteractionLogger } from "~/server/services/AiInteractionLogger";
 import { PRODUCT_NAME } from "~/lib/brand";
@@ -246,6 +252,44 @@ function parseExpiration(expiresIn: string): number {
   }
 }
 
+
+/**
+ * The workspace one of the Assistant's CRM tools writes to: the one the chat
+ * forwarded, or, for a caller that forwards none, the first workspace the
+ * user can write in.
+ *
+ * Membership is not permission to write: a `viewer` of the forwarded
+ * workspace is refused with FORBIDDEN, and a workspace the user only views is
+ * never picked as the fallback. Returns null when the user is not a member of
+ * the forwarded workspace, or belongs to no workspace at all; each tool keeps
+ * its own answer for that.
+ */
+async function resolveCrmToolWorkspace(
+  db: PrismaClient,
+  userId: string,
+  requestedWorkspaceId: string | undefined,
+): Promise<string | null> {
+  const viewerRefused = new TRPCError({
+    code: "FORBIDDEN",
+    message: "You need owner, admin, or member access to this workspace to make changes.",
+  });
+
+  if (requestedWorkspaceId) {
+    const membership = await getWorkspaceMembership(db, userId, requestedWorkspaceId);
+    if (!membership) return null;
+    if (!canEditWorkspaceContent(membership.role)) throw viewerRefused;
+    return membership.workspaceId;
+  }
+
+  const memberships = await db.workspaceUser.findMany({
+    where: { userId },
+    select: { workspaceId: true, role: true },
+  });
+  if (memberships.length === 0) return null;
+  const writable = memberships.find((membership) => canEditWorkspaceContent(membership.role as WorkspaceRole));
+  if (!writable) throw viewerRefused;
+  return writable.workspaceId;
+}
 
 export const mastraRouter = createTRPCRouter({
   /**
@@ -2353,30 +2397,16 @@ export const mastraRouter = createTRPCRouter({
     }))
     .mutation(async ({ ctx, input }) => {
       // Resolve the target workspace. When the caller forwards the active chat
-      // workspace, honor it after verifying membership; otherwise fall back to
-      // the user's first workspace for backward compatibility with callers that
-      // don't yet send it.
-      let workspaceId: string;
-      if (input.workspaceId) {
-        const membership = await getWorkspaceMembership(
-          ctx.db,
-          ctx.session.user.id,
-          input.workspaceId,
-        );
-        if (!membership) {
-          return { created: false, updated: false, error: "Workspace not found or access denied" };
-        }
-        workspaceId = membership.workspaceId;
-      } else {
-        const workspace = await ctx.db.workspaceUser.findFirst({
-          where: { userId: ctx.session.user.id },
-          select: { workspaceId: true },
-        });
-
-        if (!workspace) {
-          return { created: false, updated: false, error: "No workspace found" };
-        }
-        workspaceId = workspace.workspaceId;
+      // workspace, honor it after verifying the user may write there; otherwise
+      // fall back to the first workspace they can write in, for callers that
+      // don't yet send it. A viewer is refused (FORBIDDEN).
+      const workspaceId = await resolveCrmToolWorkspace(ctx.db, ctx.session.user.id, input.workspaceId);
+      if (!workspaceId) {
+        return {
+          created: false,
+          updated: false,
+          error: input.workspaceId ? "Workspace not found or access denied" : "No workspace found",
+        };
       }
 
       // Generate emailHash for deduplication
@@ -2730,30 +2760,15 @@ export const mastraRouter = createTRPCRouter({
     }))
     .mutation(async ({ ctx, input }) => {
       // Resolve the target workspace. When the caller forwards the active chat
-      // workspace, honor it after verifying membership; otherwise fall back to
-      // the user's first workspace for backward compatibility with callers that
-      // don't yet send it.
-      let workspaceId: string;
-      if (input.workspaceId) {
-        const membership = await getWorkspaceMembership(
-          ctx.db,
-          ctx.session.user.id,
-          input.workspaceId,
-        );
-        if (!membership) {
-          throw new TRPCError({ code: "NOT_FOUND", message: "Workspace not found or access denied" });
-        }
-        workspaceId = membership.workspaceId;
-      } else {
-        const workspaceUser = await ctx.db.workspaceUser.findFirst({
-          where: { userId: ctx.session.user.id },
-          select: { workspaceId: true },
+      // workspace, honor it after verifying the user may write there; otherwise
+      // fall back to the first workspace they can write in, for callers that
+      // don't yet send it. A viewer is refused (FORBIDDEN).
+      const workspaceId = await resolveCrmToolWorkspace(ctx.db, ctx.session.user.id, input.workspaceId);
+      if (!workspaceId) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: input.workspaceId ? "Workspace not found or access denied" : "No workspace found",
         });
-
-        if (!workspaceUser) {
-          throw new TRPCError({ code: "NOT_FOUND", message: "No workspace found" });
-        }
-        workspaceId = workspaceUser.workspaceId;
       }
 
       // Validate organizationId belongs to same workspace
@@ -2831,6 +2846,8 @@ export const mastraRouter = createTRPCRouter({
       if (!existing) {
         throw new TRPCError({ code: "NOT_FOUND", message: "Contact not found or inaccessible" });
       }
+      // A member of the contact's workspace who only views it cannot change it.
+      await assertWorkspaceWriteRole(ctx.db, ctx.session.user.id, existing.workspaceId);
 
       // Encrypt PII fields
       const dbUpdate: any = {};
@@ -2891,6 +2908,8 @@ export const mastraRouter = createTRPCRouter({
       if (!contact) {
         throw new TRPCError({ code: "NOT_FOUND", message: "Contact not found or inaccessible" });
       }
+      // Logging an interaction writes to the workspace's CRM: not for a viewer.
+      await assertWorkspaceWriteRole(ctx.db, ctx.session.user.id, contact.workspaceId);
 
       // Create interaction and update contact's last interaction in a transaction
       const [interaction] = await ctx.db.$transaction([
@@ -2994,19 +3013,17 @@ export const mastraRouter = createTRPCRouter({
       size: z.enum(["1-10", "11-50", "51-200", "201-500", "501-1000", "1000+"]).optional(),
     }))
     .mutation(async ({ ctx, input }) => {
-      const workspaceUser = await ctx.db.workspaceUser.findFirst({
-        where: { userId: ctx.session.user.id },
-        select: { workspaceId: true },
-      });
-
-      if (!workspaceUser) {
+      // The tool forwards no workspace: the first one the user can write in.
+      // A workspace they only view never qualifies.
+      const workspaceId = await resolveCrmToolWorkspace(ctx.db, ctx.session.user.id, undefined);
+      if (!workspaceId) {
         throw new TRPCError({ code: "NOT_FOUND", message: "No workspace found" });
       }
 
       const organization = await ctx.db.crmOrganization.create({
         data: {
           ...input,
-          workspaceId: workspaceUser.workspaceId,
+          workspaceId,
           createdById: ctx.session.user.id,
         },
       });

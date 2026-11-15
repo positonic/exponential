@@ -4,7 +4,7 @@ import { TRPCError } from "@trpc/server";
 import { DEFAULT_VIEW_CONFIG } from "~/types/view";
 import type { ViewFilters } from "~/types/view";
 import type { Prisma } from "@prisma/client";
-import { buildProjectAccessWhere } from "~/server/services/access";
+import { assertWorkspaceWriteRole, buildProjectAccessWhere } from "~/server/services/access";
 import { actionWriteDeps, applyActionUpdate } from "~/server/services/actions";
 
 const kanbanStatusSchema = z.enum([
@@ -176,22 +176,9 @@ export const viewRouter = createTRPCRouter({
       })
     )
     .mutation(async ({ ctx, input }) => {
-      // Verify workspace membership
-      const member = await ctx.db.workspaceUser.findUnique({
-        where: {
-          userId_workspaceId: {
-            userId: ctx.session.user.id,
-            workspaceId: input.workspaceId,
-          },
-        },
-      });
-
-      if (!member) {
-        throw new TRPCError({
-          code: "FORBIDDEN",
-          message: "You must be a member of this workspace to create views",
-        });
-      }
+      // A view is workspace content: membership alone (a read-only viewer)
+      // is not permission to create one.
+      await assertWorkspaceWriteRole(ctx.db, ctx.session.user.id, input.workspaceId);
 
       // Check slug uniqueness
       const existing = await ctx.db.view.findUnique({
@@ -257,22 +244,7 @@ export const viewRouter = createTRPCRouter({
         });
       }
 
-      // Verify user is a workspace member
-      const member = await ctx.db.workspaceUser.findUnique({
-        where: {
-          userId_workspaceId: {
-            userId: ctx.session.user.id,
-            workspaceId: view.workspaceId,
-          },
-        },
-      });
-
-      if (!member) {
-        throw new TRPCError({
-          code: "FORBIDDEN",
-          message: "You must be a member of this workspace to update views",
-        });
-      }
+      await assertWorkspaceWriteRole(ctx.db, ctx.session.user.id, view.workspaceId);
 
       return ctx.db.view.update({
         where: { id },
@@ -310,22 +282,9 @@ export const viewRouter = createTRPCRouter({
         });
       }
 
-      // Verify user is a workspace member with sufficient permissions
-      const member = await ctx.db.workspaceUser.findUnique({
-        where: {
-          userId_workspaceId: {
-            userId: ctx.session.user.id,
-            workspaceId: view.workspaceId,
-          },
-        },
-      });
-
-      if (!member) {
-        throw new TRPCError({
-          code: "FORBIDDEN",
-          message: "You must be a member of this workspace to delete views",
-        });
-      }
+      // A viewer cannot delete, not even a view they created before they
+      // were made a viewer.
+      const member = await assertWorkspaceWriteRole(ctx.db, ctx.session.user.id, view.workspaceId);
 
       // Only owners, admins, or the creator can delete
       const canDelete =

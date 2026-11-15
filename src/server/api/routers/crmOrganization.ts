@@ -4,6 +4,7 @@ import {
   protectedProcedure,
 } from "~/server/api/trpc";
 import { TRPCError } from "@trpc/server";
+import { assertWorkspaceWriteRole } from "~/server/services/access";
 
 // Input schemas
 const createOrganizationInput = z.object({
@@ -193,20 +194,9 @@ export const crmOrganizationRouter = createTRPCRouter({
     .mutation(async ({ ctx, input }) => {
       const { workspaceId, ...organizationData } = input;
 
-      // Verify user has access to workspace
-      const workspaceAccess = await ctx.db.workspaceUser.findFirst({
-        where: {
-          workspaceId,
-          userId: ctx.session.user.id,
-        },
-      });
-
-      if (!workspaceAccess) {
-        throw new TRPCError({
-          code: "FORBIDDEN",
-          message: "You do not have access to this workspace",
-        });
-      }
+      // CRM records are workspace content: membership alone (a read-only
+      // viewer) is not permission to write them.
+      await assertWorkspaceWriteRole(ctx.db, ctx.session.user.id, workspaceId);
 
       const organization = await ctx.db.crmOrganization.create({
         data: {
@@ -253,19 +243,7 @@ export const crmOrganizationRouter = createTRPCRouter({
         });
       }
 
-      const workspaceAccess = await ctx.db.workspaceUser.findFirst({
-        where: {
-          workspaceId: existingOrganization.workspaceId,
-          userId: ctx.session.user.id,
-        },
-      });
-
-      if (!workspaceAccess) {
-        throw new TRPCError({
-          code: "FORBIDDEN",
-          message: "You do not have access to this organization",
-        });
-      }
+      await assertWorkspaceWriteRole(ctx.db, ctx.session.user.id, existingOrganization.workspaceId);
 
       const organization = await ctx.db.crmOrganization.update({
         where: { id },
@@ -309,19 +287,7 @@ export const crmOrganizationRouter = createTRPCRouter({
         });
       }
 
-      const workspaceAccess = await ctx.db.workspaceUser.findFirst({
-        where: {
-          workspaceId: existingOrganization.workspaceId,
-          userId: ctx.session.user.id,
-        },
-      });
-
-      if (!workspaceAccess) {
-        throw new TRPCError({
-          code: "FORBIDDEN",
-          message: "You do not have access to this organization",
-        });
-      }
+      await assertWorkspaceWriteRole(ctx.db, ctx.session.user.id, existingOrganization.workspaceId);
 
       // Note: Contacts will have their organizationId set to null (onDelete: SetNull)
       await ctx.db.crmOrganization.delete({

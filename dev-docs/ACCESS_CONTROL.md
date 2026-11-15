@@ -386,6 +386,47 @@ archive: protectedProcedure
 
 ---
 
+## What a Workspace Viewer Can Still Write
+
+`viewer` is the read-only workspace role, and on the Team plan a viewer is a
+free seat, so "a viewer cannot write" is a billing rule as well as an access
+rule. Checked in November 2026 (ticket daring.haze). These are the writes a
+workspace viewer can still make by an existing rule:
+
+| Write | Why it is allowed | Rule |
+|---|---|---|
+| Edit an action they created or are assigned to (including its tags) | The creator and assignee paths do not look at the workspace role | "Actions" above |
+| Edit a page they own, or one they were granted `editor` on (and its databases and rows) | Ownership and a per-page grant outrank the inherited workspace role | `canEditKnowledgePage` |
+| Comment on a page they can view, and resolve or reopen its threads | View access is the commenting gate for pages | `pageComment.ts` |
+| Their own notes, favourites, sidebar layout and default workspace | Personal data, not workspace content | n/a |
+
+Feature comments, by contrast, refuse a viewer. Whether page comments and the
+creator, assignee and per-page-editor paths should stay open to a free seat is
+a product decision, not something to change in passing.
+
+Everything else that creates or changes workspace content must go through
+`assertWorkspaceWriteRole` (or a wrapper that delegates to it). A new mutation
+that only asserts membership lets a viewer write.
+
+### Known gaps
+
+Not every write is gated yet. These still let a viewer through (ticket
+sage.blade); remove a line when its path is fixed:
+
+- `project.create` and `mastra.createProject` check nothing about the
+  workspace they are given, so they also admit a non-member
+- `mastra.updateProject` (view access, not edit), `mastra.bulkCreateStructure`,
+  `mastra.unlinkProjectFromKeyResult`
+- `keyResult.updateLinkedFeatures`, `keyResult.unlinkFeature`,
+  `goal.updateGoalStatus`
+- `pipeline.create`, `transcription.createManualTranscription`
+- `workspaceScheduling.createMeeting`, `workspaceScheduling.cancelMeeting`
+- `knowledgeChunk.ingestTranscription`, `knowledgeChunk.deleteForSource`
+- mutations gated on ownership alone (goals, key results), which a viewer who
+  owns the row still passes; not yet read one by one
+
+---
+
 ## Migration Status
 
 The centralized service is in place. Routers are being incrementally migrated:
@@ -397,8 +438,10 @@ The centralized service is in place. Routers are being incrementally migrated:
 - [ ] `workspace.ts` — still uses inline role checks
 - [ ] `team.ts` — still uses inline role checks
 - [ ] `project.ts` — still uses inline checks, write access is creator-only
-- [ ] `view.ts` / `list.ts` — still uses inline workspace membership checks
-- [ ] `crmContact.ts` — still uses inline workspace membership checks
+- [x] `view.ts` / `list.ts` — every write uses `assertWorkspaceWriteRole` (reads still use an inline membership lookup)
+- [x] `crmContact.ts` / `crmOrganization.ts` — every write uses `assertWorkspaceWriteRole` (reads still use an inline membership lookup)
+- [x] `tag.ts` — `create`, `update`, `setTicketTags`, `setFeatureTags` and `setEntityTags` (ticket, feature, epic) use `assertWorkspaceWriteRole`; tagging an action follows the action edit rule
+- [x] `mastra.ts` CRM callbacks (`createCrmContact`, `createFullCrmContact`, `updateCrmContact`, `addCrmInteraction`, `createCrmOrganization`) — need a write role; the workspace fallback never picks one the user only views
 - [ ] `okrCheckin.ts` — still uses inline team membership checks
 - [x] `epic.ts` — reads use `assertWorkspaceMembership`; writes use `assertWorkspaceWriteRole` (delete also needs admin+ or epic owner)
 - [x] `document.ts` — reads use `assertWorkspaceMembership`; create/ingest/delete use `assertWorkspaceWriteRole`

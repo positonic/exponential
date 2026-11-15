@@ -1,9 +1,10 @@
 import type { PrismaClient, Tag } from "@prisma/client";
 import { TRPCError } from "@trpc/server";
 import {
+  assertWorkspaceMembership,
+  assertWorkspaceWriteRole,
   canEditAction,
   getActionAccess,
-  getWorkspaceMembership,
 } from "~/server/services/access";
 
 export type TagEntityType = "action" | "ticket" | "feature" | "epic";
@@ -35,11 +36,19 @@ interface SetEntityTagsResult {
   tags: Tag[];
 }
 
+/**
+ * Loads the entity's workspace and current tags, and checks the caller may
+ * read (`"view"`) or change (`"edit"`) its tags. For a ticket, feature or
+ * epic that is workspace membership to read and a write role to change: a
+ * read-only viewer sees tags but never sets them. An action is gated on its
+ * own edit rule either way.
+ */
 async function resolveEntity(
   db: PrismaClient,
   userId: string,
   entityType: TagEntityType,
   entityId: string,
+  level: "view" | "edit",
 ): Promise<EntityResolution> {
   switch (entityType) {
     case "action": {
@@ -80,7 +89,7 @@ async function resolveEntity(
         },
       });
       if (!ticket) throwNotFound("Ticket");
-      await requireWorkspaceMember(db, userId, ticket.product.workspaceId);
+      await requireWorkspaceAccess(db, userId, ticket.product.workspaceId, level);
       return {
         workspaceId: ticket.product.workspaceId,
         currentTagIds: ticket.tags.map((t) => t.tagId),
@@ -95,7 +104,7 @@ async function resolveEntity(
         },
       });
       if (!feature) throwNotFound("Feature");
-      await requireWorkspaceMember(db, userId, feature.product.workspaceId);
+      await requireWorkspaceAccess(db, userId, feature.product.workspaceId, level);
       return {
         workspaceId: feature.product.workspaceId,
         currentTagIds: feature.tags.map((t) => t.tagId),
@@ -110,7 +119,7 @@ async function resolveEntity(
         },
       });
       if (!epic) throwNotFound("Epic");
-      await requireWorkspaceMember(db, userId, epic.workspaceId);
+      await requireWorkspaceAccess(db, userId, epic.workspaceId, level);
       return {
         workspaceId: epic.workspaceId,
         currentTagIds: epic.tags.map((t) => t.tagId),
@@ -126,20 +135,16 @@ function throwNotFound(label: string): never {
   });
 }
 
-async function requireWorkspaceMember(
+async function requireWorkspaceAccess(
   db: PrismaClient,
   userId: string,
   workspaceId: string,
+  level: "view" | "edit",
 ): Promise<void> {
-  // Centralized resolver: direct OR team-based membership. A hand-rolled
+  // Centralized resolvers: direct OR team-based membership. A hand-rolled
   // workspaceUser lookup here used to deny team-based members.
-  const membership = await getWorkspaceMembership(db, userId, workspaceId);
-  if (!membership) {
-    throw new TRPCError({
-      code: "FORBIDDEN",
-      message: "Not a workspace member",
-    });
-  }
+  if (level === "edit") await assertWorkspaceWriteRole(db, userId, workspaceId);
+  else await assertWorkspaceMembership(db, userId, workspaceId);
 }
 
 async function validateTagsForWorkspace(
@@ -290,6 +295,7 @@ export async function setEntityTags({
     userId,
     entityType,
     entityId,
+    "edit",
   );
 
   await validateTagsForWorkspace(db, workspaceId, uniqueTagIds);
@@ -305,6 +311,6 @@ export async function listForEntity({
   entityType,
   entityId,
 }: ListForEntityInput): Promise<Tag[]> {
-  await resolveEntity(db, userId, entityType, entityId);
+  await resolveEntity(db, userId, entityType, entityId, "view");
   return loadTagsForEntity(db, entityType, entityId);
 }

@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 import { requireWorkspaceMembership } from "~/server/services/access/middleware";
+import { assertWorkspaceWriteRole } from "~/server/services/access";
 import { TRPCError } from "@trpc/server";
 import { encryptString, decryptBufferSafe } from "~/server/utils/encryption";
 import { Prisma } from "@prisma/client";
@@ -42,12 +43,14 @@ import {
 // call per run). Viewers and project-only "guests" are excluded (ADR-0036).
 const ENRICH_ROLES = ["owner", "admin", "member"];
 
-// Verify the signed-in user belongs to the workspace that owns `contactId`.
+// Verify the signed-in user belongs to the workspace that owns `contactId`
+// and, for `"edit"`, holds a write role there (a viewer reads, never writes).
 // Throws NOT_FOUND / FORBIDDEN otherwise.
 async function assertContactAccess(
   db: PrismaClient,
   userId: string,
   contactId: string,
+  level: "view" | "edit",
 ): Promise<{ workspaceId: string }> {
   const contact = await db.crmContact.findUnique({
     where: { id: contactId },
@@ -55,6 +58,10 @@ async function assertContactAccess(
   });
   if (!contact) {
     throw new TRPCError({ code: "NOT_FOUND", message: "Contact not found" });
+  }
+  if (level === "edit") {
+    await assertWorkspaceWriteRole(db, userId, contact.workspaceId);
+    return { workspaceId: contact.workspaceId };
   }
   const access = await db.workspaceUser.findFirst({
     where: { workspaceId: contact.workspaceId, userId },
@@ -680,20 +687,9 @@ export const crmContactRouter = createTRPCRouter({
     .mutation(async ({ ctx, input }) => {
       const { workspaceId, ...contactData } = input;
 
-      // Verify user has access to workspace
-      const workspaceAccess = await ctx.db.workspaceUser.findFirst({
-        where: {
-          workspaceId,
-          userId: ctx.session.user.id,
-        },
-      });
-
-      if (!workspaceAccess) {
-        throw new TRPCError({
-          code: "FORBIDDEN",
-          message: "You do not have access to this workspace",
-        });
-      }
+      // A contact is workspace content: membership alone (a read-only
+      // viewer) is not permission to write one.
+      await assertWorkspaceWriteRole(ctx.db, ctx.session.user.id, workspaceId);
 
       // If an organizationId is provided, ensure it belongs to the same workspace
       if (contactData.organizationId) {
@@ -817,19 +813,7 @@ export const crmContactRouter = createTRPCRouter({
         });
       }
 
-      const workspaceAccess = await ctx.db.workspaceUser.findFirst({
-        where: {
-          workspaceId: existingContact.workspaceId,
-          userId: ctx.session.user.id,
-        },
-      });
-
-      if (!workspaceAccess) {
-        throw new TRPCError({
-          code: "FORBIDDEN",
-          message: "You do not have access to this contact",
-        });
-      }
+      await assertWorkspaceWriteRole(ctx.db, ctx.session.user.id, existingContact.workspaceId);
 
       // Encrypt any PII fields present in updateData
       const dbUpdate: any = { ...updateData };
@@ -1037,19 +1021,7 @@ export const crmContactRouter = createTRPCRouter({
         });
       }
 
-      const workspaceAccess = await ctx.db.workspaceUser.findFirst({
-        where: {
-          workspaceId: existingContact.workspaceId,
-          userId: ctx.session.user.id,
-        },
-      });
-
-      if (!workspaceAccess) {
-        throw new TRPCError({
-          code: "FORBIDDEN",
-          message: "You do not have access to this contact",
-        });
-      }
+      await assertWorkspaceWriteRole(ctx.db, ctx.session.user.id, existingContact.workspaceId);
 
       await ctx.db.crmContact.delete({
         where: { id },
@@ -1069,20 +1041,7 @@ export const crmContactRouter = createTRPCRouter({
     .mutation(async ({ ctx, input }) => {
       const { ids, workspaceId } = input;
 
-      // Verify user has access to workspace
-      const workspaceAccess = await ctx.db.workspaceUser.findFirst({
-        where: {
-          workspaceId,
-          userId: ctx.session.user.id,
-        },
-      });
-
-      if (!workspaceAccess) {
-        throw new TRPCError({
-          code: "FORBIDDEN",
-          message: "You do not have access to this workspace",
-        });
-      }
+      await assertWorkspaceWriteRole(ctx.db, ctx.session.user.id, workspaceId);
 
       // Delete only contacts that belong to this workspace
       const result = await ctx.db.crmContact.deleteMany({
@@ -1415,19 +1374,7 @@ export const crmContactRouter = createTRPCRouter({
         });
       }
 
-      const workspaceAccess = await ctx.db.workspaceUser.findFirst({
-        where: {
-          workspaceId: contact.workspaceId,
-          userId: ctx.session.user.id,
-        },
-      });
-
-      if (!workspaceAccess) {
-        throw new TRPCError({
-          code: "FORBIDDEN",
-          message: "You do not have access to this contact",
-        });
-      }
+      await assertWorkspaceWriteRole(ctx.db, ctx.session.user.id, contact.workspaceId);
 
       // Create interaction and update contact's last interaction
       const [interaction] = await ctx.db.$transaction([
@@ -1654,19 +1601,7 @@ export const crmContactRouter = createTRPCRouter({
         });
       }
 
-      const workspaceAccess = await ctx.db.workspaceUser.findFirst({
-        where: {
-          workspaceId: contact.workspaceId,
-          userId: ctx.session.user.id,
-        },
-      });
-
-      if (!workspaceAccess) {
-        throw new TRPCError({
-          code: "FORBIDDEN",
-          message: "You do not have access to this contact",
-        });
-      }
+      await assertWorkspaceWriteRole(ctx.db, ctx.session.user.id, contact.workspaceId);
 
       // If organizationId is provided, verify it belongs to the same workspace
       if (organizationId) {
@@ -2111,19 +2046,7 @@ export const crmContactRouter = createTRPCRouter({
         });
       }
 
-      const workspaceAccess = await ctx.db.workspaceUser.findFirst({
-        where: {
-          workspaceId: contact.workspaceId,
-          userId: ctx.session.user.id,
-        },
-      });
-
-      if (!workspaceAccess) {
-        throw new TRPCError({
-          code: "FORBIDDEN",
-          message: "You do not have access to this contact",
-        });
-      }
+      await assertWorkspaceWriteRole(ctx.db, ctx.session.user.id, contact.workspaceId);
 
       // Calculate and update score
       const score =
@@ -2178,20 +2101,7 @@ export const crmContactRouter = createTRPCRouter({
     .mutation(async ({ ctx, input }) => {
       const { workspaceId } = input;
 
-      // Verify user has access to workspace
-      const workspaceAccess = await ctx.db.workspaceUser.findFirst({
-        where: {
-          workspaceId,
-          userId: ctx.session.user.id,
-        },
-      });
-
-      if (!workspaceAccess) {
-        throw new TRPCError({
-          code: "FORBIDDEN",
-          message: "You do not have access to this workspace",
-        });
-      }
+      await assertWorkspaceWriteRole(ctx.db, ctx.session.user.id, workspaceId);
 
       // Start async recalculation (in production, this should be a background job)
       ContactSyncService.recalculateAllScores(workspaceId).catch((error) => {
@@ -2210,7 +2120,7 @@ export const crmContactRouter = createTRPCRouter({
   listScreenshots: protectedProcedure
     .input(z.object({ contactId: z.string() }))
     .query(async ({ ctx, input }) => {
-      await assertContactAccess(ctx.db, ctx.session.user.id, input.contactId);
+      await assertContactAccess(ctx.db, ctx.session.user.id, input.contactId, "view");
 
       const rows = await ctx.db.crmContactScreenshot.findMany({
         where: { contactId: input.contactId },
@@ -2234,7 +2144,7 @@ export const crmContactRouter = createTRPCRouter({
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      await assertContactAccess(ctx.db, ctx.session.user.id, input.contactId);
+      await assertContactAccess(ctx.db, ctx.session.user.id, input.contactId, "edit");
 
       const timestamp = new Date().toISOString().replace(/[/:]/g, "-");
       const filename = `screenshots/contacts/${input.contactId}/${timestamp}.png`;
@@ -2261,7 +2171,7 @@ export const crmContactRouter = createTRPCRouter({
   removeScreenshot: protectedProcedure
     .input(z.object({ contactId: z.string(), screenshotId: z.string() }))
     .mutation(async ({ ctx, input }) => {
-      await assertContactAccess(ctx.db, ctx.session.user.id, input.contactId);
+      await assertContactAccess(ctx.db, ctx.session.user.id, input.contactId, "edit");
 
       const join = await ctx.db.crmContactScreenshot.findUnique({
         where: {

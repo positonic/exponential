@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 import { TRPCError } from "@trpc/server";
+import { assertWorkspaceWriteRole } from "~/server/services/access";
 import { assertListMembership } from "~/server/services/actions";
 
 const listTypeSchema = z.enum(["SPRINT", "BACKLOG", "CUSTOM"]);
@@ -103,21 +104,9 @@ export const listRouter = createTRPCRouter({
       })
     )
     .mutation(async ({ ctx, input }) => {
-      const member = await ctx.db.workspaceUser.findUnique({
-        where: {
-          userId_workspaceId: {
-            userId: ctx.session.user.id,
-            workspaceId: input.workspaceId,
-          },
-        },
-      });
-
-      if (!member) {
-        throw new TRPCError({
-          code: "FORBIDDEN",
-          message: "You must be a member of this workspace to create lists",
-        });
-      }
+      // A list is workspace content: membership alone (a read-only viewer)
+      // is not permission to create one.
+      await assertWorkspaceWriteRole(ctx.db, ctx.session.user.id, input.workspaceId);
 
       const existing = await ctx.db.list.findUnique({
         where: {
@@ -178,21 +167,7 @@ export const listRouter = createTRPCRouter({
         });
       }
 
-      const member = await ctx.db.workspaceUser.findUnique({
-        where: {
-          userId_workspaceId: {
-            userId: ctx.session.user.id,
-            workspaceId: list.workspaceId,
-          },
-        },
-      });
-
-      if (!member) {
-        throw new TRPCError({
-          code: "FORBIDDEN",
-          message: "You must be a member of this workspace to update lists",
-        });
-      }
+      await assertWorkspaceWriteRole(ctx.db, ctx.session.user.id, list.workspaceId);
 
       return ctx.db.list.update({
         where: { id },
@@ -215,21 +190,9 @@ export const listRouter = createTRPCRouter({
         });
       }
 
-      const member = await ctx.db.workspaceUser.findUnique({
-        where: {
-          userId_workspaceId: {
-            userId: ctx.session.user.id,
-            workspaceId: list.workspaceId,
-          },
-        },
-      });
-
-      if (!member) {
-        throw new TRPCError({
-          code: "FORBIDDEN",
-          message: "You must be a member of this workspace to delete lists",
-        });
-      }
+      // A viewer cannot delete, not even a list they created before they
+      // were made a viewer.
+      const member = await assertWorkspaceWriteRole(ctx.db, ctx.session.user.id, list.workspaceId);
 
       const canDelete =
         member.role === "owner" ||
@@ -269,12 +232,15 @@ export const listRouter = createTRPCRouter({
       if (!action) {
         throw new TRPCError({ code: "NOT_FOUND", message: "Action not found" });
       }
-      await assertListMembership(
+      const list = await assertListMembership(
         ctx.db,
         ctx.session.user.id,
         input.listId,
         action.workspaceId ?? action.project?.workspaceId ?? null,
       );
+      // Putting an action on a list changes the list, so it needs the write
+      // role there, not just membership.
+      await assertWorkspaceWriteRole(ctx.db, ctx.session.user.id, list.workspaceId);
 
       return ctx.db.actionList.create({
         data: {
@@ -304,21 +270,7 @@ export const listRouter = createTRPCRouter({
         });
       }
 
-      const member = await ctx.db.workspaceUser.findUnique({
-        where: {
-          userId_workspaceId: {
-            userId: ctx.session.user.id,
-            workspaceId: list.workspaceId,
-          },
-        },
-      });
-
-      if (!member) {
-        throw new TRPCError({
-          code: "FORBIDDEN",
-          message: "You must be a member of this workspace",
-        });
-      }
+      await assertWorkspaceWriteRole(ctx.db, ctx.session.user.id, list.workspaceId);
 
       await ctx.db.actionList.delete({
         where: {

@@ -1614,3 +1614,58 @@ describe("CSV import (ADR-0078, V4): previewCsv and commitCsv", () => {
     expect(db.knowledgePage.create).not.toHaveBeenCalled();
   });
 });
+
+/**
+ * Viewers are free seats, which only holds if a viewer cannot write. Every
+ * database mutation resolves edit access through the holding page, so a
+ * workspace viewer is refused on each one. The create, createRow, update,
+ * addProperty, updateRow and commitCsv cases live with those procedures'
+ * tests above; these are the remaining mutations.
+ */
+describe("a workspace viewer cannot write a database", () => {
+  const db = getDbMock();
+  const ROW_ID = "row-viewer-1";
+
+  beforeEach(() => {
+    mockReset(db);
+    install(db, "viewer");
+    db.knowledgePage.findUnique.mockImplementation(((args: { where: { id: string } }) =>
+      Promise.resolve(
+        args.where.id === ROW_ID
+          ? pageRow({ id: ROW_ID, title: "Alert latency", databaseId: DB_ID, database: databaseRow() })
+          : pageRow(),
+      )) as never);
+  });
+
+  const viewer = () => createMockCaller({ userId: MEMBER, db });
+
+  it("cannot delete a database", async () => {
+    await expect(viewer().database.delete({ id: DB_ID })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    expect(db.pageDatabase.delete).not.toHaveBeenCalled();
+    expect(db.pageDatabase.update).not.toHaveBeenCalled();
+  });
+
+  it("cannot delete a row", async () => {
+    await expect(viewer().database.deleteRow({ rowId: ROW_ID })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    expect(db.knowledgePage.delete).not.toHaveBeenCalled();
+  });
+
+  it("cannot rename, remove or reorder a property", async () => {
+    await expect(
+      viewer().database.updateProperty({ id: DB_ID, propertyId: STATUS_ID, name: "Stage" }),
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await expect(
+      viewer().database.removeProperty({ id: DB_ID, propertyId: STATUS_ID }),
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await expect(
+      viewer().database.reorderProperties({ id: DB_ID, propertyIds: [STATUS_ID, TITLE_ID] }),
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
+    expect(db.pageDatabase.update).not.toHaveBeenCalled();
+  });
+
+  it("can still read it", async () => {
+    db.knowledgePage.count.mockResolvedValue(0);
+
+    await expect(viewer().database.get({ id: DB_ID })).resolves.toMatchObject({ id: DB_ID });
+  });
+});
