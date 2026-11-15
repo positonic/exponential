@@ -1,5 +1,4 @@
 import Link from "next/link";
-import { Title, Text, Badge } from "@mantine/core";
 import type { Metadata } from "next";
 import { getAllBlogPosts } from "~/lib/blog/getBlogPost";
 import { PRODUCT_NAME } from "~/lib/brand";
@@ -46,66 +45,51 @@ export default async function BlogPage() {
 
   return (
     <div>
-      {/* Hero banner */}
-      <div
-        className="relative flex items-center justify-center overflow-hidden py-20 md:py-28"
-        style={{
-          backgroundImage: "url('/banners/dyna-banner.webp')",
-          backgroundSize: "cover",
-          backgroundPosition: "center",
-        }}
-      >
-        <div className="absolute inset-0 bg-background-primary/70" />
-        <header className="relative z-10 text-center">
-          <Title order={1} className="mb-3 text-4xl md:text-5xl">
-            Blog
-          </Title>
-          <Text size="lg" className="text-text-secondary">
+      <section className="pb-12 md:pb-16">
+        <div className="mkt-container pt-16 text-center md:pt-24">
+          <h1 className="mkt-h1 mkt-rise mb-6">Blog</h1>
+          <p className="mkt-lead mkt-rise mx-auto max-w-2xl">
             Insights on productivity, AI, and building products.
-          </Text>
-        </header>
-      </div>
-
-      <div className="mx-auto max-w-3xl px-6 py-16">
-
-      {posts.length === 0 ? (
-        <Text className="text-text-muted">No posts yet. Check back soon!</Text>
-      ) : (
-        <div className="space-y-10">
-          {posts.map((post) => (
-            <article
-              key={post.slug}
-              className="group border-b border-border-primary pb-10 last:border-b-0"
-            >
-              <Link href={`/blog/${post.slug}`} className="block">
-                <time className="text-sm text-text-muted">
-                  {formatDate(post.meta.date)}
-                </time>
-                <Title
-                  order={2}
-                  className="mt-2 transition-colors group-hover:text-brand-primary"
-                >
-                  {post.meta.title}
-                </Title>
-                {post.meta.description && (
-                  <Text className="mt-2 leading-7 text-text-secondary">
-                    {post.meta.description}
-                  </Text>
-                )}
-              </Link>
-              {post.meta.tags && post.meta.tags.length > 0 && (
-                <div className="mt-3 flex flex-wrap gap-2">
-                  {post.meta.tags.map((tag) => (
-                    <Badge key={tag} variant="light" size="sm">
-                      {tag}
-                    </Badge>
-                  ))}
-                </div>
-              )}
-            </article>
-          ))}
+          </p>
         </div>
-      )}
+      </section>
+
+      <div className="mkt-container pb-24">
+        <div className="mx-auto max-w-3xl">
+          {posts.length === 0 ? (
+            <p className="mkt-body">No posts yet. Check back soon.</p>
+          ) : (
+            <div className="space-y-10">
+              {posts.map((post) => (
+                <article
+                  key={post.slug}
+                  className="group border-b border-border-primary pb-10 last:border-b-0"
+                >
+                  <Link href={`/blog/${post.slug}`} className="block">
+                    <time className="text-sm text-text-muted">
+                      {formatDate(post.meta.date)}
+                    </time>
+                    <h2 className="mkt-h3 mt-2 transition-colors group-hover:text-link">
+                      {post.meta.title}
+                    </h2>
+                    {post.meta.description && (
+                      <p className="mkt-body mt-2">{post.meta.description}</p>
+                    )}
+                  </Link>
+                  {post.meta.tags && post.meta.tags.length > 0 && (
+                    <ul className="mt-4 flex flex-wrap gap-2">
+                      {post.meta.tags.map((tag) => (
+                        <li key={tag} className="mkt-chip">
+                          {tag}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </article>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );

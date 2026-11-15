@@ -13,7 +13,6 @@ import {
   MarketingHeader,
 } from "~/app/_components/home";
 import { GoalsScene } from "~/app/_components/home/scenes/GoalsScene";
-import { AgentsScene } from "~/app/_components/home/scenes/AgentsScene";
 import { MeetingsScene } from "~/app/_components/home/scenes/MeetingsScene";
 import { Panel } from "~/app/_components/ui";
 import { PRODUCT_NAME } from "~/lib/brand";
@@ -63,7 +62,6 @@ export async function generateMetadata({ params }: FeaturePageProps) {
 
 const SCENES: Record<FeatureScene, ComponentType> = {
   goals: GoalsScene,
-  agents: AgentsScene,
   meetings: MeetingsScene,
 };
 

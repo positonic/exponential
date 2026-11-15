@@ -1,7 +1,6 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
 import type { Metadata } from "next";
-import { Text, Badge } from "@mantine/core";
 import { IconArrowLeft, IconArrowRight } from "@tabler/icons-react";
 import {
   getLearnArticle,
@@ -9,6 +8,8 @@ import {
   getClusterArticles,
 } from "~/lib/learn/getLearnArticle";
 import { MarkdownRenderer } from "~/app/_components/shared/MarkdownRenderer";
+import { FinalCTASection } from "~/app/_components/home";
+import { Panel } from "~/app/_components/ui";
 import { PRODUCT_NAME } from "~/lib/brand";
 import { getPublicBaseUrlFromEnv } from "~/lib/urls";
 
@@ -115,36 +116,21 @@ export default async function LearnArticlePage({
       />
 
       <div>
-        {/* Hero banner */}
-        <div
-          className="relative flex items-end overflow-hidden py-16 md:py-24"
-          style={{
-            backgroundImage: "url('/banners/dyna-banner.webp')",
-            backgroundSize: "cover",
-            backgroundPosition: "center",
-          }}
-        >
-          <div className="absolute inset-0 bg-background-primary/70" />
-          <div className="relative z-10 mx-auto w-full max-w-3xl px-6">
+        <header className="mkt-container pt-12 md:pt-16">
+          <div className="mx-auto max-w-3xl">
             <Link
               href="/learn"
-              className="mb-6 inline-flex items-center gap-1.5 text-sm text-text-muted transition-colors hover:text-text-primary"
+              className="mb-8 inline-flex items-center gap-1.5 text-sm text-text-muted transition-colors hover:text-text-primary"
             >
-              <IconArrowLeft size={16} />
+              <IconArrowLeft size={16} aria-hidden="true" />
               Back to Learn
             </Link>
 
             {article.meta.cluster && (
-              <div className="mb-3">
-                <Badge variant="light" size="sm">
-                  {article.meta.cluster}
-                </Badge>
-              </div>
+              <p className="mkt-eyebrow mb-4">{article.meta.cluster}</p>
             )}
 
-            <h1 className="mb-4 text-3xl md:text-4xl font-bold text-text-primary">
-              {article.meta.title}
-            </h1>
+            <h1 className="mkt-h2 mb-5">{article.meta.title}</h1>
 
             <div className="flex flex-wrap items-center gap-3 text-sm text-text-muted">
               <time dateTime={article.meta.date}>
@@ -163,103 +149,66 @@ export default async function LearnArticlePage({
             </div>
 
             {article.meta.tags && article.meta.tags.length > 0 && (
-              <div className="mt-4 flex flex-wrap gap-2">
+              <ul className="mt-5 flex flex-wrap gap-2">
                 {article.meta.tags.map((tag) => (
-                  <Badge key={tag} variant="light" size="sm">
+                  <li key={tag} className="mkt-chip">
                     {tag}
-                  </Badge>
+                  </li>
                 ))}
+              </ul>
+            )}
+          </div>
+        </header>
+
+        {/* Article content */}
+        <article className="mkt-container py-12">
+          <div className="mx-auto max-w-3xl">
+            {article.meta.description && (
+              <p className="mkt-lead mb-10 border-b border-border-primary pb-8">
+                {article.meta.description}
+              </p>
+            )}
+
+            <div className="blog-content">
+              <MarkdownRenderer content={article.content} />
+            </div>
+
+            {/* Related articles from same cluster */}
+            {relatedArticles.length > 0 && (
+              <div className="mt-16 border-t border-border-primary pt-8">
+                <h2 className="mkt-h3 mb-4">Continue reading</h2>
+                <div className="space-y-3">
+                  {relatedArticles.map((related) => (
+                    <Panel
+                      as={Link}
+                      key={related.slug}
+                      href={`/learn/${related.slug}`}
+                      interactive
+                      padding="none"
+                      className="flex items-center justify-between gap-4 p-4"
+                    >
+                      <div className="min-w-0">
+                        <p className="font-medium text-text-primary">
+                          {related.meta.title}
+                        </p>
+                        {related.meta.isPillar && (
+                          <p className="mkt-eyebrow mt-1">Pillar guide</p>
+                        )}
+                      </div>
+                      <IconArrowRight
+                        size={16}
+                        aria-hidden="true"
+                        className="flex-shrink-0 text-text-muted"
+                      />
+                    </Panel>
+                  ))}
+                </div>
               </div>
             )}
           </div>
-        </div>
-
-        {/* Article content */}
-        <article className="mx-auto max-w-3xl px-6 py-12">
-          {article.meta.description && (
-            <Text
-              size="lg"
-              className="mb-10 border-b border-border-primary pb-8 leading-7 text-text-secondary"
-            >
-              {article.meta.description}
-            </Text>
-          )}
-
-          <div className="blog-content">
-            <MarkdownRenderer content={article.content} />
-          </div>
-
-          {/* Related articles from same cluster */}
-          {relatedArticles.length > 0 && (
-            <div className="mt-16 border-t border-border-primary pt-8">
-              <h2 className="text-lg font-semibold text-text-primary mb-4">
-                Continue reading
-              </h2>
-              <div className="space-y-3">
-                {relatedArticles.map((related) => (
-                  <Link
-                    key={related.slug}
-                    href={`/learn/${related.slug}`}
-                    className="group flex items-center justify-between rounded-lg border border-border-primary p-4 transition-colors hover:border-brand-primary/50"
-                  >
-                    <div>
-                      <p className="font-medium text-text-primary transition-colors group-hover:text-brand-primary">
-                        {related.meta.title}
-                      </p>
-                      {related.meta.isPillar && (
-                        <Badge variant="light" size="xs" mt={4}>
-                          Pillar Guide
-                        </Badge>
-                      )}
-                    </div>
-                    <IconArrowRight
-                      size={16}
-                      className="flex-shrink-0 text-text-muted transition-colors group-hover:text-brand-primary"
-                    />
-                  </Link>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* CTA */}
-          <div className="mt-16 overflow-hidden rounded-2xl bg-cta-gradient p-8 text-center md:p-12">
-            <h2 className="mb-3 text-2xl text-white md:text-3xl font-bold">
-              Ready to build your founder operating system?
-            </h2>
-            <Text className="mx-auto mb-8 max-w-lg text-white/80">
-              {PRODUCT_NAME} gives you an AI copilot that runs your productivity
-              system — so you stay focused on the work that matters.
-            </Text>
-
-            <div className="mx-auto mb-8 flex max-w-md flex-col gap-3 text-left text-sm text-white/90">
-              <div className="flex items-start gap-2.5">
-                <span className="mt-0.5 shrink-0">&#10003;</span>
-                <span>
-                  AI-powered daily planning that adapts to your priorities
-                </span>
-              </div>
-              <div className="flex items-start gap-2.5">
-                <span className="mt-0.5 shrink-0">&#10003;</span>
-                <span>
-                  Goals, key results, and projects linked in one system
-                </span>
-              </div>
-              <div className="flex items-start gap-2.5">
-                <span className="mt-0.5 shrink-0">&#10003;</span>
-                <span>Free to start — no credit card required</span>
-              </div>
-            </div>
-
-            <Link
-              href="/signin"
-              className="inline-flex items-center gap-2 rounded-lg bg-white px-6 py-3 font-semibold text-background-primary shadow-lg transition-all duration-200 hover:scale-105 hover:shadow-xl"
-            >
-              Get Started Free
-              <span aria-hidden="true">&rarr;</span>
-            </Link>
-          </div>
         </article>
+
+        <FinalCTASection />
       </div>
     </>
   );

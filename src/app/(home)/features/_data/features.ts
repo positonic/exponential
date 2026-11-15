@@ -5,7 +5,7 @@ import { PRODUCT_NAME } from "~/lib/brand";
  * where the scene really depicts the feature; a page without one has a
  * text-only hero.
  */
-export type FeatureScene = "goals" | "agents" | "meetings";
+export type FeatureScene = "goals" | "meetings";
 
 export interface FeatureData {
   slug: string;
