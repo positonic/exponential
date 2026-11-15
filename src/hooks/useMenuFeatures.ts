@@ -53,11 +53,17 @@ export function useMenuFeatures() {
       { enabled: !!workspaceId, staleTime: 5 * 60 * 1000 },
     );
 
-  // What the person has chosen in this visit. It wins over the server's copy
-  // so a refetch landing mid-edit cannot flick a switch back.
+  // What the person has just chosen, held only while it is being saved. It
+  // wins over the server's copy so a refetch landing mid-edit cannot flick a
+  // switch back. Once the last save and the refetch behind it have landed it
+  // is let go, and the switches follow the real layout again: the sidebar's
+  // customiser can be opened beside this page and change that layout, and a
+  // draft kept any longer would both hide those edits and overwrite them on
+  // the next switch, since every save sends the whole menu.
   const [draft, setDraft] = useState<string[] | null>(null);
   const [status, setStatus] = useState<MenuSaveStatus>("idle");
   const pendingRef = useRef(0);
+  const commitSeqRef = useRef(0);
 
   const isLoading = isLayoutLoading || (!!workspaceId && isPluginsLoading);
   const visibleIds = draft ?? visibleNavItemIds(layout);
@@ -100,30 +106,36 @@ export function useMenuFeatures() {
         );
       }
 
+      const seq = ++commitSeqRef.current;
       pendingRef.current += 1;
       saveChain = saveChain
         .then(() => save.mutateAsync({ visibleItemIds: next }))
         .then(
-          () => {
-            pendingRef.current -= 1;
-            if (pendingRef.current > 0) return;
-            setStatus("saved");
-            void utils.navigationPreference.invalidate();
-          },
-          () => {
-            pendingRef.current -= 1;
-            // Drop the draft so the switches fall back to what the server
-            // holds, and refetch so the sidebar does too.
-            setDraft(null);
-            setStatus("error");
-            void utils.navigationPreference.invalidate();
+          () => true,
+          () => false,
+        )
+        .then((saved) => {
+          pendingRef.current -= 1;
+          // A later choice is queued behind this one and carries the whole
+          // menu, so its outcome is the one that counts.
+          if (pendingRef.current > 0) return;
+          setStatus(saved ? "saved" : "error");
+          if (!saved) {
             notifications.show({
               title: "Menu not saved",
               message: "Your last change could not be saved and has been undone. Please try again.",
               color: "red",
             });
-          },
-        );
+          }
+          // Not awaited here: the next save must not queue behind a refetch.
+          void (async () => {
+            // Bring back what the server now holds (after a failure, that is
+            // what undoes the change in the sidebar) and only then let go of
+            // the draft, unless a newer choice has taken it over meanwhile.
+            await utils.navigationPreference.invalidate().catch(() => undefined);
+            if (commitSeqRef.current === seq) setDraft(null);
+          })();
+        });
     },
     [isLoading, save, utils, workspaceId],
   );
