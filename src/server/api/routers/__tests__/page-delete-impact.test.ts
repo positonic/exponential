@@ -138,7 +138,7 @@ function buildWorkspace(seed: SeedPage[]): Row[] {
       collectPageLinkIds(p.bodyDoc ?? null).filter((to) => to !== p.id),
     ]),
   );
-  return seed.map((p) => ({
+  const rows: Row[] = seed.map((p) => ({
     id: p.id,
     title: p.title ?? p.id,
     isPublic: p.isPublic ?? false,
@@ -156,11 +156,18 @@ function buildWorkspace(seed: SeedPage[]): Row[] {
       teams: [],
     },
     linksFrom: (outgoing.get(p.id) ?? []).map((toPageId) => ({ toPageId })),
-    linksTo: seed
-      .filter((from) => (outgoing.get(from.id) ?? []).includes(p.id))
-      .map((from) => ({ fromPageId: from.id })),
+    linksTo: [] as Array<{ fromPageId: string; from: Row }>,
     updatedAt: new Date(p.updatedAt),
   }));
+  // Each incoming link carries its linking page, so a filter on the linker
+  // (`linksTo: { none: { from: … } }`) sees that page's access and workspace.
+  const rowById = new Map(rows.map((row) => [row.id as string, row]));
+  for (const row of rows) {
+    row.linksTo = seed
+      .filter((from) => (outgoing.get(from.id) ?? []).includes(row.id as string))
+      .map((from) => ({ fromPageId: from.id, from: rowById.get(from.id)! }));
+  }
+  return rows;
 }
 
 function install(db: DeepMockProxy<PrismaClient>, rows: Row[]) {
@@ -299,6 +306,27 @@ describe("page.deleteImpact", () => {
       subpageCount: 1,
       isPublic: true,
     });
+  });
+
+  it("counts a sub-page whose only other linker is hidden from the caller: it becomes top-level in their tree", async () => {
+    install(
+      db,
+      buildWorkspace([
+        { id: TARGET, bodyDoc: linkingTo("child"), updatedAt: 1 },
+        { id: "child", updatedAt: 1 },
+        // Someone else's restricted page also links the child, but I can't see
+        // it, so it is no parent in my tree.
+        {
+          id: "hidden-parent",
+          createdById: SOMEONE,
+          isInviteOnly: true,
+          bodyDoc: linkingTo("child"),
+          updatedAt: 1,
+        },
+      ]),
+    );
+    const caller = createMockCaller({ userId: ME, db });
+    expect((await caller.page.deleteImpact({ id: TARGET })).subpageCount).toBe(1);
   });
 
   it("does not count a sub-page the caller cannot view", async () => {

@@ -46,11 +46,16 @@ export function PageDeleteDialog({
   onDeleted,
 }: PageDeleteDialogProps) {
   const [confirmation, setConfirmation] = useState("");
+  // When this opening began. Facts fetched before it (an earlier opening's,
+  // still cached) don't count: the page may have been published or linked since.
+  const [openedAt, setOpenedAt] = useState(0);
   const utils = api.useUtils();
 
   // A fresh dialog every time; a title typed last time must not carry over.
   useEffect(() => {
-    if (opened) setConfirmation("");
+    if (!opened) return;
+    setConfirmation("");
+    setOpenedAt(Date.now());
   }, [opened, pageId]);
 
   const impact = api.page.deleteImpact.useQuery(
@@ -81,7 +86,13 @@ export function PageDeleteDialog({
     },
   });
 
-  const facts = impact.data;
+  // Only this opening's successful check counts. While it refetches the cached
+  // facts are hidden, and a failed refetch blocks deletion instead of falling
+  // back to what an earlier opening said.
+  const isFresh =
+    openedAt > 0 && impact.isSuccess && !impact.isFetching && impact.dataUpdatedAt >= openedAt;
+  const facts = isFresh ? impact.data : undefined;
+  const checkFailed = impact.isError && !impact.isFetching;
   const canDelete = confirmation === pageTitle && facts !== undefined;
 
   return (
@@ -92,9 +103,7 @@ export function PageDeleteDialog({
           This cannot be undone.
         </Text>
 
-        {impact.isPending ? (
-          <Skeleton height={92} radius="sm" />
-        ) : facts ? (
+        {facts ? (
           <Alert
             variant="light"
             color="orange"
@@ -127,6 +136,8 @@ export function PageDeleteDialog({
               Counted across the pages you can see.
             </Text>
           </Alert>
+        ) : !checkFailed ? (
+          <Skeleton height={92} radius="sm" />
         ) : (
           <Alert
             variant="light"

@@ -991,17 +991,29 @@ export const pageRouter = createTRPCRouter({
           where: { id: input.id },
           select: { isPublic: true },
         }),
-        // A sub-page becomes top-level only if this page is its sole linker;
-        // one linked from elsewhere too keeps a parent in the tree.
+        // A sub-page becomes top-level if no *other* page in the caller's tree
+        // links it. The tree (`page.tree`) only takes parents from pages the
+        // caller can view, in this workspace, that aren't database rows, so a
+        // second linker the caller can't see doesn't keep a parent for them.
         ctx.db.knowledgePage.count({
           where: {
             AND: [
               {
                 workspaceId: page.workspaceId,
+                databaseId: null,
                 id: { not: input.id },
                 linksTo: {
                   some: { fromPageId: input.id },
-                  none: { fromPageId: { not: input.id } },
+                  none: {
+                    fromPageId: { not: input.id },
+                    from: {
+                      AND: [
+                        buildKnowledgePageAccessWhere(userId),
+                        { workspaceId: page.workspaceId },
+                        { databaseId: null },
+                      ],
+                    },
+                  },
                 },
               },
               buildKnowledgePageAccessWhere(userId),
