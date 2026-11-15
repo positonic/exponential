@@ -15,6 +15,10 @@ export const DESIGN_PARTNER_EMAIL = "support@exponential.im";
 export const DESIGN_PARTNER_HREF = `mailto:${DESIGN_PARTNER_EMAIL}?subject=${encodeURIComponent(
   "Exponential design partner",
 )}`;
+/** The enterprise strip's link: same inbox, its own subject, so it is triaged apart. */
+export const ENTERPRISE_CONTACT_HREF = `mailto:${DESIGN_PARTNER_EMAIL}?subject=${encodeURIComponent(
+  "Exponential for my company",
+)}`;
 
 export type PlanId = "free" | "team" | "selfHosted";
 

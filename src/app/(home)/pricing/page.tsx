@@ -13,7 +13,7 @@ import { getPublicBaseUrlFromEnv } from "~/lib/urls";
 import {
   COMPARISON,
   DESIGN_PARTNER_EMAIL,
-  DESIGN_PARTNER_HREF,
+  ENTERPRISE_CONTACT_HREF,
   FAQ,
   PLANS,
   PRICING_RULES,
@@ -94,7 +94,7 @@ export default async function PricingPage() {
                 SSO, an audit log, a private managed deployment or help moving
                 off Jira or Linear: tell us what your company needs.
               </p>
-              <CTAButton href={DESIGN_PARTNER_HREF} variant="text" className="shrink-0">
+              <CTAButton href={ENTERPRISE_CONTACT_HREF} variant="text" className="shrink-0">
                 Talk to us
               </CTAButton>
             </Panel>
