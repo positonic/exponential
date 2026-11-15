@@ -6,6 +6,8 @@
 
 An open-source productivity and project management platform built with the T3 Stack. Manage projects, track goals and key results, plan your day with AI, and collaborate across workspaces.
 
+**[Website](https://www.exponential.im)** · **[Docs](https://www.exponential.im/docs)** · **[Integrations](https://www.exponential.im/features/integrations)** · **[Pricing](https://www.exponential.im/pricing)** · **[Changelog](https://www.exponential.im/product-timeline)**
+
 Run your own copy in one click (see [Self-hosting](#self-hosting)):
 
 [![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/deploy/exponential)
@@ -384,7 +386,19 @@ exponential actions list
 exponential actions create -n "My task" -p <project-id>
 ```
 
-See [exponential-cli](https://github.com/exponential-im/exponential-cli) for full docs.
+See [exponential-cli](https://github.com/exponential-im/exponential-cli) and the [CLI reference](https://www.exponential.im/docs/developers/cli) for full docs.
+
+### MCP server (Claude, Cursor, Codex)
+
+[`exponential-mcp`](https://github.com/exponential-im/exponential-mcp) gives any MCP client tools over your workspace: projects, actions, goals and key results, meetings, tickets and more. Setup guides for [Claude](https://www.exponential.im/features/integrations/claude), [Cursor](https://www.exponential.im/features/integrations/cursor) and [Codex](https://www.exponential.im/features/integrations/codex).
+
+```bash
+npx exponential-mcp init
+```
+
+### TypeScript SDK
+
+[`exponential-sdk`](https://github.com/exponential-im/exponential-sdk) is the client the CLI and the MCP server are built on. See the [SDK page](https://www.exponential.im/features/integrations/sdk) and the [MCP & SDK docs](https://www.exponential.im/docs/developers/mcp-and-sdk).
 
 ### OpenClaw (AI Agent)
 
