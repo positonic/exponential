@@ -23,6 +23,8 @@ export const NOTIFICATION_CATEGORIES = {
   PAGE_SHARED: "page_shared",
   /** An Agent run finished or stopped on an action you handed to an Assistant (ADR-0067). */
   AGENT_RUN: "agent_run",
+  /** A workspace owner or admin made your agent (your Assistant) a holder of a Position (ADR-0068). */
+  POSITION_ASSIGNED: "position_assigned",
 } as const;
 
 export type NotificationCategory =
@@ -83,6 +85,7 @@ export const CATEGORY_LIST = [
   NOTIFICATION_CATEGORIES.UPDATE_REVIEW,
   NOTIFICATION_CATEGORIES.PAGE_SHARED,
   NOTIFICATION_CATEGORIES.AGENT_RUN,
+  NOTIFICATION_CATEGORIES.POSITION_ASSIGNED,
 ] as const;
 
 /** All channels, in stable delivery / matrix-column order. */
@@ -122,4 +125,7 @@ export const DEFAULT_MATRIX: Record<
   [NOTIFICATION_CATEGORIES.UPDATE_REVIEW]: { push: true, email: true, matrix: true, whatsapp: false, zulip: false },
   [NOTIFICATION_CATEGORIES.PAGE_SHARED]: { push: true, email: true, matrix: false, whatsapp: false, zulip: false },
   [NOTIFICATION_CATEGORIES.AGENT_RUN]: { push: true, email: true, matrix: false, whatsapp: false, zulip: false },
+  // Position assigned: the person is accountable for what their Assistant does
+  // in the Position, so they hear about the appointment where they read mail.
+  [NOTIFICATION_CATEGORIES.POSITION_ASSIGNED]: { push: true, email: true, matrix: false, whatsapp: false, zulip: false },
 };

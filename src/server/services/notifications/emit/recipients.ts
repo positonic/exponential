@@ -26,6 +26,16 @@ export async function resolveRecipients(
       if (!run) return [];
       return Array.from(new Set([run.requestedById, run.agent.ownerId].filter((id): id is string => !!id)));
     }
+    case NOTIFICATION_CATEGORIES.POSITION_ASSIGNED: {
+      // Position assigned → the owner of each newly added agent holder, once.
+      const ids = Array.from(new Set(input.subject.addedHolderUserIds));
+      if (ids.length === 0) return [];
+      const agents = await input.db.externalAgent.findMany({
+        where: { shadowUserId: { in: ids } },
+        select: { ownerId: true },
+      });
+      return Array.from(new Set(agents.map((a) => a.ownerId)));
+    }
     case NOTIFICATION_CATEGORIES.DUE_DATE:
       // Due-date → the single owner the cron computed the crossing for.
       return Promise.resolve([input.subject.ownerUserId]);

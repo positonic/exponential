@@ -13,6 +13,8 @@ import {
   shouldOfferPositionImport,
 } from "~/server/services/positions";
 import { blankToNull } from "~/server/utils/blankToNull";
+import { emitNotification } from "~/server/services/notifications/emit/emitNotification";
+import { NOTIFICATION_CATEGORIES } from "~/server/services/notifications/emit/constants";
 
 /**
  * Positions (ADR-0068): who does what in a workspace, for humans and agents
@@ -23,7 +25,8 @@ import { blankToNull } from "~/server/utils/blankToNull";
  * can give itself or another agent a Position, however it authenticated.
  * Owners and admins (`manage_members`) create, rename, delete, set holders
  * and import; a holder who is at least a `member` may edit the Remit of a
- * Position they hold (`update`); a viewer is read-only even as a holder.
+ * Position they hold (`update`); a viewer is read-only even as a holder. A
+ * person may withdraw their own agent from any Position (`withdrawMyAgent`).
  * `coverage` is a read for any member (the chat's import pill).
  *
  * Every procedure takes `workspaceId` so `requireWorkspaceMembership` gates
@@ -43,7 +46,16 @@ const POSITION_WITH_HOLDERS_SELECT = {
     select: {
       workspaceUser: {
         select: {
-          user: { select: { id: true, name: true, image: true, isAgent: true } },
+          user: {
+            select: {
+              id: true,
+              name: true,
+              image: true,
+              isAgent: true,
+              // Who may withdraw an agent holder (`withdrawMyAgent`): its owner.
+              externalAgentShadow: { select: { ownerId: true } },
+            },
+          },
         },
       },
     },
@@ -61,6 +73,8 @@ function presentPosition(position: PositionWithHolders) {
       name: user.name,
       image: user.image,
       isAgent: user.isAgent,
+      /** The person accountable for an agent holder, who may withdraw it; null for a person. */
+      agentOwnerId: user.externalAgentShadow?.ownerId ?? null,
     })),
   };
 }
@@ -137,14 +151,56 @@ async function findHolderMemberships(
   return memberships;
 }
 
-/** The holders' `WorkspaceUser` ids, for `create` and `setHolders`. */
-async function resolveHolderMemberships(
-  db: PrismaClient,
-  workspaceId: string,
-  userIds: string[],
+/**
+ * Make `memberships` the Position's exact holder set, inside the caller's
+ * transaction: remove the holders no longer named, add the new ones, and
+ * leave an unchanged holder's row (and its `createdAt`) alone. Returns the
+ * userIds of the holders this write added — what `POSITION_ASSIGNED` is
+ * emitted for, so re-saving an unchanged set notifies no one.
+ */
+async function replaceHolders(
+  tx: Prisma.TransactionClient,
+  positionId: string,
+  memberships: Array<{ id: string; userId: string }>,
 ): Promise<string[]> {
-  const memberships = await findHolderMemberships(db, workspaceId, userIds);
-  return memberships.map((membership) => membership.id);
+  const current = await tx.positionHolder.findMany({
+    where: { positionId },
+    select: { workspaceUserId: true },
+  });
+  const held = new Set(current.map((holder) => holder.workspaceUserId));
+  const added = memberships.filter((membership) => !held.has(membership.id));
+
+  await tx.positionHolder.deleteMany({
+    where: { positionId, workspaceUserId: { notIn: memberships.map((m) => m.id) } },
+  });
+  if (added.length > 0) {
+    await tx.positionHolder.createMany({
+      data: added.map((membership) => ({ positionId, workspaceUserId: membership.id })),
+      skipDuplicates: true,
+    });
+  }
+  return added.map((membership) => membership.userId);
+}
+
+/**
+ * Tell the person behind each agent just made a holder (Agent PRD D9). Called
+ * after the write commits; fire-and-forget like every emit. Human holders are
+ * filtered out by the category's recipient rule, and an admin appointing
+ * their own Assistant is the actor, so is never notified.
+ */
+function notifyNewHolders(
+  db: PrismaClient,
+  actorUserId: string,
+  positionId: string,
+  addedHolderUserIds: string[],
+): void {
+  if (addedHolderUserIds.length === 0) return;
+  void emitNotification({
+    db,
+    actorUserId,
+    category: NOTIFICATION_CATEGORIES.POSITION_ASSIGNED,
+    subject: { positionId, addedHolderUserIds },
+  });
 }
 
 /** The holders' `WorkspaceUser` ids keyed by userId, so an import can map each row's holders. */
@@ -267,7 +323,7 @@ export const positionRouter = createTRPCRouter({
     )
     .use(requireWorkspaceMembership("manage_members"))
     .mutation(async ({ ctx, input }) => {
-      const workspaceUserIds = await resolveHolderMemberships(
+      const memberships = await findHolderMemberships(
         ctx.db,
         input.workspaceId,
         input.holderUserIds ?? [],
@@ -282,11 +338,17 @@ export const positionRouter = createTRPCRouter({
             remit: input.remit,
             notAccountableFor: blankToNull(input.notAccountableFor),
             holders: {
-              create: workspaceUserIds.map((workspaceUserId) => ({ workspaceUserId })),
+              create: memberships.map((membership) => ({ workspaceUserId: membership.id })),
             },
           },
           select: POSITION_WITH_HOLDERS_SELECT,
         });
+        notifyNewHolders(
+          ctx.db,
+          ctx.session.user.id,
+          created.id,
+          memberships.map((membership) => membership.userId),
+        );
         return presentPosition(created);
       } catch (error) {
         rethrowPositionWrite(error);
@@ -337,9 +399,9 @@ export const positionRouter = createTRPCRouter({
           remit: input.remit !== undefined,
         },
       });
-      const workspaceUserIds =
+      const memberships =
         input.holderUserIds !== undefined
-          ? await resolveHolderMemberships(ctx.db, input.workspaceId, input.holderUserIds)
+          ? await findHolderMemberships(ctx.db, input.workspaceId, input.holderUserIds)
           : null;
 
       const data: Prisma.PositionUpdateInput = {
@@ -351,7 +413,7 @@ export const positionRouter = createTRPCRouter({
       };
 
       try {
-        if (workspaceUserIds === null) {
+        if (memberships === null) {
           const updated = await ctx.db.position.update({
             where: { id: input.positionId },
             data,
@@ -359,19 +421,16 @@ export const positionRouter = createTRPCRouter({
           });
           return presentPosition(updated);
         }
-        const updated = await ctx.db.$transaction(async (tx) => {
-          await tx.positionHolder.deleteMany({ where: { positionId: input.positionId } });
-          if (workspaceUserIds.length > 0) {
-            await tx.positionHolder.createMany({
-              data: workspaceUserIds.map((workspaceUserId) => ({ positionId: input.positionId, workspaceUserId })),
-            });
-          }
-          return tx.position.update({
+        const { updated, added } = await ctx.db.$transaction(async (tx) => {
+          const added = await replaceHolders(tx, input.positionId, memberships);
+          const updated = await tx.position.update({
             where: { id: input.positionId },
             data,
             select: POSITION_WITH_HOLDERS_SELECT,
           });
+          return { updated, added };
         });
+        notifyNewHolders(ctx.db, ctx.session.user.id, input.positionId, added);
         return presentPosition(updated);
       } catch (error) {
         rethrowPositionWrite(error);
@@ -455,6 +514,7 @@ export const positionRouter = createTRPCRouter({
       // one transaction, so a concurrent edit cannot leave half an import and
       // a holder removed meanwhile is a NOT_FOUND, not a foreign-key error.
       try {
+        const appointments: Array<{ positionId: string; userIds: string[] }> = [];
         const plan = await ctx.db.$transaction(
           async (tx) => {
             const memberships = await mapHolderMemberships(tx, input.workspaceId, holderUserIds);
@@ -468,7 +528,7 @@ export const positionRouter = createTRPCRouter({
             const planned = planPositionImport(await loadPositionsForImport(tx, input.workspaceId), input.positions);
             for (const row of planned) {
               if (row.outcome === "create") {
-                await tx.position.create({
+                const created = await tx.position.create({
                   data: {
                     workspaceId: input.workspaceId,
                     title: row.title,
@@ -480,6 +540,7 @@ export const positionRouter = createTRPCRouter({
                   },
                   select: { id: true },
                 });
+                appointments.push({ positionId: created.id, userIds: row.holderUserIds });
               } else {
                 await tx.position.update({
                   where: { id: row.positionId },
@@ -495,6 +556,7 @@ export const positionRouter = createTRPCRouter({
                     })),
                     skipDuplicates: true,
                   });
+                  appointments.push({ positionId: row.positionId, userIds: row.addedHolderUserIds });
                 }
               }
             }
@@ -503,6 +565,9 @@ export const positionRouter = createTRPCRouter({
           // Up to 50 rows of sequential writes; the 5s default is tight.
           { timeout: 20_000 },
         );
+        for (const { positionId, userIds } of appointments) {
+          notifyNewHolders(ctx.db, ctx.session.user.id, positionId, userIds);
+        }
         return { written: true, results: present(plan) };
       } catch (error) {
         // A Position created under the same title since the plan was read, or
@@ -511,7 +576,47 @@ export const positionRouter = createTRPCRouter({
       }
     }),
 
-  /** Replace the holder set. Same member check and NOT_FOUND rule as `create`. */
+  /**
+   * Take your own agent — normally your Assistant — out of a Position an
+   * owner or admin made it a holder of (Agent PRD D9). Authorised not by
+   * `manage_members` but by owning the holder's External agent: you are
+   * accountable for what it does there, so you may always withdraw it. A
+   * stranger's agent is FORBIDDEN; a Position from another workspace, or one
+   * the agent does not hold, is NOT_FOUND. Deletes the one holder row; the
+   * Position reads "Vacant" if that was its last holder.
+   */
+  withdrawMyAgent: humanOnlyProcedure
+    .input(z.object({ workspaceId: z.string(), positionId: z.string(), userId: z.string() }))
+    .use(requireWorkspaceMembership("view"))
+    .mutation(async ({ ctx, input }) => {
+      await requirePositionInWorkspace(ctx.db, input.positionId, input.workspaceId);
+      const agent = await ctx.db.externalAgent.findUnique({
+        where: { shadowUserId: input.userId },
+        select: { ownerId: true },
+      });
+      if (agent?.ownerId !== ctx.session.user.id) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "Only the person whose agent holds this Position can withdraw it",
+        });
+      }
+      const { count } = await ctx.db.positionHolder.deleteMany({
+        where: {
+          positionId: input.positionId,
+          workspaceUser: { userId: input.userId, workspaceId: input.workspaceId },
+        },
+      });
+      if (count === 0) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Your agent does not hold this Position" });
+      }
+      return { positionId: input.positionId, userId: input.userId };
+    }),
+
+  /**
+   * Replace the holder set. Same member check and NOT_FOUND rule as `create`.
+   * The person behind each newly added agent holder is notified
+   * (`POSITION_ASSIGNED`); an unchanged holder never is.
+   */
   setHolders: humanOnlyProcedure
     .input(
       z.object({
@@ -523,21 +628,18 @@ export const positionRouter = createTRPCRouter({
     .use(requireWorkspaceMembership("manage_members"))
     .mutation(async ({ ctx, input }) => {
       await requirePositionInWorkspace(ctx.db, input.positionId, input.workspaceId);
-      const workspaceUserIds = await resolveHolderMemberships(ctx.db, input.workspaceId, input.userIds);
+      const memberships = await findHolderMemberships(ctx.db, input.workspaceId, input.userIds);
 
       try {
-        const updated = await ctx.db.$transaction(async (tx) => {
-          await tx.positionHolder.deleteMany({ where: { positionId: input.positionId } });
-          if (workspaceUserIds.length > 0) {
-            await tx.positionHolder.createMany({
-              data: workspaceUserIds.map((workspaceUserId) => ({ positionId: input.positionId, workspaceUserId })),
-            });
-          }
-          return tx.position.findUniqueOrThrow({
+        const { updated, added } = await ctx.db.$transaction(async (tx) => {
+          const added = await replaceHolders(tx, input.positionId, memberships);
+          const updated = await tx.position.findUniqueOrThrow({
             where: { id: input.positionId },
             select: POSITION_WITH_HOLDERS_SELECT,
           });
+          return { updated, added };
         });
+        notifyNewHolders(ctx.db, ctx.session.user.id, input.positionId, added);
         return presentPosition(updated);
       } catch (error) {
         rethrowPositionWrite(error);

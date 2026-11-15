@@ -7,6 +7,7 @@ import { mockDeep } from "vitest-mock-extended";
 import type { PrismaClient } from "@prisma/client";
 
 import {
+  loadPositionHolders,
   hasRemitGap,
   loadPositionCoverage,
   loadPositionsByUser,
@@ -246,5 +247,33 @@ describe("planPositionImport", () => {
       ["Delivery lead", "update"],
       ["Alpha", "create"],
     ]);
+  });
+});
+
+describe("loadPositionHolders — the inverse roster helper (Agent PRD V3)", () => {
+  it("returns the Position's holders with who is accountable for each agent, scoped to the workspace", async () => {
+    const db = mockDeep<PrismaClient>();
+    db.positionHolder.findMany.mockResolvedValue([
+      { workspaceUser: { user: { id: "aria", name: "Aria", isAgent: true, externalAgentShadow: { ownerId: "james" } } } },
+      { workspaceUser: { user: { id: "andi", name: "Andi", isAgent: false, externalAgentShadow: null } } },
+    ] as never);
+
+    await expect(loadPositionHolders(db, "ws-1", "pos-1")).resolves.toEqual([
+      { userId: "aria", name: "Aria", isAgent: true, agentOwnerId: "james" },
+      { userId: "andi", name: "Andi", isAgent: false, agentOwnerId: null },
+    ]);
+    const args = db.positionHolder.findMany.mock.calls[0]?.[0];
+    expect(args?.where).toEqual({
+      positionId: "pos-1",
+      position: { workspaceId: "ws-1" },
+      workspaceUser: { workspaceId: "ws-1" },
+    });
+  });
+
+  it("is empty for a vacant Position", async () => {
+    const db = mockDeep<PrismaClient>();
+    db.positionHolder.findMany.mockResolvedValue([] as never);
+
+    await expect(loadPositionHolders(db, "ws-1", "pos-1")).resolves.toEqual([]);
   });
 });

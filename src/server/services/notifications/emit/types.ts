@@ -21,6 +21,19 @@ export interface AgentRunSubject {
   outcome: "finished" | "stopped";
 }
 
+/**
+ * Position assigned (ADR-0068, Agent PRD D9): the holders just added to a
+ * Position. Recipients are the owners of the agents among them — a person is
+ * accountable for their Assistant in a Position, so they are told when an
+ * owner or admin appoints it, and can withdraw it. Human holders are not
+ * notified by this category.
+ */
+export interface PositionAssignedSubject {
+  positionId: string;
+  /** Every holder added by this write (people and agents alike); only agents notify. */
+  addedHolderUserIds: string[];
+}
+
 /** Assignment (V1): the action and the users just assigned to it. */
 export interface AssignmentSubject {
   actionId: string;
@@ -211,6 +224,10 @@ export type EmitNotificationInput = {
   | {
       category: typeof NOTIFICATION_CATEGORIES.AGENT_RUN;
       subject: AgentRunSubject;
+    }
+  | {
+      category: typeof NOTIFICATION_CATEGORIES.POSITION_ASSIGNED;
+      subject: PositionAssignedSubject;
     }
 );
 

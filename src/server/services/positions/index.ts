@@ -68,6 +68,57 @@ export async function loadPositionsByUser(
   return byUser;
 }
 
+/** One holder of a Position, as `loadPositionHolders` returns it. */
+export interface PositionHolderSummary {
+  userId: string;
+  name: string | null;
+  isAgent: boolean;
+  /** The person accountable for an agent holder (its External agent's owner); null for a person. */
+  agentOwnerId: string | null;
+}
+
+/**
+ * The inverse of {@link loadPositionsByUser}: who holds one Position, in name
+ * order — what a standing duty is assigned to (Agent PRD V4: a Position's
+ * holders are its preparers). An empty list means the Position is vacant. A
+ * Position from another workspace yields no holders, never another
+ * workspace's members: both sides are scoped, as in `loadPositionsByUser`.
+ */
+export async function loadPositionHolders(
+  db: PrismaClient | Prisma.TransactionClient,
+  workspaceId: string,
+  positionId: string,
+): Promise<PositionHolderSummary[]> {
+  const holders = await db.positionHolder.findMany({
+    where: {
+      positionId,
+      position: { workspaceId },
+      workspaceUser: { workspaceId },
+    },
+    select: {
+      workspaceUser: {
+        select: {
+          user: {
+            select: {
+              id: true,
+              name: true,
+              isAgent: true,
+              externalAgentShadow: { select: { ownerId: true } },
+            },
+          },
+        },
+      },
+    },
+    orderBy: { workspaceUser: { user: { name: "asc" } } },
+  });
+  return holders.map(({ workspaceUser: { user } }) => ({
+    userId: user.id,
+    name: user.name,
+    isAgent: user.isAgent,
+    agentOwnerId: user.externalAgentShadow?.ownerId ?? null,
+  }));
+}
+
 /**
  * The one mapping from roster rows to `AssignableUser`s with their Positions
  * (ADR-0068 §5). `workspaceId` is the workspace the roster trusts; `null`

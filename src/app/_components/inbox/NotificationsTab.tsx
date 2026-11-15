@@ -13,6 +13,7 @@ import {
 import {
   IconAt,
   IconBell,
+  IconBriefcase,
   IconCalendarEvent,
   IconCheck,
   IconClockExclamation,
@@ -51,6 +52,7 @@ const CATEGORY_DISPLAY: Record<NotificationCategory, { label: string; icon: Icon
   [NOTIFICATION_CATEGORIES.UPDATE_REVIEW]: { label: 'Updates to review', icon: IconSparkles },
   [NOTIFICATION_CATEGORIES.PAGE_SHARED]: { label: 'Shared pages', icon: IconFileText },
   [NOTIFICATION_CATEGORIES.AGENT_RUN]: { label: 'Assistant runs', icon: IconRobot },
+  [NOTIFICATION_CATEGORIES.POSITION_ASSIGNED]: { label: 'Positions', icon: IconBriefcase },
 };
 
 const CATEGORY_OPTIONS = [

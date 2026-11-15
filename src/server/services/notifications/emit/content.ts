@@ -133,6 +133,62 @@ export async function buildContent(
         dedupeKey: `agent_run:${runId}:${recipientId}`,
       };
     }
+    case NOTIFICATION_CATEGORIES.POSITION_ASSIGNED: {
+      const { positionId, addedHolderUserIds } = input.subject;
+      const [position, agents, actor] = await Promise.all([
+        db.position.findUnique({
+          where: { id: positionId },
+          select: { title: true, workspace: { select: { id: true, slug: true, name: true } } },
+        }),
+        // This recipient's agents among the new holders — normally one, their Assistant.
+        db.externalAgent.findMany({
+          where: { ownerId: recipientId, shadowUserId: { in: addedHolderUserIds } },
+          orderBy: { name: "asc" },
+          select: { name: true, shadowUserId: true },
+        }),
+        input.actorUserId
+          ? db.user.findUnique({
+              where: { id: input.actorUserId },
+              select: { name: true, email: true },
+            })
+          : Promise.resolve(null),
+      ]);
+      if (!position || agents.length === 0) return null;
+
+      // Still held now: a holder withdrawn (or replaced) before delivery
+      // notifies no one. Its `createdAt` makes a later re-appointment a new
+      // notification rather than a duplicate of this one.
+      const holders = await db.positionHolder.findMany({
+        where: {
+          positionId,
+          workspaceUser: { userId: { in: agents.map((a) => a.shadowUserId) } },
+        },
+        select: { createdAt: true },
+      });
+      if (holders.length === 0) return null;
+      const appointedAt = Math.max(...holders.map((h) => h.createdAt.getTime()));
+
+      const appointerName = actor?.name ?? actor?.email ?? "A workspace admin";
+      const agentNames = agents.map((a) => a.name).join(" and ");
+      const ws = position.workspace;
+      return {
+        category: NOTIFICATION_CATEGORIES.POSITION_ASSIGNED,
+        title: `${appointerName} made ${agentNames} ${position.title}`,
+        message: `In ${ws.name}. You're accountable for what ${agentNames} does in this Position, and you can withdraw it from the workspace's Members settings.`,
+        deeplink: `/w/${ws.slug}/settings?section=members`,
+        metadata: {
+          positionId,
+          positionTitle: position.title,
+          agentNames,
+          appointerName,
+          workspaceId: ws.id,
+          workspaceSlug: ws.slug,
+          workspaceName: ws.name,
+        },
+        workspaceId: ws.id,
+        dedupeKey: `position_assigned:${positionId}:${recipientId}:${appointedAt}`,
+      };
+    }
     case NOTIFICATION_CATEGORIES.DUE_DATE: {
       const { actionId, actionName, offsetMinutes, workspaceSlug, workspaceId } =
         input.subject;
