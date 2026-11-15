@@ -13,6 +13,7 @@ import {
   requireProjectAccess,
   isWorkspaceGuest,
   getWorkspaceMembership,
+  assertWorkspaceWriteRole,
   AccessControlService,
   projectAccessDeniedError,
 } from "~/server/services/access";
@@ -294,6 +295,18 @@ export const projectRouter = createTRPCRouter({
       }),
     )
     .mutation(async ({ ctx, input }) => {
+      // Filing a project into a workspace is a write there: the caller must
+      // hold a write role in it. Nothing checked this before, so anyone who
+      // knew a workspace id could create a project in it, and a `viewer`
+      // could too. A project with no workspace stays the caller's own.
+      if (input.workspaceId) {
+        await assertWorkspaceWriteRole(
+          ctx.db,
+          ctx.session.user.id,
+          input.workspaceId,
+        );
+      }
+
       // A product can only be linked to a project in the same workspace.
       if (input.productId) {
         await assertProductInWorkspace(
@@ -669,11 +682,13 @@ export const projectRouter = createTRPCRouter({
       })
     )
     .mutation(async ({ ctx, input }) => {
+      // Edit, not view: `hasProjectAccess` admits a workspace `viewer`, and
+      // anyone at all on a public project.
       const access = await getProjectAccess(ctx.db, ctx.session.user.id, input.id);
-      if (!hasProjectAccess(access)) {
+      if (!canEditProject(access)) {
         throw new TRPCError({
           code: "FORBIDDEN",
-          message: "You do not have access to this project",
+          message: "You do not have edit access to this project",
         });
       }
 

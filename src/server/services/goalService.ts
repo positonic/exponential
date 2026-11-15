@@ -2,14 +2,19 @@ import type { Prisma } from "@prisma/client";
 import { type Context } from "~/server/auth/types";
 import {
   getWorkspaceMembership,
-  canEditWorkspaceContent,
+  assertWorkspaceWriteRole,
 } from "~/server/services/access/resolvers/workspaceResolver";
+import { assertCanEditGoal } from "~/server/services/access/resolvers/goalResolver";
 import { resolveGoalProgress, isManualProgress } from "~/server/services/goalProgress";
 import { recordActivity } from "~/server/services/activity/recordActivity";
 
 /**
- * Verifies the current user has access to the given goal.
- * Returns the goal if access is granted, throws otherwise.
+ * Verifies the current user can SEE the given goal: its owner, its DRI, or any
+ * member of its workspace, a `viewer` included. Returns the goal if access is
+ * granted, throws otherwise.
+ *
+ * This is the read gate, and the gate for commenting. Never put it alone in
+ * front of a change to the goal: use {@link verifyGoalWriteAccess}.
  */
 export async function verifyGoalAccess({ ctx, goalId }: { ctx: Context; goalId: number }) {
   const userId = ctx.session?.user?.id;
@@ -36,6 +41,34 @@ export async function verifyGoalAccess({ ctx, goalId }: { ctx: Context; goalId: 
   throw new Error("Access denied");
 }
 
+/**
+ * Verifies the current user may CHANGE the given goal, and returns it.
+ *
+ * A goal in a workspace needs a write role there (`assertCanEditGoal`): a
+ * `viewer` is refused with FORBIDDEN, including on a goal they created or are
+ * the DRI of. A personal goal is its owner's and its DRI's.
+ *
+ * Every mutation below used `verifyGoalAccess`, the read gate, so any member
+ * of the workspace, a viewer included, could edit, re-parent and delete its
+ * goals.
+ */
+export async function verifyGoalWriteAccess({ ctx, goalId }: { ctx: Context; goalId: number }) {
+  const userId = ctx.session?.user?.id;
+  if (!userId) throw new Error("User not authenticated");
+
+  const goal = await ctx.db.goal.findUnique({
+    where: { id: goalId },
+    select: { id: true, userId: true, driUserId: true, workspaceId: true, title: true },
+  });
+
+  if (!goal) throw new Error("Goal not found");
+
+  await assertCanEditGoal(ctx.db, userId, goal, {
+    notFound: "Goal not found or access denied",
+  });
+  return goal;
+}
+
 /** The health a check-in can set. Mirrors the auto `Goal.health` values an
  * Objective update writes — never the manual `healthOverride` (ADR-0004). */
 export type GoalUpdateHealth = "on-track" | "at-risk" | "off-track";
@@ -51,7 +84,7 @@ export type GoalUpdateHealth = "on-track" | "at-risk" | "off-track";
  * This is the single place the update-write rule lives: both the human router
  * (`goalUpdate.addUpdate`) and the agent-facing proxy (`mastra.addGoalUpdate`)
  * call it, so the health-sync behaviour cannot drift between surfaces. Access
- * mirrors the human path exactly via `verifyGoalAccess`. See ADR-0016.
+ * mirrors the human path exactly via `verifyGoalWriteAccess`. See ADR-0016.
  */
 export async function createGoalUpdate({
   ctx,
@@ -64,7 +97,8 @@ export async function createGoalUpdate({
   content: string;
   health: GoalUpdateHealth;
 }) {
-  const goal = await verifyGoalAccess({ ctx, goalId });
+  // An update moves the objective's health, so it needs write access.
+  const goal = await verifyGoalWriteAccess({ ctx, goalId });
 
   const userId = ctx.session?.user?.id;
   if (!userId) throw new Error("User not authenticated");
@@ -283,7 +317,8 @@ export async function createGoal({ ctx, input }: { ctx: Context, input: GoalInpu
  * edit it, so writing one is an access change, not a field edit. Bare
  * membership is not the test: `viewer` is read-only and `guest` is synthesized
  * for project-only access, and neither should be filing goals into a workspace.
- * `canEditWorkspaceContent` is the repo's answer (see its docstring).
+ * `assertWorkspaceWriteRole` is the repo's answer: FORBIDDEN for both, and
+ * for someone who is not a member at all.
  */
 async function assertCanPlaceGoalInWorkspace({
   ctx,
@@ -294,10 +329,7 @@ async function assertCanPlaceGoalInWorkspace({
 }) {
   const userId = ctx.session?.user?.id;
   if (!userId) throw new Error("User not authenticated");
-  const membership = await getWorkspaceMembership(ctx.db, userId, workspaceId);
-  if (!canEditWorkspaceContent(membership?.role ?? null)) {
-    throw new Error("You are not a member of the target workspace");
-  }
+  await assertWorkspaceWriteRole(ctx.db, userId, workspaceId);
 }
 
 /**
@@ -378,7 +410,7 @@ export async function updateGoal({ ctx, input }: { ctx: Context, input: UpdateGo
     throw new Error("User not authenticated");
   }
 
-  await verifyGoalAccess({ ctx, goalId: input.id });
+  await verifyGoalWriteAccess({ ctx, goalId: input.id });
 
   const existingGoal = await ctx.db.goal.findUniqueOrThrow({
     where: { id: input.id },
@@ -495,7 +527,8 @@ export async function setGoalParent({
   if (!ctx.session?.user?.id) {
     throw new Error("User not authenticated");
   }
-  await verifyGoalAccess({ ctx, goalId });
+  // Write access to the goal being moved; the parent only has to be visible.
+  await verifyGoalWriteAccess({ ctx, goalId });
   if (parentGoalId !== null) {
     await verifyGoalAccess({ ctx, goalId: parentGoalId });
     await validateParentAssignment({ ctx, goalId, parentGoalId });
@@ -759,7 +792,7 @@ export async function getGoalById({ ctx, id }: { ctx: Context, id: number }) {
 export async function deleteGoal({ ctx, input }: { ctx: Context, input: { id: number } }) {
   // The access check already fetches the title + workspaceId the feed row
   // needs, captured here before the row is gone.
-  const goal = await verifyGoalAccess({ ctx, goalId: input.id });
+  const goal = await verifyGoalWriteAccess({ ctx, goalId: input.id });
 
   const deleted = await ctx.db.goal.delete({
     where: { id: input.id },
@@ -783,7 +816,7 @@ export async function deleteGoal({ ctx, input }: { ctx: Context, input: { id: nu
 }
 
 export async function updateGoalIcon({ ctx, input }: { ctx: Context; input: { id: number; icon: string | null; iconColor: string | null } }) {
-  await verifyGoalAccess({ ctx, goalId: input.id });
+  await verifyGoalWriteAccess({ ctx, goalId: input.id });
 
   return ctx.db.goal.update({
     where: { id: input.id },

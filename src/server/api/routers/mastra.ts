@@ -43,11 +43,13 @@ import { sanitizeAIOutput } from "~/lib/sanitize-output";
 import { getProjectAccess, hasProjectAccess, canEditProject } from "~/server/services/access/resolvers/projectResolver";
 import {
   assertWorkspaceWriteRole,
-  canEditWorkspaceContent,
   getWorkspaceMembership,
+  resolveWritableWorkspace,
 } from "~/server/services/access/resolvers/workspaceResolver";
-import type { WorkspaceRole } from "~/server/services/access/types";
-import type { PrismaClient } from "@prisma/client";
+import {
+  assertCanEditGoal,
+  assertCanEditKeyResult,
+} from "~/server/services/access/resolvers/goalResolver";
 import { buildMeetingTranscriptionsWhere } from "~/server/services/meetings/meetingTranscriptionsWhere";
 import { getAiInteractionLogger } from "~/server/services/AiInteractionLogger";
 import { PRODUCT_NAME } from "~/lib/brand";
@@ -236,44 +238,6 @@ function parseExpiration(expiresIn: string): number {
   }
 }
 
-
-/**
- * The workspace one of the Assistant's CRM tools writes to: the one the chat
- * forwarded, or, for a caller that forwards none, the first workspace the
- * user can write in.
- *
- * Membership is not permission to write: a `viewer` of the forwarded
- * workspace is refused with FORBIDDEN, and a workspace the user only views is
- * never picked as the fallback. Returns null when the user is not a member of
- * the forwarded workspace, or belongs to no workspace at all; each tool keeps
- * its own answer for that.
- */
-async function resolveCrmToolWorkspace(
-  db: PrismaClient,
-  userId: string,
-  requestedWorkspaceId: string | undefined,
-): Promise<string | null> {
-  const viewerRefused = new TRPCError({
-    code: "FORBIDDEN",
-    message: "You need owner, admin, or member access to this workspace to make changes.",
-  });
-
-  if (requestedWorkspaceId) {
-    const membership = await getWorkspaceMembership(db, userId, requestedWorkspaceId);
-    if (!membership) return null;
-    if (!canEditWorkspaceContent(membership.role)) throw viewerRefused;
-    return membership.workspaceId;
-  }
-
-  const memberships = await db.workspaceUser.findMany({
-    where: { userId },
-    select: { workspaceId: true, role: true },
-  });
-  if (memberships.length === 0) return null;
-  const writable = memberships.find((membership) => canEditWorkspaceContent(membership.role as WorkspaceRole));
-  if (!writable) throw viewerRefused;
-  return writable.workspaceId;
-}
 
 export const mastraRouter = createTRPCRouter({
   /**
@@ -2403,7 +2367,7 @@ export const mastraRouter = createTRPCRouter({
       // workspace, honor it after verifying the user may write there; otherwise
       // fall back to the first workspace they can write in, for callers that
       // don't yet send it. A viewer is refused (FORBIDDEN).
-      const workspaceId = await resolveCrmToolWorkspace(ctx.db, ctx.session.user.id, input.workspaceId);
+      const workspaceId = await resolveWritableWorkspace(ctx.db, ctx.session.user.id, input.workspaceId);
       if (!workspaceId) {
         return {
           created: false,
@@ -2766,7 +2730,7 @@ export const mastraRouter = createTRPCRouter({
       // workspace, honor it after verifying the user may write there; otherwise
       // fall back to the first workspace they can write in, for callers that
       // don't yet send it. A viewer is refused (FORBIDDEN).
-      const workspaceId = await resolveCrmToolWorkspace(ctx.db, ctx.session.user.id, input.workspaceId);
+      const workspaceId = await resolveWritableWorkspace(ctx.db, ctx.session.user.id, input.workspaceId);
       if (!workspaceId) {
         throw new TRPCError({
           code: "NOT_FOUND",
@@ -3018,7 +2982,7 @@ export const mastraRouter = createTRPCRouter({
     .mutation(async ({ ctx, input }) => {
       // The tool forwards no workspace: the first one the user can write in.
       // A workspace they only view never qualifies.
-      const workspaceId = await resolveCrmToolWorkspace(ctx.db, ctx.session.user.id, undefined);
+      const workspaceId = await resolveWritableWorkspace(ctx.db, ctx.session.user.id);
       if (!workspaceId) {
         throw new TRPCError({ code: "NOT_FOUND", message: "No workspace found" });
       }
@@ -3424,6 +3388,8 @@ export const mastraRouter = createTRPCRouter({
           message: "Objective not found or access denied",
         });
       }
+      // Owning the objective is not enough in a workspace the user only views.
+      await assertCanEditGoal(ctx.db, userId, existing);
 
       const goal = await ctx.db.goal.update({
         where: { id },
@@ -3463,6 +3429,7 @@ export const mastraRouter = createTRPCRouter({
           message: "Objective not found or access denied",
         });
       }
+      await assertCanEditGoal(ctx.db, userId, existing);
 
       // Delete associated key results first (cascade)
       const deletedKRs = await ctx.db.keyResult.deleteMany({
@@ -3501,6 +3468,7 @@ export const mastraRouter = createTRPCRouter({
           message: "Objective not found or access denied",
         });
       }
+      await assertCanEditGoal(ctx.db, userId, goal);
 
       const keyResult = await ctx.db.keyResult.create({
         data: {
@@ -3515,7 +3483,11 @@ export const mastraRouter = createTRPCRouter({
           goalId: input.goalId,
           userId,
           driUserId: userId,
-          workspaceId: input.workspaceId ?? null,
+          // A key result lives in its objective's workspace, as `okr.create`
+          // enforces. The tool's `workspaceId` used to be written as given,
+          // unchecked, so a key result could be filed into any workspace by
+          // id; it is now ignored in favour of the objective's.
+          workspaceId: goal.workspaceId,
         },
         include: {
           goal: { select: { id: true, title: true } },
@@ -3565,6 +3537,7 @@ export const mastraRouter = createTRPCRouter({
           message: "Key result not found or access denied",
         });
       }
+      await assertCanEditKeyResult(ctx.db, userId, existing);
 
       const keyResult = await ctx.db.keyResult.update({
         where: { id },
@@ -3604,6 +3577,7 @@ export const mastraRouter = createTRPCRouter({
           message: "Key result not found or access denied",
         });
       }
+      await assertCanEditKeyResult(ctx.db, userId, existing);
 
       await ctx.db.keyResult.delete({ where: { id: input.id } });
       return { success: true };
@@ -3628,6 +3602,7 @@ export const mastraRouter = createTRPCRouter({
           message: "Key result not found or access denied",
         });
       }
+      await assertCanEditKeyResult(ctx.db, userId, keyResult);
 
       // Auto-calculate status based on progress
       const range = keyResult.targetValue - keyResult.startValue;
@@ -3841,13 +3816,10 @@ export const mastraRouter = createTRPCRouter({
     .mutation(async ({ ctx, input }) => {
       const userId = ctx.session.user.id;
 
-      // Verify user belongs to this workspace
-      const membership = await ctx.db.workspaceUser.findFirst({
-        where: { workspaceId: input.workspaceId, userId },
-      });
-      if (!membership) {
-        throw new TRPCError({ code: "FORBIDDEN", message: "You do not have access to this workspace" });
-      }
+      // Creating goals, projects and actions is a write: membership alone let
+      // a `viewer` through. (The per-goal check in `createGoal` refused them
+      // one by one, as `failed` rows, while this call still succeeded.)
+      await assertWorkspaceWriteRole(ctx.db, userId, input.workspaceId);
 
       const created: { type: string; name: string; id: string | number }[] = [];
       const failed: { type: string; name: string; error: string }[] = [];
@@ -3947,6 +3919,14 @@ export const mastraRouter = createTRPCRouter({
 
       console.log(`🏗️ [tRPC createProject] RECEIVED: name="${input.name}", status=${input.status}, priority=${input.priority}, startDate=${input.startDate ?? "none"}, endDate=${input.endDate ?? "none"}, userId=${userId}`);
 
+      // Same rule as the human `project.create`: a project filed into a
+      // workspace needs a write role there. Nothing checked the workspace
+      // before, so a non-member or a `viewer` could create one in it. A
+      // project with no workspace stays the user's own.
+      if (input.workspaceId) {
+        await assertWorkspaceWriteRole(ctx.db, userId, input.workspaceId);
+      }
+
       // Generate a unique slug
       const baseSlug = slugify(input.name);
       let slug = baseSlug;
@@ -3988,9 +3968,11 @@ export const mastraRouter = createTRPCRouter({
     }),
 
   // Update an existing project's core fields on behalf of the agent. Only the
-  // provided fields change. Access is gated by the same project-access path the
-  // human `project.updateDates` / `mastra.updateAction` use (ADR-0016 — reuse
+  // provided fields change. Access is the project EDIT rule, as on the human
+  // `project.update` and on `mastra.updateProjectStatus` (ADR-0016 — reuse
   // the human authorization path, the agent JWT never enters the LLM context).
+  // View access was the gate, which admitted a workspace `viewer` and, on a
+  // public project, anyone.
   // Dates arrive as ISO strings (the `dueDate` convention) and are parsed here.
   updateProject: protectedProcedure
     .input(z.object({
@@ -4016,10 +3998,10 @@ export const mastraRouter = createTRPCRouter({
       }
 
       const access = await getProjectAccess(ctx.db, userId, input.projectId);
-      if (!hasProjectAccess(access)) {
+      if (!canEditProject(access)) {
         throw new TRPCError({
           code: 'FORBIDDEN',
-          message: 'You do not have access to this project',
+          message: 'You do not have edit access to this project',
         });
       }
 
@@ -4168,6 +4150,7 @@ export const mastraRouter = createTRPCRouter({
       if (!goal) {
         throw new TRPCError({ code: 'NOT_FOUND', message: 'Objective not found or access denied' });
       }
+      await assertCanEditGoal(ctx.db, userId, goal);
 
       const project = await ctx.db.project.findFirst({
         where: { id: input.projectId, createdById: userId },
@@ -4199,6 +4182,7 @@ export const mastraRouter = createTRPCRouter({
       if (!goal) {
         throw new TRPCError({ code: 'NOT_FOUND', message: 'Objective not found or access denied' });
       }
+      await assertCanEditGoal(ctx.db, userId, goal);
 
       await ctx.db.goal.update({
         where: { id: input.goalId },
@@ -4217,20 +4201,15 @@ export const mastraRouter = createTRPCRouter({
     .mutation(async ({ ctx, input }) => {
       const userId = ctx.session.user.id;
 
-      // Authorize the KR by ownership OR workspace membership (mirrors okr.linkProject),
-      // so the assistant can link a KR shared within the caller's workspace.
+      // Authorize the KR as okr.linkProject does: a write role in its
+      // workspace, so the assistant can link a KR shared within it.
       const keyResult = await ctx.db.keyResult.findFirst({
         where: { id: input.keyResultId },
         select: { id: true, userId: true, workspaceId: true },
       });
-      if (
-        !keyResult ||
-        (keyResult.userId !== userId &&
-          !(keyResult.workspaceId &&
-            (await getWorkspaceMembership(ctx.db, userId, keyResult.workspaceId))))
-      ) {
-        throw new TRPCError({ code: 'NOT_FOUND', message: 'Key result not found or access denied' });
-      }
+      await assertCanEditKeyResult(ctx.db, userId, keyResult, {
+        notFound: 'Key result not found or access denied',
+      });
 
       // Verify the caller can edit the project being linked.
       const projectAccess = await getProjectAccess(ctx.db, userId, input.projectId);
@@ -4269,14 +4248,11 @@ export const mastraRouter = createTRPCRouter({
         where: { id: input.keyResultId },
         select: { id: true, userId: true, workspaceId: true },
       });
-      if (
-        !keyResult ||
-        (keyResult.userId !== userId &&
-          !(keyResult.workspaceId &&
-            (await getWorkspaceMembership(ctx.db, userId, keyResult.workspaceId))))
-      ) {
-        throw new TRPCError({ code: 'NOT_FOUND', message: 'Key result not found or access denied' });
-      }
+      // Removing the link is a write to the key result: "owner or any member"
+      // let a `viewer` do it.
+      await assertCanEditKeyResult(ctx.db, userId, keyResult, {
+        notFound: 'Key result not found or access denied',
+      });
 
       await ctx.db.keyResultProject.deleteMany({
         where: {

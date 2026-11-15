@@ -9,6 +9,7 @@ import {
   getProjectAccess,
   hasProjectAccess,
   canEditProject,
+  assertWorkspaceWriteRole,
 } from "~/server/services/access";
 import type { PrismaClient } from "@prisma/client";
 
@@ -159,21 +160,13 @@ export const pipelineRouter = createTRPCRouter({
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      // Verify workspace membership before creating a pipeline project for it.
-      const workspaceUser = await ctx.db.workspaceUser.findUnique({
-        where: {
-          userId_workspaceId: {
-            userId: ctx.session.user.id,
-            workspaceId: input.workspaceId,
-          },
-        },
-      });
-      if (!workspaceUser) {
-        throw new TRPCError({
-          code: "FORBIDDEN",
-          message: "You must be a workspace member to create a pipeline",
-        });
-      }
+      // Creating a pipeline writes a project into the workspace, so the caller
+      // needs a write role there. Membership alone would let a `viewer` in.
+      await assertWorkspaceWriteRole(
+        ctx.db,
+        ctx.session.user.id,
+        input.workspaceId,
+      );
 
       // Always create a new, distinct pipeline (multi-pipeline, ADR-0033) —
       // no collapsing to an existing one. Each is seeded with the generic

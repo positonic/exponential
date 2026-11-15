@@ -275,7 +275,7 @@ describe("goal workspace placement is an access change", () => {
         id: personal.id,
         workspaceId: ws.id,
       }),
-    ).rejects.toThrow(/not a member/i);
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
 
     const after = await db.goal.findUniqueOrThrow({ where: { id: personal.id } });
     expect(after.workspaceId).toBeNull();

@@ -342,7 +342,7 @@ export const workspaceSchedulingRouter = createTRPCRouter({
         purposePreset: z.string().max(40).optional(),
       }),
     )
-    .use(requireWorkspaceMembership("view"))
+    .use(requireWorkspaceMembership("edit"))
     .mutation(async ({ ctx, input }) => {
       const db = ctx.db as PrismaClient;
       const organizerId = ctx.session.user.id;
@@ -554,7 +554,7 @@ export const workspaceSchedulingRouter = createTRPCRouter({
    */
   cancelMeeting: protectedProcedure
     .input(z.object({ workspaceId: z.string(), meetingId: z.string() }))
-    .use(requireWorkspaceMembership("view"))
+    .use(requireWorkspaceMembership("edit"))
     .mutation(async ({ ctx, input }) => {
       const db = ctx.db as PrismaClient;
       const userId = ctx.session.user.id;

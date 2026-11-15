@@ -95,12 +95,25 @@ const KR_ROW = {
   status: "at-risk",
 };
 
+/**
+ * The caller holds `member` in the workspace. Owning a workspace key result
+ * or objective is not enough to write it: the workspace role decides.
+ */
+function stubWorkspaceMember(db: DeepMockProxy<PrismaClient>) {
+  db.workspaceUser.findUnique.mockResolvedValue({
+    role: "member",
+    workspaceId: WORKSPACE_ID,
+  } as never);
+  db.teamUser.findFirst.mockResolvedValue(null as never);
+}
+
 describe("okr.checkIn → activity feed", () => {
   let db: DeepMockProxy<PrismaClient>;
 
   beforeEach(() => {
     db = getDbMock();
     mockReset(db);
+    stubWorkspaceMember(db);
     db.keyResult.findFirst.mockResolvedValue(KR_ROW as never);
     db.keyResultCheckIn.create.mockResolvedValue({ id: CHECKIN_ID } as never);
     db.workspaceActivityEvent.create.mockResolvedValue({ id: "evt-1" } as never);
@@ -161,11 +174,12 @@ describe("okr.create / okr.delete → activity feed", () => {
   beforeEach(() => {
     db = getDbMock();
     mockReset(db);
+    stubWorkspaceMember(db);
     db.workspaceActivityEvent.create.mockResolvedValue({ id: "evt-1" } as never);
   });
 
   it("records one key_result/created event for a workspace KR", async () => {
-    // Caller owns the parent objective → owner path, no membership lookup.
+    // Caller owns the parent objective and is a member of its workspace.
     db.goal.findUnique.mockResolvedValue({
       id: 42,
       userId: OWNER_ID,
@@ -348,6 +362,7 @@ describe("manual status overrides → activity feed", () => {
     db = getDbMock();
     mockReset(db);
     db.workspaceActivityEvent.create.mockResolvedValue({ id: "evt-1" } as never);
+    stubWorkspaceMember(db);
     db.goal.findFirst.mockResolvedValue(GOAL_ROW as never);
     db.goal.update.mockResolvedValue(GOAL_ROW as never);
     db.keyResult.findFirst.mockResolvedValue(KR_ROW as never);

@@ -47,8 +47,10 @@ import {
   SummarizationNotConfiguredError,
 } from "~/server/services/TranscriptSummarizerService";
 import {
+  assertWorkspaceWriteRole,
   buildTranscriptionAccessWhere,
   buildTranscriptionEditWhere,
+  canEditProject,
   canEditTranscription,
   canViewTranscription,
   getProjectAccess,
@@ -399,12 +401,15 @@ export const transcriptionRouter = createTRPCRouter({
       const userId = ctx.userId;
       const { projectId, workspaceId, title } = input;
 
+      // Same placement rule as createManualTranscription: recording into a
+      // project needs edit access to it (view admitted a workspace `viewer`,
+      // and anyone on a public project).
       if (projectId) {
         const access = await getProjectAccess(ctx.db, userId, projectId);
-        if (!hasProjectAccess(access)) {
+        if (!canEditProject(access)) {
           throw new TRPCError({
             code: "FORBIDDEN",
-            message: "You do not have access to this project",
+            message: "You do not have edit access to this project",
           });
         }
       }
@@ -416,6 +421,11 @@ export const transcriptionRouter = createTRPCRouter({
         projectId,
         workspaceId,
       });
+
+      // Straight into a workspace: a write role there. This was unchecked.
+      if (resolvedWorkspaceId && !projectId) {
+        await assertWorkspaceWriteRole(ctx.db, userId, resolvedWorkspaceId);
+      }
 
       const session = await ctx.db.transcriptionSession.create({
         data: {
@@ -936,18 +946,21 @@ export const transcriptionRouter = createTRPCRouter({
       // (TranscriptionSessionParticipant.workspaceId is non-null). The rule
       // lives in `resolveMeetingWorkspace` so every create path shares it.
       if (input.projectId) {
-        // You can only file a meeting into a project you can see. Deliberately
-        // view, not edit: the project page offers Add Meeting to every member,
-        // and agents create meetings the same way.
+        // Filing a meeting into a project is a write to it, so the caller
+        // must be able to edit the project: the rule that then lets them edit
+        // the meeting (ACCESS_CONTROL.md, "Meetings"). View used to be the
+        // gate, which admitted a workspace `viewer`, and anyone at all on a
+        // public project. Members and agents hold `member`, so the project
+        // page's Add Meeting still works for them.
         const projectAccess = await getProjectAccess(
           ctx.db,
           ctx.session.user.id,
           input.projectId,
         );
-        if (!hasProjectAccess(projectAccess)) {
+        if (!canEditProject(projectAccess)) {
           throw new TRPCError({
             code: "FORBIDDEN",
-            message: "You do not have access to this project",
+            message: "You do not have edit access to this project",
           });
         }
       }
@@ -955,6 +968,14 @@ export const transcriptionRouter = createTRPCRouter({
         projectId: input.projectId,
         workspaceId: input.workspaceId,
       });
+
+      // A meeting filed straight into a workspace is workspace content: the
+      // caller needs a write role there. Nothing checked this, so a `viewer`,
+      // or someone outside the workspace who knew its id, could add one. A
+      // meeting with no workspace stays the caller's own.
+      if (workspaceId && !input.projectId) {
+        await assertWorkspaceWriteRole(ctx.db, ctx.session.user.id, workspaceId);
+      }
 
       // Participants are workspace-scoped (members + CRM), so a meeting with no
       // workspace can't carry them. Reject rather than silently dropping them.

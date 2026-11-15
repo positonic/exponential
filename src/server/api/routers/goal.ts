@@ -8,7 +8,11 @@ import {
   getWorkspaceMembership,
   canEditWorkspaceContent,
 } from "~/server/services/access/resolvers/workspaceResolver";
-import { getProjectAccess, hasProjectAccess } from "~/server/services/access";
+import {
+  getProjectAccess,
+  hasProjectAccess,
+  assertCanEditGoal,
+} from "~/server/services/access";
 import { TRPCError } from "@trpc/server";
 import { recordActivity } from "~/server/services/activity/recordActivity";
 import { resolveGoalProgress, isManualProgress } from "~/server/services/goalProgress";
@@ -24,6 +28,7 @@ import {
   computeGoalHealth,
   updateGoalIcon,
   verifyGoalAccess,
+  verifyGoalWriteAccess,
   setGoalParent,
 } from "~/server/services/goalService";
 
@@ -324,15 +329,11 @@ export const goalRouter = createTRPCRouter({
       if (!goal) {
         throw new TRPCError({ code: "NOT_FOUND", message: "Goal not found or unauthorized" });
       }
-      // Check access: owner OR workspace member
-      if (goal.workspaceId) {
-        const membership = await getWorkspaceMembership(ctx.db, ctx.session.user.id, goal.workspaceId);
-        if (!membership && goal.userId !== ctx.session.user.id) {
-          throw new TRPCError({ code: "FORBIDDEN", message: "Access denied" });
-        }
-      } else if (goal.userId !== ctx.session.user.id) {
-        throw new TRPCError({ code: "NOT_FOUND", message: "Goal not found or unauthorized" });
-      }
+      // A workspace goal needs a write role there; "owner or any member" let
+      // a viewer move the lifecycle. A personal goal stays its owner's.
+      await assertCanEditGoal(ctx.db, ctx.session.user.id, goal, {
+        notFound: "Goal not found or unauthorized",
+      });
       const updated = await ctx.db.goal.update({
         where: { id: input.id },
         data: { status: input.status },
@@ -369,7 +370,7 @@ export const goalRouter = createTRPCRouter({
       progress: z.number().min(0).max(100).nullable(),
     }))
     .mutation(async ({ ctx, input }) => {
-      await verifyGoalAccess({ ctx, goalId: input.id });
+      await verifyGoalWriteAccess({ ctx, goalId: input.id });
       return ctx.db.goal.update({
         where: { id: input.id },
         data: {
@@ -380,10 +381,14 @@ export const goalRouter = createTRPCRouter({
       });
     }),
 
-  // Trigger health recomputation for a goal
+  // Trigger health recomputation for a goal. Anyone who can see the goal may
+  // ask for it: the result is derived from data they can already read, and it
+  // is no one's authored change. It used to check nothing, so any signed-in
+  // user could read (and refresh) the health of any goal by id.
   recomputeHealth: protectedProcedure
     .input(z.object({ id: z.number() }))
     .mutation(async ({ ctx, input }) => {
+      await verifyGoalAccess({ ctx, goalId: input.id });
       return computeGoalHealth({ ctx, goalId: input.id });
     }),
 

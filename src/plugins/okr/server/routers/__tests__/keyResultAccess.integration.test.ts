@@ -244,6 +244,9 @@ describe("okr key result mutations authorize owner OR workspace member", () => {
  * result's value, retarget it onto another objective, or delete it — things
  * they could previously only read. `canEditWorkspaceContent` is the repo's
  * answer to that, and its docstring says as much.
+ *
+ * A viewer can see the key result, so the refusal is FORBIDDEN, not the
+ * NOT_FOUND a stranger gets. Owning the row does not lift it.
  */
 describe("okr writes require edit rights, not bare membership", () => {
   let db: ReturnType<typeof getTestDb>;
@@ -267,7 +270,7 @@ describe("okr writes require edit rights, not bare membership", () => {
         keyResultId: keyResult.id,
         newValue: 999,
       }),
-    ).rejects.toThrow(/not found/i);
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
 
     const after = await db.keyResult.findUniqueOrThrow({
       where: { id: keyResult.id },
@@ -281,13 +284,36 @@ describe("okr writes require edit rights, not bare membership", () => {
 
     await expect(
       caller.okr.update({ id: keyResult.id, targetValue: 1 }),
-    ).rejects.toThrow(/not found/i);
-    await expect(caller.okr.delete({ id: keyResult.id })).rejects.toThrow(
-      /not found/i,
-    );
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await expect(
+      caller.okr.delete({ id: keyResult.id }),
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
     expect(
       await db.keyResult.findUnique({ where: { id: keyResult.id } }),
     ).not.toBeNull();
+  });
+
+  it("refuses a viewer on a key result they own", async () => {
+    // Someone who created the key result as a member and was later made a
+    // viewer: ownership used to keep every write open to them.
+    const { ws, keyResult, owner } = await seedWithViewer();
+    await db.workspaceUser.update({
+      where: { userId_workspaceId: { userId: owner.id, workspaceId: ws.id } },
+      data: { role: "viewer" },
+    });
+    const caller = createTestCaller(owner.id);
+
+    await expect(
+      caller.okr.checkIn({ keyResultId: keyResult.id, newValue: 999 }),
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await expect(
+      caller.okr.delete({ id: keyResult.id }),
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
+
+    const after = await db.keyResult.findUniqueOrThrow({
+      where: { id: keyResult.id },
+    });
+    expect(after.currentValue).toBe(40);
   });
 
   it("refuses a viewer creating a key result on the objective", async () => {
@@ -303,7 +329,7 @@ describe("okr writes require edit rights, not bare membership", () => {
         unit: "count",
         period: "Q3-2026",
       }),
-    ).rejects.toThrow(/not found/i);
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
   });
 
   it("but a viewer can still read", async () => {

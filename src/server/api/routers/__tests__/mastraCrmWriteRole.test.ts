@@ -256,6 +256,19 @@ describe("the Assistant's CRM tools refuse viewers", () => {
       expect(dbMock.crmContact.create.mock.calls[0]?.[0].data).toMatchObject({ workspaceId: "ws-member" });
     });
 
+    it("find a workspace the user reaches only through a team", async () => {
+      // No direct membership anywhere: the fallback used to read direct rows
+      // only, so this user was told they had no workspace.
+      stubMemberships(dbMock, []);
+      dbMock.teamUser.findFirst.mockResolvedValue({ team: { workspaceId: "ws-team" } } as never);
+
+      await createOrganization();
+      await createContact();
+
+      expect(dbMock.crmOrganization.create.mock.calls[0]?.[0].data).toMatchObject({ workspaceId: "ws-team" });
+      expect(dbMock.crmContact.create.mock.calls[0]?.[0].data).toMatchObject({ workspaceId: "ws-team" });
+    });
+
     it("still answer someone with no workspace at all with NOT_FOUND", async () => {
       stubMemberships(dbMock, []);
 

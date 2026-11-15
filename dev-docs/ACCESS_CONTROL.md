@@ -190,6 +190,14 @@ A user can **edit** a meeting if ANY of these are true:
 
 Attendance (path 2 for view) never grants edit.
 
+A user can **create** a meeting where they could then edit it
+(`transcription.createManualTranscription`, and the device recorder's
+`transcription.startSession`):
+1. In a project: they can edit the project. View is not enough, so a
+   workspace `viewer` and a visitor to a public project are refused
+2. Straight into a workspace, with no project: a non-`viewer` role there
+3. With neither: always, the meeting is their own
+
 ### Resources
 
 A Resource is owned by the person who saved it (`Resource.userId`), and **every write stays with
@@ -225,9 +233,37 @@ Access is based on `WorkspaceUser` membership and role. See the permission mappi
 
 Access is based on `TeamUser` membership and role. See the permission mapping table above.
 
-### Goals
+### Goals and Key Results
 
-Currently **strictly user-owned**. Only the user who created a goal can read or modify it. Goals are filtered by `userId` and optionally by `workspaceId`.
+A user can **view** a goal (objective) if they created it, are its DRI, or are
+a member of its workspace at any role (`verifyGoalAccess` in `goalService`).
+Key results follow their objective's workspace. Commenting on a goal uses the
+same gate.
+
+A user can **change** a goal or a key result by where the row lives. The rule
+is `assertCanEditGoal` / `assertCanEditKeyResult` in
+`resolvers/goalResolver.ts`, and every write goes through it (goal edits,
+status, parent, icon, progress and health overrides, health-bearing updates,
+delete; key result create, update, check-in, delete, project and feature
+links; and the Assistant's `mastra.*` OKR callbacks):
+
+| Where the row lives | Who may change it |
+|---|---|
+| In a workspace | Anyone holding a write role there: `owner`, `admin`, `member`, or team-via-workspace. A `viewer` may not, **even on a row they created or are the DRI of**. Neither may someone who has left the workspace |
+| Personal (no workspace) | Its owner; for a goal, also its DRI |
+
+Being named on a row is not a way around a read-only seat: making a viewer the
+DRI of every goal would otherwise turn a free seat into a contributor. Some
+callbacks keep a narrower rule on top (the `mastra.*` update, delete and
+check-in callbacks still require the caller to own the row), but none is wider.
+
+A refusal is NOT_FOUND for someone with no standing on the row, and FORBIDDEN
+for someone who can see it and may only read.
+
+Filing a goal into a workspace (create, or move) needs a write role there
+(`assertCanPlaceGoalInWorkspace`). A key result always takes its objective's
+workspace; `mastra.createOkrKeyResult` ignores the workspace the tool
+forwards.
 
 ### OKR Check-ins
 
@@ -397,6 +433,7 @@ archive: protectedProcedure
 | `src/server/services/access/resolvers/projectResolver.ts` | Multi-path project access resolution |
 | `src/server/services/access/resolvers/resourceResolver.ts` | Resources shared through a Project: `buildSharedResourceWhere()`, `listSharedResourceProjectIds()` |
 | `src/server/services/access/resolvers/actionResolver.ts` | Action access + `buildActionAccessWhere()` (read) / `buildActionEditWhere()` / `buildActionDeleteWhere()` (write) |
+| `src/server/services/access/resolvers/goalResolver.ts` | Goal and key result write rule: `assertCanEditGoal()`, `assertCanEditKeyResult()` |
 
 ---
 
@@ -404,40 +441,41 @@ archive: protectedProcedure
 
 `viewer` is the read-only workspace role, and on the Team plan a viewer is a
 free seat, so "a viewer cannot write" is a billing rule as well as an access
-rule. Checked in November 2026 (ticket daring.haze). These are the writes a
-workspace viewer can still make by an existing rule:
+rule. Checked in November 2026 (tickets daring.haze and sage.blade). These are
+the writes a workspace viewer can still make by an existing rule:
 
 | Write | Why it is allowed | Rule |
 |---|---|---|
 | Edit an action they created or are assigned to (including its tags) | The creator and assignee paths do not look at the workspace role | "Actions" above |
 | Edit a page they own, or one they were granted `editor` on (and its databases and rows) | Ownership and a per-page grant outrank the inherited workspace role | `canEditKnowledgePage` |
 | Comment on a page they can view, and resolve or reopen its threads | View access is the commenting gate for pages | `pageComment.ts` |
+| Comment on a goal they can view; comment on a key result they own | View access is the commenting gate for goals | `createGoalComment`, `okr.addGoalComment`, `okr.addKeyResultComment` |
+| Edit, and file meetings into, a project they created, are a direct member of, or reach through the project's team; delete one they created | A grant on the project itself outranks the inherited workspace role | `canEditProject`, "Projects" above |
+| Edit or delete a meeting they created | The creator path does not look at the workspace role | "Meetings" above |
+| Edit or delete their own comments | Authorship | n/a |
 | Their own notes, favourites, sidebar layout and default workspace | Personal data, not workspace content | n/a |
 
-Feature comments, by contrast, refuse a viewer. Whether page comments and the
-creator, assignee and per-page-editor paths should stay open to a free seat is
-a product decision, not something to change in passing.
+Feature comments, by contrast, refuse a viewer. Whether comments and the
+creator, assignee and per-page or per-project grant paths should stay open to
+a free seat is a product decision, not something to change in passing.
+
+Goals and key results are **not** on this list: a viewer who created one, or
+is its DRI, cannot change it (see "Goals and Key Results").
 
 Everything else that creates or changes workspace content must go through
-`assertWorkspaceWriteRole` (or a wrapper that delegates to it). A new mutation
-that only asserts membership lets a viewer write.
+`assertWorkspaceWriteRole` (or a wrapper that delegates to it, such as
+`canEditProject`, `assertCanEditGoal` or `requireWorkspaceMembership("edit")`).
+A new mutation that only asserts membership, or view access, lets a viewer
+write; one that takes a `workspaceId` and checks nothing lets anyone write.
 
 ### Known gaps
 
-Not every write is gated yet. These still let a viewer through (ticket
-sage.blade); remove a line when its path is fixed:
-
-- `project.create` and `mastra.createProject` check nothing about the
-  workspace they are given, so they also admit a non-member
-- `mastra.updateProject` (view access, not edit), `mastra.bulkCreateStructure`,
-  `mastra.unlinkProjectFromKeyResult`
-- `keyResult.updateLinkedFeatures`, `keyResult.unlinkFeature`,
-  `goal.updateGoalStatus`
-- `pipeline.create`, `transcription.createManualTranscription`
-- `workspaceScheduling.createMeeting`, `workspaceScheduling.cancelMeeting`
-- `knowledgeChunk.ingestTranscription`, `knowledgeChunk.deleteForSource`
-- mutations gated on ownership alone (goals, key results), which a viewer who
-  owns the row still passes; not yet read one by one
+None known. The second pass (ticket sage.blade) closed the paths listed here
+after the first: `project.create` and `mastra.createProject`, which checked
+nothing about the workspace they were given; the writes gated on view access
+or bare membership; and the goal and key result writes that ownership, or any
+membership, was enough for. Add a line here when a new one is found, and
+remove it when its path is fixed.
 
 ---
 
@@ -451,11 +489,16 @@ The centralized service is in place. Routers are being incrementally migrated:
 - [ ] `action.getKanbanActions` — still creator-only (should include assignee/team access)
 - [ ] `workspace.ts` — still uses inline role checks
 - [ ] `team.ts` — still uses inline role checks
-- [ ] `project.ts` — still uses inline checks, write access is creator-only
+- [x] `project.ts` — writes use `canEditProject` / `canManageProjectMembers`; `create` uses `assertWorkspaceWriteRole` for the workspace it files into; `updateDates` is edit, not view
+- [x] `goal.ts`, `goalService.ts`, `goalUpdate.ts` and the OKR plugin's `keyResult.ts` — every write uses `assertCanEditGoal` / `assertCanEditKeyResult`; reads and comments use `verifyGoalAccess` or an inline membership lookup
+- [x] `pipeline.ts` `create`, `knowledgeChunk.ts` `ingestTranscription` / `deleteForSource` — `assertWorkspaceWriteRole`
+- [x] `transcription.ts` `createManualTranscription` / `startSession` — `canEditProject` for a project, `assertWorkspaceWriteRole` for a bare workspace
+- [x] `workspaceScheduling.ts` `createMeeting` / `cancelMeeting` — `requireWorkspaceMembership("edit")` (the router's own `assertNotViewer` also still refuses viewers on every procedure, reads included)
 - [x] `view.ts` / `list.ts` — every write uses `assertWorkspaceWriteRole` (reads still use an inline membership lookup)
 - [x] `crmContact.ts` / `crmOrganization.ts` — every write uses `assertWorkspaceWriteRole` (reads still use an inline membership lookup)
 - [x] `tag.ts` — `create`, `update`, `setTicketTags`, `setFeatureTags` and `setEntityTags` (ticket, feature, epic) use `assertWorkspaceWriteRole`; tagging an action follows the action edit rule
-- [x] `mastra.ts` CRM callbacks (`createCrmContact`, `createFullCrmContact`, `updateCrmContact`, `addCrmInteraction`, `createCrmOrganization`) — need a write role; the workspace fallback never picks one the user only views
+- [x] `mastra.ts` CRM callbacks (`createCrmContact`, `createFullCrmContact`, `updateCrmContact`, `addCrmInteraction`, `createCrmOrganization`) — need a write role; the workspace they write to comes from `resolveWritableWorkspace`, whose fallback never picks one the user only views and finds one reached only through a team
+- [x] `mastra.ts` project and OKR callbacks — `createProject` and `bulkCreateStructure` use `assertWorkspaceWriteRole`; `updateProject` uses `canEditProject`; the objective and key result callbacks use `assertCanEditGoal` / `assertCanEditKeyResult`
 - [ ] `okrCheckin.ts` — still uses inline team membership checks
 - [x] `epic.ts` — reads use `assertWorkspaceMembership`; writes use `assertWorkspaceWriteRole` (delete also needs admin+ or epic owner)
 - [x] `document.ts` — reads use `assertWorkspaceMembership`; create/ingest/delete use `assertWorkspaceWriteRole`

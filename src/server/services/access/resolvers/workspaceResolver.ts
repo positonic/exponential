@@ -353,14 +353,81 @@ export async function assertWorkspaceWriteRole(
   }
 
   if (!canEditWorkspaceContent(membership.role)) {
-    throw new TRPCError({
-      code: "FORBIDDEN",
-      message:
-        "You need owner, admin, or member access to this workspace to make changes.",
-    });
+    throw writeRoleRequiredError();
   }
 
   return membership;
+}
+
+/** The FORBIDDEN a member without a write role gets. */
+function writeRoleRequiredError(): TRPCError {
+  return new TRPCError({
+    code: "FORBIDDEN",
+    message:
+      "You need owner, admin, or member access to this workspace to make changes.",
+  });
+}
+
+/**
+ * The workspace a write lands in when the caller may not have named one: the
+ * requested workspace, or, with none requested, the first workspace the user
+ * holds a write role in. Used by agent tools, which forward the workspace of
+ * the chat when there is one.
+ *
+ * Unlike `assertWorkspaceWriteRole` this tells "not a member" from "a member
+ * who may not write". It returns null for the first (and for a user who
+ * belongs to no workspace at all), so each caller keeps its own answer for
+ * that, and throws `FORBIDDEN` for the second. A workspace the user only
+ * views is never picked as the fallback.
+ *
+ * The fallback follows `getWorkspaceMembership`: direct memberships first, in
+ * the order the user joined them, then a workspace reached only through a
+ * team, which resolves to `member`. A direct `viewer` row is never upgraded
+ * by a team in the same workspace.
+ */
+export async function resolveWritableWorkspace(
+  db: PrismaClient,
+  userId: string,
+  requestedWorkspaceId?: string | null,
+): Promise<string | null> {
+  if (requestedWorkspaceId) {
+    const membership = await getWorkspaceMembership(
+      db,
+      userId,
+      requestedWorkspaceId,
+    );
+    if (!membership) return null;
+    if (!canEditWorkspaceContent(membership.role)) throw writeRoleRequiredError();
+    return membership.workspaceId;
+  }
+
+  const direct = await db.workspaceUser.findMany({
+    where: { userId },
+    select: { workspaceId: true, role: true },
+    orderBy: { joinedAt: "asc" },
+  });
+  const writable = direct.find((membership) =>
+    canEditWorkspaceContent(membership.role as WorkspaceRole),
+  );
+  if (writable) return writable.workspaceId;
+
+  const viaTeam = await db.teamUser.findFirst({
+    where: {
+      userId,
+      team: {
+        workspaceId: {
+          not: null,
+          notIn: direct.map((membership) => membership.workspaceId),
+        },
+      },
+    },
+    select: { team: { select: { workspaceId: true } } },
+    orderBy: { joinedAt: "asc" },
+  });
+  if (viaTeam?.team.workspaceId) return viaTeam.team.workspaceId;
+
+  if (direct.length === 0) return null;
+  throw writeRoleRequiredError();
 }
 
 function formatRoleList(roles: readonly WorkspaceRole[]): string {

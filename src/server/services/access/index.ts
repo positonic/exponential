@@ -72,6 +72,7 @@ export {
   assertWorkspaceRole,
   assertWorkspaceMembership,
   assertWorkspaceWriteRole,
+  resolveWritableWorkspace,
   canEditWorkspaceContent,
   isWorkspaceOwner,
   isWorkspaceGuest,
@@ -141,6 +142,15 @@ export type {
   KnowledgePageViewer,
   KnowledgePageInviteRole,
 } from "./resolvers/knowledgePageResolver";
+
+export {
+  assertCanEditGoal,
+  assertCanEditKeyResult,
+} from "./resolvers/goalResolver";
+export type {
+  GoalWriteSubject,
+  KeyResultWriteSubject,
+} from "./resolvers/goalResolver";
 
 // Cross-workspace link guards (epic/feature/cycle/scope foreign keys)
 export { assertWorkspaceScopedRefs } from "./workspaceRefs";
