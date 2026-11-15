@@ -11,16 +11,22 @@
  *   docker compose down && docker compose up -d
  *   npx tsx scripts/selfhost/composeSmoke.ts restart
  *
- * first-boot  wait for /api/health; sign in with a log-delivered sign-in code
- *             (GET /api/auth/csrf -> POST /api/auth/signin/postmark -> read
- *             the code from `docker compose logs app` -> GET the URL
- *             buildSignInCodeCallbackUrl builds -> GET /api/auth/session
- *             returns the email); then wait for the scheduler's
- *             `GET /api/cron/agent-runs → 200`. Saves the session cookie and
- *             a digest of the generated secrets to SMOKE_STATE_DIR.
+ * first-boot  wait for /api/health; claim the install the way an operator
+ *             does (ADR-0081): read the setup token from the boot banner in
+ *             `docker compose logs app`, POST it with SMOKE_EMAIL to the
+ *             `setup` credentials provider (what /setup's form does), and
+ *             check the session is SMOKE_EMAIL's and /setup now 404s. Then
+ *             check log delivery still refuses a code to anyone but the
+ *             instance admin, and sign in as the admin with a log-delivered
+ *             sign-in code (GET /api/auth/csrf -> POST
+ *             /api/auth/signin/postmark -> read the code from the log -> GET
+ *             the URL buildSignInCodeCallbackUrl builds -> GET
+ *             /api/auth/session returns the email); then wait for the
+ *             scheduler's `GET /api/cron/agent-runs → 200`. Saves the session
+ *             cookie and a digest of the generated secrets to SMOKE_STATE_DIR.
  * restart     after `down` / `up` (volumes kept): secrets-init kept the
- *             secrets, their digest is unchanged, and the saved session is
- *             still signed in.
+ *             secrets, their digest is unchanged, the claimed install printed
+ *             no new setup token, and the saved session is still signed in.
  *
  * Settings (all optional): SMOKE_BASE_URL (default http://localhost:$APP_PORT,
  * APP_PORT default 3000), SMOKE_EMAIL, SMOKE_STATE_DIR (default
@@ -61,6 +67,23 @@ export function findSignInCode(logs: string, email: string): string | null {
   );
   const matches = [...logs.replace(ANSI, "").matchAll(line)];
   return matches.at(-1)?.[1] ?? null;
+}
+
+/**
+ * The newest setup token in the boot banner `start:selfhost` prints while the
+ * install has no admin (`formatSetupTokenBanner` in scripts/selfhost/preflight.ts):
+ * a line holding only `[selfhost]` and the token, four groups of five.
+ * Newest, because every boot replaces the previous token.
+ */
+export function findSetupToken(logs: string): string | null {
+  const line = /\[selfhost\]\s+([0-9A-Z]{5}-[0-9A-Z]{5}-[0-9A-Z]{5}-[0-9A-Z]{5})\s*$/gm;
+  const matches = [...logs.replace(ANSI, "").matchAll(line)];
+  return matches.at(-1)?.[1] ?? null;
+}
+
+/** Whether the boot log carries the "no admin yet" setup banner. */
+export function printedSetupBanner(logs: string): boolean {
+  return logs.replace(ANSI, "").includes("This install has no admin yet");
 }
 
 /** Whether the scheduler logged a 200 from `cronPath`. */
@@ -164,6 +187,10 @@ interface Smoke {
   stateDir: string;
 }
 
+/** Someone who is not the instance admin: log delivery must refuse them a code. */
+const STRANGER_EMAIL = "selfhost-smoke-stranger@example.com";
+const EMAIL_SIGN_IN_UNAVAILABLE = "EmailSignInUnavailable"; // src/lib/signInErrors.ts
+
 function readSettings(env: NodeJS.ProcessEnv): Smoke {
   return {
     baseUrl: (env.SMOKE_BASE_URL ?? `http://localhost:${env.APP_PORT ?? "3000"}`).replace(/\/+$/, ""),
@@ -198,22 +225,94 @@ async function currentSessionEmail(smoke: Smoke, jar: CookieJar): Promise<string
   return sessionEmail(await response.json());
 }
 
+async function csrfToken(smoke: Smoke, jar: CookieJar): Promise<string> {
+  const csrf = await request(smoke, jar, "/api/auth/csrf");
+  const { csrfToken: token } = (await csrf.json()) as { csrfToken?: string };
+  if (!csrf.ok || !token) throw new SmokeFailure(`GET /api/auth/csrf → ${csrf.status} with no csrfToken`);
+  return token;
+}
+
+/** POST a form to an Auth.js endpoint; returns the status and the redirect target. */
+async function postForm(
+  smoke: Smoke,
+  jar: CookieJar,
+  pathname: string,
+  fields: Record<string, string>,
+): Promise<{ status: number; location: string }> {
+  const response = await request(smoke, jar, pathname, {
+    method: "POST",
+    headers: { "content-type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams(fields).toString(),
+  });
+  return { status: response.status, location: response.headers.get("location") ?? "" };
+}
+
+/**
+ * First-run setup (ADR-0081): what an operator does after the first boot.
+ * Takes the setup token from the boot log and posts it with SMOKE_EMAIL to the
+ * `setup` credentials provider, exactly as /setup's form does via
+ * `signIn("setup", …)`. That makes SMOKE_EMAIL the instance admin, which is
+ * also what lets log delivery send it sign-in codes afterwards.
+ */
+async function claimInstall(smoke: Smoke): Promise<void> {
+  const before = await fetch(`${smoke.baseUrl}/setup`, { redirect: "manual" });
+  if (before.status !== 200) throw new SmokeFailure(`GET /setup on a fresh install → ${before.status}, expected 200`);
+
+  const token = await waitFor("the setup token in `docker compose logs app`", CODE_TIMEOUT_MS, async () =>
+    findSetupToken(await composeLogs("app")),
+  );
+  log("setup token found in the boot log");
+
+  const jar = new CookieJar();
+  const claim = await postForm(smoke, jar, "/api/auth/callback/setup", {
+    email: smoke.email,
+    token,
+    csrfToken: await csrfToken(smoke, jar),
+    callbackUrl: `${smoke.baseUrl}/home`,
+  });
+  if (claim.status !== 302 || /[?&]error=/.test(claim.location)) {
+    throw new SmokeFailure(`POST /api/auth/callback/setup → ${claim.status} ${claim.location}`.trim());
+  }
+  const email = await currentSessionEmail(smoke, jar);
+  if (email !== smoke.email) {
+    throw new SmokeFailure(`after the setup claim, /api/auth/session returned ${JSON.stringify(email)}, expected ${smoke.email}`);
+  }
+
+  const after = await fetch(`${smoke.baseUrl}/setup`, { redirect: "manual" });
+  if (after.status !== 404) throw new SmokeFailure(`GET /setup after the claim → ${after.status}, expected 404`);
+  log(`claimed the install as ${email}; /setup is closed`);
+}
+
+/** With no email transport, a code request from anyone but the instance admin is refused. */
+async function expectStrangerRefused(smoke: Smoke): Promise<void> {
+  const jar = new CookieJar();
+  const send = await postForm(smoke, jar, "/api/auth/signin/postmark", {
+    email: STRANGER_EMAIL,
+    csrfToken: await csrfToken(smoke, jar),
+    callbackUrl: `${smoke.baseUrl}/`,
+  });
+  if (!send.location.includes(`error=${EMAIL_SIGN_IN_UNAVAILABLE}`)) {
+    throw new SmokeFailure(
+      `a code request for ${STRANGER_EMAIL} (not the admin) → ${send.status} ${send.location}, expected error=${EMAIL_SIGN_IN_UNAVAILABLE}`,
+    );
+  }
+  if (findSignInCode(await composeLogs("app"), STRANGER_EMAIL)) {
+    throw new SmokeFailure(`a sign-in code for ${STRANGER_EMAIL} (not the admin) reached the log`);
+  }
+  log(`log delivery refuses ${STRANGER_EMAIL}: ${EMAIL_SIGN_IN_UNAVAILABLE}`);
+}
+
 async function signIn(smoke: Smoke): Promise<CookieJar> {
   const jar = new CookieJar();
 
-  const csrf = await request(smoke, jar, "/api/auth/csrf");
-  const { csrfToken } = (await csrf.json()) as { csrfToken?: string };
-  if (!csrf.ok || !csrfToken) throw new SmokeFailure(`GET /api/auth/csrf → ${csrf.status} with no csrfToken`);
-
   const callbackUrl = `${smoke.baseUrl}/`;
-  const send = await request(smoke, jar, "/api/auth/signin/postmark", {
-    method: "POST",
-    headers: { "content-type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({ email: smoke.email, csrfToken, callbackUrl }).toString(),
+  const send = await postForm(smoke, jar, "/api/auth/signin/postmark", {
+    email: smoke.email,
+    csrfToken: await csrfToken(smoke, jar),
+    callbackUrl,
   });
-  const sentTo = send.headers.get("location") ?? "";
-  if (send.status !== 302 || /[?&]error=/.test(sentTo)) {
-    throw new SmokeFailure(`POST /api/auth/signin/postmark → ${send.status} ${sentTo}`.trim());
+  if (send.status !== 302 || /[?&]error=/.test(send.location)) {
+    throw new SmokeFailure(`POST /api/auth/signin/postmark → ${send.status} ${send.location}`.trim());
   }
   log(`sign-in code requested for ${smoke.email}`);
 
@@ -245,6 +344,8 @@ async function secretsDigest(): Promise<string> {
 
 async function firstBoot(smoke: Smoke): Promise<void> {
   await waitForHealth(smoke);
+  await claimInstall(smoke);
+  await expectStrangerRefused(smoke);
   const jar = await signIn(smoke);
 
   await waitFor("the scheduler's `GET /api/cron/agent-runs → 200`", TICK_TIMEOUT_MS, async () =>
@@ -275,6 +376,11 @@ async function restart(smoke: Smoke): Promise<void> {
     throw new SmokeFailure("the generated secrets changed across down/up");
   }
   log("secrets kept across down/up");
+
+  if (printedSetupBanner(await composeLogs("app"))) {
+    throw new SmokeFailure("the claimed install printed a setup token again on restart");
+  }
+  log("no setup token on restart: the install stays claimed");
 
   const email = await currentSessionEmail(smoke, CookieJar.fromJSON(state.cookies));
   if (email !== state.email) {

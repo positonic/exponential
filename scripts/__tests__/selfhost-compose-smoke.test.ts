@@ -1,13 +1,21 @@
 // @vitest-environment node
 /**
  * The pure parts of the Compose smoke test (`scripts/selfhost/composeSmoke.ts`):
- * reading the sign-in code and the scheduler's tick out of `docker compose
+ * reading the setup token, the sign-in code and the scheduler's tick out of `docker compose
  * logs`, and carrying Auth.js's cookies between requests. The HTTP and Docker
  * side runs for real in `.github/workflows/selfhost-smoke.yml`.
  */
 
 import { describe, expect, it } from "vitest";
-import { CookieJar, findSignInCode, schedulerTicked, sessionEmail } from "../selfhost/composeSmoke";
+import {
+  CookieJar,
+  findSetupToken,
+  findSignInCode,
+  printedSetupBanner,
+  schedulerTicked,
+  sessionEmail,
+} from "../selfhost/composeSmoke";
+import { formatSetupTokenBanner } from "../selfhost/preflight";
 
 /** The D4 contract line, as `docker compose logs app` prints it. */
 const codeLine = (email: string, code: string) =>
@@ -42,6 +50,41 @@ describe("findSignInCode", () => {
 
   it("returns null before any code has been logged", () => {
     expect(findSignInCode("app-1  | ready", "smoke@example.com")).toBeNull();
+  });
+});
+
+/** The boot banner exactly as start:selfhost prints it, through `docker compose logs app`. */
+const banner = (token: string) =>
+  formatSetupTokenBanner({ token, expiresAt: new Date("2026-11-16T03:30:00Z"), baseUrl: undefined })
+    .map((line) => `app-1  | ${line}`)
+    .join("\n");
+
+describe("findSetupToken", () => {
+  it("reads the token from the boot banner start:selfhost prints", () => {
+    expect(findSetupToken(banner("AB12C-DE34F-GH56J-KM78N"))).toBe("AB12C-DE34F-GH56J-KM78N");
+  });
+
+  it("takes the newest token when the app has booted more than once (each boot replaces it)", () => {
+    const logs = [banner("AAAAA-11111-AAAAA-11111"), banner("BBBBB-22222-BBBBB-22222")].join("\n");
+    expect(findSetupToken(logs)).toBe("BBBBB-22222-BBBBB-22222");
+  });
+
+  it("does not mistake a sign-in code or other log lines for a token", () => {
+    const logs = [codeLine("smoke@example.com", "AB12-CD34"), "app-1  | [selfhost] Starting Exponential on port 3000…"].join(
+      "\n",
+    );
+    expect(findSetupToken(logs)).toBeNull();
+  });
+
+  it("reads through ANSI colour codes", () => {
+    expect(findSetupToken(`\u001b[36mapp-1  | \u001b[0m[selfhost]   AB12C-DE34F-GH56J-KM78N`)).toBe("AB12C-DE34F-GH56J-KM78N");
+  });
+});
+
+describe("printedSetupBanner", () => {
+  it("sees the banner on an unclaimed install and nothing once it is claimed", () => {
+    expect(printedSetupBanner(banner("AB12C-DE34F-GH56J-KM78N"))).toBe(true);
+    expect(printedSetupBanner("app-1  | [selfhost] Starting Exponential on port 3000…")).toBe(false);
   });
 });
 

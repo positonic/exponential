@@ -122,21 +122,25 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   // (default) pages are deliberately absent — public means link-only there.
   // The sitemap is also generated at build time, so a DB that is unreachable
   // or not yet migrated must degrade to "no page entries", never fail the
-  // build.
+  // build. The self-host image is built with no DATABASE_URL at all, so skip
+  // the query there rather than log a Prisma error into every image build;
+  // `revalidate` fills the entries in once the running app has a database.
   let publicPagePaths: MetadataRoute.Sitemap = [];
-  try {
-    const publishedPages = await db.knowledgePage.findMany({
-      where: { isPublic: true, publicSeoIndexed: true, publicId: { not: null } },
-      select: { publicId: true, publicSlug: true, updatedAt: true },
-    });
-    publicPagePaths = publishedPages.map((page) => ({
-      url: `${baseUrl}${buildPublicPagePath(page.publicSlug ?? 'untitled', page.publicId!)}`,
-      lastModified: page.updatedAt,
-      changeFrequency: 'weekly' as const,
-      priority: 0.5,
-    }));
-  } catch (error) {
-    console.warn('[sitemap] Skipping published pages:', error);
+  if (process.env.DATABASE_URL) {
+    try {
+      const publishedPages = await db.knowledgePage.findMany({
+        where: { isPublic: true, publicSeoIndexed: true, publicId: { not: null } },
+        select: { publicId: true, publicSlug: true, updatedAt: true },
+      });
+      publicPagePaths = publishedPages.map((page) => ({
+        url: `${baseUrl}${buildPublicPagePath(page.publicSlug ?? 'untitled', page.publicId!)}`,
+        lastModified: page.updatedAt,
+        changeFrequency: 'weekly' as const,
+        priority: 0.5,
+      }));
+    } catch (error) {
+      console.warn('[sitemap] Skipping published pages:', error);
+    }
   }
 
   return [
