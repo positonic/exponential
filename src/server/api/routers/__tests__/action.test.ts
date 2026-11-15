@@ -3086,6 +3086,8 @@ describe("action router (mocked)", () => {
       return {
         id,
         createdById: ownerId,
+        // A person created it, so there is no agent row behind the creator.
+        createdBy: { externalAgentShadow: null },
         assignees: [],
         dueDate: day,
         scheduledStart: day,

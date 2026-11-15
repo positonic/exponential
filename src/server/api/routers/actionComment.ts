@@ -1,21 +1,13 @@
 import { z } from "zod";
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 import { TRPCError } from "@trpc/server";
-import { getActionAccess } from "~/server/services/access";
+import { getActionAccess, canViewAction } from "~/server/services/access";
 import { createActionComment } from "~/server/services/actions/comments";
 import { resumeWaitingRunsOnReply } from "~/server/services/agentRuns/enqueue";
 import { findUnstartedAssistantMentions } from "~/server/services/agentRuns/unstartedMentions";
 import { triggerDispatch } from "~/server/services/agentRuns/dispatch";
 import { after } from "next/server";
 import { deleteFromBlob } from "~/lib/blob";
-
-function hasViewAccess(access: {
-  isCreator: boolean;
-  isAssignee: boolean;
-  hasProjectAccess: boolean;
-}): boolean {
-  return access.isCreator || access.isAssignee || access.hasProjectAccess;
-}
 
 export const actionCommentRouter = createTRPCRouter({
   getComments: protectedProcedure
@@ -26,7 +18,7 @@ export const actionCommentRouter = createTRPCRouter({
         ctx.session.user.id,
         input.actionId,
       );
-      if (!access || !hasViewAccess(access)) {
+      if (!access || !canViewAction(access)) {
         throw new TRPCError({
           code: "NOT_FOUND",
           message: "Action not found",
@@ -56,7 +48,7 @@ export const actionCommentRouter = createTRPCRouter({
         ctx.session.user.id,
         input.actionId,
       );
-      if (!access || !hasViewAccess(access)) {
+      if (!access || !canViewAction(access)) {
         throw new TRPCError({
           code: "NOT_FOUND",
           message: "Action not found",

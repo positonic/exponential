@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { getTestDb } from "~/test/test-db";
 import { createTestCaller } from "~/test/trpc-helpers";
-import { createUser, createWorkspace, createAction } from "~/test/factories";
+import { createUser, createWorkspace, createAction, addWorkspaceMember } from "~/test/factories";
 
 describe("action.searchByTitle", () => {
   let db: ReturnType<typeof getTestDb>;
@@ -105,5 +105,55 @@ describe("action.searchByTitle", () => {
     expect(ids).toContain(recentDone.id);
     expect(ids).not.toContain(cancelled.id);
     expect(ids).not.toContain(oldDone.id);
+  });
+
+  // Real SQL for the nested relation filters behind the agent-owner path
+  // (creator → agent → owner, and the owner's standing in the action's
+  // workspace): an agent writes as its shadow user (ADR-0049), so this row
+  // has no project, no assignee and a creator that is nobody's own account.
+  it("lets an agent's owner find, open and complete a project-less action the agent created", async () => {
+    const owner = await createUser(db);
+    const teammate = await createUser(db);
+    const ws = await createWorkspace(db, { ownerId: teammate.id, slug: "sbt-agent" });
+    await addWorkspaceMember(db, ws.id, owner.id);
+
+    const shadow = await db.user.create({ data: { name: "Desk agent", isAgent: true } });
+    await db.externalAgent.create({
+      data: { name: "Desk agent", ownerId: owner.id, shadowUserId: shadow.id },
+    });
+    await addWorkspaceMember(db, ws.id, shadow.id);
+    const action = await createAction(db, {
+      createdById: shadow.id,
+      workspaceId: ws.id,
+      name: "Open a payments account",
+    });
+
+    const asOwner = createTestCaller(owner.id);
+    const hits = await asOwner.action.searchByTitle({ workspaceId: ws.id, query: "payments" });
+    expect(hits.map((r) => r.id)).toEqual([action.id]);
+    const palette = await asOwner.search.global({ query: "payments", workspaceId: ws.id });
+    expect(palette.results.filter((r) => r.type === "action").map((r) => r.id)).toEqual([action.id]);
+    expect((await asOwner.action.getById({ id: action.id })).id).toBe(action.id);
+
+    await asOwner.action.update({ id: action.id, status: "COMPLETED" });
+    const completed = await db.action.findUniqueOrThrow({ where: { id: action.id } });
+    expect(completed.status).toBe("COMPLETED");
+
+    // A project-less action stays personal: owning the workspace is not a way in.
+    const asTeammate = createTestCaller(teammate.id);
+    expect(await asTeammate.action.searchByTitle({ workspaceId: ws.id, query: "payments" })).toEqual([]);
+    const theirs = await asTeammate.search.global({ query: "payments", workspaceId: ws.id });
+    expect(theirs.results.filter((r) => r.type === "action")).toEqual([]);
+    await expect(asTeammate.action.getById({ id: action.id })).rejects.toThrow(/not found/i);
+
+    // The path ends with the workspace: once the owner is removed, neither
+    // the workspace search nor the all-workspaces one reaches the row.
+    await db.workspaceUser.delete({
+      where: { userId_workspaceId: { userId: owner.id, workspaceId: ws.id } },
+    });
+    const afterRemoval = await asOwner.search.global({ query: "payments" });
+    expect(afterRemoval.results.filter((r) => r.type === "action")).toEqual([]);
+    await expect(asOwner.action.getById({ id: action.id })).rejects.toThrow(/not found/i);
+    await expect(asOwner.action.update({ id: action.id, name: "Renamed" })).rejects.toThrow();
   });
 });

@@ -43,21 +43,27 @@ import {
   buildProjectAccessWhere,
 } from "../resolvers/projectResolver";
 
-import { canEditWorkspaceContent } from "../resolvers/workspaceResolver";
+import { buildWorkspaceAccessWhere, canEditWorkspaceContent } from "../resolvers/workspaceResolver";
 
 // ── Helpers ──────────────────────────────────────────────────────────
 
 function makeActionAccess(overrides: Partial<{
   isCreator: boolean;
+  hasAgentOwnerAccess: boolean;
+  canEditAsAgentOwner: boolean;
   isAssignee: boolean;
   hasProjectAccess: boolean;
   canEditProject: boolean;
+  isProjectInsider: boolean;
 }> = {}) {
   return {
     isCreator: false,
+    hasAgentOwnerAccess: false,
+    canEditAsAgentOwner: false,
     isAssignee: false,
     hasProjectAccess: false,
     canEditProject: false,
+    isProjectInsider: false,
     ...overrides,
   };
 }
@@ -161,6 +167,10 @@ describe("canViewAction", () => {
     expect(canViewAction(makeActionAccess({ isCreator: true }))).toBe(true);
   });
 
+  it("the owner of the agent that created it can view", () => {
+    expect(canViewAction(makeActionAccess({ hasAgentOwnerAccess: true }))).toBe(true);
+  });
+
   it("assignee can always view", () => {
     expect(canViewAction(makeActionAccess({ isAssignee: true }))).toBe(true);
   });
@@ -179,6 +189,14 @@ describe("canViewAction", () => {
 describe("canEditAction", () => {
   it("creator can always edit", () => {
     expect(canEditAction(makeActionAccess({ isCreator: true }))).toBe(true);
+  });
+
+  it("the owner of the agent that created it can edit at a write role", () => {
+    expect(canEditAction(makeActionAccess({ canEditAsAgentOwner: true }))).toBe(true);
+  });
+
+  it("read-level agent-owner access (a workspace viewer) cannot edit", () => {
+    expect(canEditAction(makeActionAccess({ hasAgentOwnerAccess: true }))).toBe(false);
   });
 
   it("assignee can edit", () => {
@@ -216,14 +234,18 @@ describe("checkActionPermission", () => {
     expect(checkActionPermission(makeActionAccess(), "assign")).toBe(false);
   });
 
-  it("delete requires creator or project editor", () => {
+  it("delete requires creator, the creating agent's owner, or project editor", () => {
     expect(checkActionPermission(makeActionAccess({ isCreator: true }), "delete")).toBe(true);
+    expect(checkActionPermission(makeActionAccess({ canEditAsAgentOwner: true }), "delete")).toBe(true);
+    expect(checkActionPermission(makeActionAccess({ hasAgentOwnerAccess: true }), "delete")).toBe(false);
     expect(checkActionPermission(makeActionAccess({ canEditProject: true }), "delete")).toBe(true);
     expect(checkActionPermission(makeActionAccess({ isAssignee: true }), "delete")).toBe(false);
   });
 
-  it("admin requires creator or project editor", () => {
+  it("admin requires creator, the creating agent's owner, or project editor", () => {
     expect(checkActionPermission(makeActionAccess({ isCreator: true }), "admin")).toBe(true);
+    expect(checkActionPermission(makeActionAccess({ canEditAsAgentOwner: true }), "admin")).toBe(true);
+    expect(checkActionPermission(makeActionAccess({ hasAgentOwnerAccess: true }), "admin")).toBe(false);
     expect(checkActionPermission(makeActionAccess({ canEditProject: true }), "admin")).toBe(true);
     expect(checkActionPermission(makeActionAccess({ isAssignee: true }), "admin")).toBe(false);
   });
@@ -236,10 +258,10 @@ describe("checkActionPermission", () => {
 // ── buildActionAccessWhere ───────────────────────────────────────────
 
 describe("buildActionAccessWhere", () => {
-  it("returns OR clause with 7 access paths", () => {
+  it("returns OR clause with 8 access paths", () => {
     const where = buildActionAccessWhere("user-123");
     expect(where).toHaveProperty("OR");
-    expect(where.OR).toHaveLength(7);
+    expect(where.OR).toHaveLength(8);
   });
 
   it("includes creator path", () => {
@@ -247,31 +269,45 @@ describe("buildActionAccessWhere", () => {
     expect(where.OR[0]).toEqual({ createdById: "user-123" });
   });
 
+  it("includes created-by-an-agent-the-user-owns path, scoped to a workspace they still belong to", () => {
+    const where = buildActionAccessWhere("user-123");
+    const stillMember = buildWorkspaceAccessWhere("user-123");
+    expect(where.OR[1]).toEqual({
+      createdBy: { externalAgentShadow: { ownerId: "user-123" } },
+      OR: [
+        { workspace: stillMember },
+        { workspaceId: null, project: { workspace: stillMember } },
+        { workspaceId: null, projectId: null },
+        { workspaceId: null, project: { workspaceId: null } },
+      ],
+    });
+  });
+
   it("includes assigned-to-user path", () => {
     const where = buildActionAccessWhere("user-123");
-    expect(where.OR[1]).toEqual({ assignees: { some: { userId: "user-123" } } });
+    expect(where.OR[2]).toEqual({ assignees: { some: { userId: "user-123" } } });
   });
 
   it("includes project creator path", () => {
     const where = buildActionAccessWhere("user-123");
-    expect(where.OR[2]).toEqual({ project: { createdById: "user-123" } });
+    expect(where.OR[3]).toEqual({ project: { createdById: "user-123" } });
   });
 
   it("includes direct project member path", () => {
     const where = buildActionAccessWhere("user-123");
-    expect(where.OR[3]).toEqual({
+    expect(where.OR[4]).toEqual({
       project: { projectMembers: { some: { userId: "user-123" } } },
     });
   });
 
   it("includes public project path", () => {
     const where = buildActionAccessWhere("user-123");
-    expect(where.OR[4]).toEqual({ project: { isPublic: true } });
+    expect(where.OR[5]).toEqual({ project: { isPublic: true } });
   });
 
   it("gates team/workspace paths on isRestricted: false", () => {
     const where = buildActionAccessWhere("user-123");
-    expect(where.OR[5]).toEqual({
+    expect(where.OR[6]).toEqual({
       project: {
         isRestricted: false,
         OR: [
@@ -285,7 +321,7 @@ describe("buildActionAccessWhere", () => {
 
   it("includes restricted-project escape hatch for workspace owner/admin", () => {
     const where = buildActionAccessWhere("user-123");
-    expect(where.OR[6]).toEqual({
+    expect(where.OR[7]).toEqual({
       project: {
         isRestricted: true,
         workspace: {

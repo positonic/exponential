@@ -62,22 +62,54 @@ Each permission requires a minimum role:
 
 A user can **view** an action if ANY of these are true:
 1. They created the action AND it has no assignees
-2. They are assigned to the action
-3. They are the project creator
-4. They are a direct project member (`ProjectMember`)
-5. They are a member of the project's team
-6. The project is public
+2. They own the agent that created it, and still belong to the action's workspace (see below)
+3. They are assigned to the action
+4. They are the project creator
+5. They are a direct project member (`ProjectMember`)
+6. They are a member of the project's team
+7. The project is public
 
 A user can **edit** an action if ANY of these are true:
 1. They created the action
-2. They are assigned to the action
-3. They can edit the project (see Projects below)
+2. They own the agent that created it, and hold a write role in the action's workspace
+3. They are assigned to the action
+4. They can edit the project (see Projects below)
 
-A user can **delete** an action if they created it or can edit its project.
-Being assigned is not enough to delete.
+A user can **delete** an action if they created it, own the agent that created
+it (at a write role in the action's workspace), or can edit its project. Being
+assigned is not enough to delete.
 
 Public visibility never grants edit or delete, and neither does a workspace
 `viewer` role.
+
+**An action with no project is personal.** Workspace membership grants nothing
+on it by itself, whatever the role: only the creator, the owner of the agent
+that created it, and the assignees reach it.
+
+**The owner of an agent reaches what the agent created, inside the workspaces
+they still belong to.** An External agent or an Assistant writes as its shadow
+user (ADR-0049, ADR-0067), so `Action.createdById` is the shadow user, never
+the person. Without this path a project-less, unassigned action an agent
+created had one reader, the agent: its owner could not find it in search, open
+it or complete it, while the agent's key, which the owner holds, could. That is
+the delegation invariant upside down.
+
+The path is scoped to the action's workspace (its own `workspaceId`, else its
+project's), unlike the creator path:
+
+| The owner's standing in the action's workspace | View | Edit / delete |
+|---|---|---|
+| `owner`, `admin`, `member`, or team-via-workspace | yes | yes |
+| `viewer` | yes | no |
+| not a member (removed, or never joined) | no | no |
+| the action is in no workspace at all | yes | yes |
+
+An agent leaves a workspace when its owner does (the membership cascades), and
+this path leaves with them: owning the agent never reaches rows in a workspace
+the owner is no longer in. Per row it is `hasAgentOwnerAccess` /
+`canEditAsAgentOwner` on `getActionAccess`; in bulk it is one shared clause in
+the three WHERE builders (`createdBy.externalAgentShadow.ownerId` plus
+`buildWorkspaceAccessWhere` for reads, `buildWorkspaceWriteWhere` for writes).
 
 ### Projects
 
@@ -263,7 +295,7 @@ the write mirrors:
 | `buildProjectEditWhere(userId)` | `canEditProject` | candidate projects for a write |
 
 `src/server/services/access/__tests__/actionWriteWhere.test.ts` property-tests
-each write builder against its per-row check, using `matchesWhere` from
+all three builders against their per-row checks, using `matchesWhere` from
 `src/test/prismaWhere.ts`. If you add a path to one side, add it to the other.
 
 ```typescript

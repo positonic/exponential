@@ -188,11 +188,13 @@ export class AccessControlService {
     if (checkActionPermission(access, permission)) {
       const path = access.isCreator
         ? "owner"
-        : access.isAssignee
-          ? "assignee"
-          : access.canEditProject
-            ? "project:editor"
-            : "project:viewer";
+        : access.canEditAsAgentOwner || (permission === "view" && access.hasAgentOwnerAccess)
+          ? "agent-owner"
+          : access.isAssignee
+            ? "assignee"
+            : access.canEditProject
+              ? "project:editor"
+              : "project:viewer";
       return { allowed: true, reason: "Has action access", accessPath: path };
     }
 

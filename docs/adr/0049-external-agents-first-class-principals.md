@@ -14,6 +14,16 @@ belongs to the project's workspace and its owner has access to the project; the 
 `editor`; removing the owner from the project removes their agents too. Refusals from a project
 name the account, its owner and the missing access rather than saying "Access denied".
 
+Amended 2026-11-15: the delegation invariant also holds from the other side for **Actions**.
+An agent writes as its shadow user (point 7), so an Action it created with no project and no
+assignee was readable by the agent alone: its owner could not find it in search, open it or
+complete it, although the owner holds the agent's key. The owner of the agent that created an
+Action now reaches it through the central action resolver, **while they still belong to the
+Action's workspace**: view at any role, edit and delete at a write role. The path ends when the
+owner leaves the workspace, as the agent's own membership does; an Action in no workspace follows
+the agent's owner. Attribution is unchanged: `createdById` stays the shadow user. Whether such an
+Action should also land on the owner's plate (Today, Inbox) is a separate, open product decision.
+
 ## Context
 
 A user wants to point third-party autonomous agent software — the trigger was Nous

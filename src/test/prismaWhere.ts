@@ -9,6 +9,7 @@
  *
  * - `AND` / `OR` / `NOT` combinators
  * - scalar equality and `{ equals, in, notIn, not, lt, lte, gt, gte }`
+ * - the string filter `{ contains, mode }` a title search uses
  * - to-many relation filters `{ some, none, every }` over arrays
  * - to-one relation filters (a nested object; a null relation never matches)
  *
@@ -21,7 +22,18 @@
 type Row = Record<string, unknown>;
 type Where = Record<string, unknown>;
 
-const SCALAR_OPS = new Set(["equals", "in", "notIn", "not", "lt", "lte", "gt", "gte"]);
+const SCALAR_OPS = new Set([
+  "equals",
+  "in",
+  "notIn",
+  "not",
+  "lt",
+  "lte",
+  "gt",
+  "gte",
+  "contains",
+  "mode",
+]);
 const LIST_OPS = new Set(["some", "none", "every"]);
 
 function isPlainObject(v: unknown): v is Record<string, unknown> {
@@ -65,6 +77,15 @@ function matchScalar(value: unknown, filter: unknown): boolean {
         return value != null && compare(value, arg) > 0;
       case "gte":
         return value != null && compare(value, arg) >= 0;
+      // `mode` only modifies `contains`; on its own it filters nothing.
+      case "mode":
+        return true;
+      case "contains": {
+        if (typeof value !== "string" || typeof arg !== "string") return false;
+        return filter.mode === "insensitive"
+          ? value.toLowerCase().includes(arg.toLowerCase())
+          : value.includes(arg);
+      }
       default:
         throw new Error(`prismaWhere: unsupported scalar operator "${op}"`);
     }

@@ -76,6 +76,7 @@ export {
   isWorkspaceOwner,
   isWorkspaceGuest,
   buildWorkspaceAccessWhere,
+  buildWorkspaceWriteWhere,
   buildWorkspaceVisibilityWhere,
 } from "./resolvers/workspaceResolver";
 export { getTeamMembership, getUserTeams } from "./resolvers/teamResolver";

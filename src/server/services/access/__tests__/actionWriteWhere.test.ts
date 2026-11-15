@@ -17,6 +17,7 @@ import {
   buildActionEditWhere,
   buildActionDeleteWhere,
   canEditAction,
+  canViewAction,
   checkActionPermission,
 } from "../resolvers/actionResolver";
 import {
@@ -42,26 +43,44 @@ const OTHER = "other";
 
 type DirectWorkspaceRole = Exclude<WorkspaceRole, "guest">;
 
+interface WorkspaceRow {
+  members: { userId: string; role: DirectWorkspaceRole }[];
+  teams: { members: { userId: string }[] }[];
+}
+
 interface ProjectRow {
   createdById: string;
   isPublic: boolean;
   isRestricted: boolean;
   projectMembers: { userId: string; role: ProjectMemberRole }[];
   team: { members: { userId: string }[] } | null;
-  workspace: {
-    members: { userId: string; role: DirectWorkspaceRole }[];
-    teams: { members: { userId: string }[] }[];
-  } | null;
+  workspaceId: string | null;
+  workspace: WorkspaceRow | null;
 }
 
 interface ActionRow {
   createdById: string;
+  /**
+   * The creator's agent row. Null when a person created the action; when an
+   * agent did (its shadow user is `createdById`), the person who owns it.
+   */
+  createdBy: { externalAgentShadow: { ownerId: string } | null };
   assignees: { userId: string }[];
+  /** The action's own workspace; rows written before the column have none. */
+  workspaceId: string | null;
+  workspace: WorkspaceRow | null;
+  projectId: string | null;
   project: ProjectRow | null;
 }
 
-function project(overrides: Partial<ProjectRow> = {}): ProjectRow {
-  return {
+const byPerson: ActionRow["createdBy"] = { externalAgentShadow: null };
+const byAgentOf = (ownerId: string): ActionRow["createdBy"] => ({
+  externalAgentShadow: { ownerId },
+});
+
+/** Keeps `workspaceId` in step with `workspace`, as a real row's are. */
+function project(overrides: Partial<Omit<ProjectRow, "workspaceId">> = {}): ProjectRow {
+  const row = {
     createdById: OTHER,
     isPublic: false,
     isRestricted: false,
@@ -70,19 +89,40 @@ function project(overrides: Partial<ProjectRow> = {}): ProjectRow {
     workspace: { members: [], teams: [] },
     ...overrides,
   };
+  return { ...row, workspaceId: row.workspace ? "ws-project" : null };
 }
 
-function action(overrides: Partial<ActionRow> = {}): ActionRow {
-  return {
+/**
+ * An action in `project` (default: an unrestricted one). `workspace` is the
+ * action's own; left out, the action names none and its project's applies.
+ */
+function action(
+  overrides: Partial<Omit<ActionRow, "workspaceId" | "projectId">> = {},
+): ActionRow {
+  const row = {
     createdById: OTHER,
+    createdBy: byPerson,
     assignees: [],
+    workspace: null,
     project: project(),
     ...overrides,
   };
+  return {
+    ...row,
+    workspaceId: row.workspace ? "ws-action" : null,
+    projectId: row.project ? "p1" : null,
+  };
 }
 
-function inWorkspace(role: DirectWorkspaceRole): ProjectRow["workspace"] {
+function inWorkspace(role: DirectWorkspaceRole): WorkspaceRow {
   return { members: [{ userId: ME, role }], teams: [] };
+}
+
+/** ME's role in a workspace, by `getWorkspaceMembership`'s rule: a direct row wins. */
+function roleIn(w: WorkspaceRow | null): WorkspaceRole | undefined {
+  const direct = w?.members.find((m) => m.userId === ME);
+  const viaTeam = w?.teams.some((t) => t.members.some((m) => m.userId === ME));
+  return direct?.role ?? (viaTeam ? "member" : undefined);
 }
 
 /**
@@ -92,10 +132,7 @@ function inWorkspace(role: DirectWorkspaceRole): ProjectRow["workspace"] {
  */
 function projectAccessOf(p: ProjectRow): ProjectAccess {
   const member = p.projectMembers.find((m) => m.userId === ME);
-  const direct = p.workspace?.members.find((m) => m.userId === ME);
-  const viaTeam = p.workspace?.teams.some((t) => t.members.some((m) => m.userId === ME));
-  const workspaceRole: WorkspaceRole | undefined =
-    direct?.role ?? (viaTeam ? "member" : undefined);
+  const workspaceRole = roleIn(p.workspace);
   return {
     isCreator: p.createdById === ME,
     isMember: !!member,
@@ -110,8 +147,17 @@ function projectAccessOf(p: ProjectRow): ProjectAccess {
 
 function actionAccessOf(a: ActionRow) {
   const pa = a.project ? projectAccessOf(a.project) : null;
+  // What `getActionAccess` resolves for the agent-owner path: the action's
+  // workspace is its own, else its project's; with neither, owning the agent
+  // is enough.
+  const ownsCreatorAgent = a.createdBy.externalAgentShadow?.ownerId === ME;
+  const actionWorkspace = a.workspaceId !== null ? a.workspace : (a.project?.workspace ?? null);
+  const role = roleIn(actionWorkspace);
   return {
     isCreator: a.createdById === ME,
+    hasAgentOwnerAccess: ownsCreatorAgent && (actionWorkspace === null || role !== undefined),
+    canEditAsAgentOwner:
+      ownsCreatorAgent && (actionWorkspace === null || (role !== undefined && role !== "viewer")),
     isAssignee: a.assignees.some((x) => x.userId === ME),
     hasProjectAccess: pa ? hasProjectAccess(pa) : false,
     canEditProject: pa ? canEditProject(pa) : false,
@@ -128,34 +174,64 @@ const canRead = (a: ActionRow) => matchesWhere({ ...a }, buildActionAccessWhere(
 const userArb = fc.constantFrom(ME, OTHER);
 const membersArb = fc.boolean().map((has) => (has ? [{ userId: ME }] : []));
 
-const projectArb: fc.Arbitrary<ProjectRow> = fc.record({
-  createdById: userArb,
-  isPublic: fc.boolean(),
-  isRestricted: fc.boolean(),
-  projectMembers: fc.option(fc.constantFrom<ProjectMemberRole>("viewer", "editor", "admin"), {
-    nil: undefined,
-  }).map((role) => (role ? [{ userId: ME, role }] : [])),
-  team: fc.option(fc.record({ members: membersArb }), { nil: null }),
-  workspace: fc.option(
-    fc.record({
-      members: fc
-        .option(fc.constantFrom<DirectWorkspaceRole>("viewer", "member", "admin", "owner"), {
-          nil: undefined,
-        })
-        .map((role) => (role ? [{ userId: ME, role }] : [])),
-      teams: fc.boolean().map((has) => (has ? [{ members: [{ userId: ME }] }] : [])),
-    }),
-    { nil: null },
-  ),
-});
+const workspaceArb: fc.Arbitrary<WorkspaceRow | null> = fc.option(
+  fc.record({
+    members: fc
+      .option(fc.constantFrom<DirectWorkspaceRole>("viewer", "member", "admin", "owner"), {
+        nil: undefined,
+      })
+      .map((role) => (role ? [{ userId: ME, role }] : [])),
+    teams: fc.boolean().map((has) => (has ? [{ members: [{ userId: ME }] }] : [])),
+  }),
+  { nil: null },
+);
 
-const actionArb: fc.Arbitrary<ActionRow> = fc.record({
-  createdById: userArb,
-  assignees: membersArb,
-  project: fc.option(projectArb, { nil: null }),
-});
+const projectArb: fc.Arbitrary<ProjectRow> = fc
+  .record({
+    createdById: userArb,
+    isPublic: fc.boolean(),
+    isRestricted: fc.boolean(),
+    projectMembers: fc.option(fc.constantFrom<ProjectMemberRole>("viewer", "editor", "admin"), {
+      nil: undefined,
+    }).map((role) => (role ? [{ userId: ME, role }] : [])),
+    team: fc.option(fc.record({ members: membersArb }), { nil: null }),
+    workspace: workspaceArb,
+  })
+  .map((p) => project(p));
+
+// Who wrote the row: ME, another person, or an agent's shadow user, whose
+// owner is ME or someone else. A shadow user is never a person's own id.
+const AGENT = "agent-shadow";
+const creatorArb: fc.Arbitrary<Pick<ActionRow, "createdById" | "createdBy">> = fc.oneof(
+  userArb.map((createdById) => ({ createdById, createdBy: byPerson })),
+  userArb.map((ownerId) => ({ createdById: AGENT, createdBy: byAgentOf(ownerId) })),
+);
+
+// The action's own workspace is drawn independently of its project's, so the
+// properties also cover rows that name no workspace and inherit the project's.
+const actionArb: fc.Arbitrary<ActionRow> = fc
+  .tuple(
+    creatorArb,
+    fc.record({
+      assignees: membersArb,
+      workspace: workspaceArb,
+      project: fc.option(projectArb, { nil: null }),
+    }),
+  )
+  .map(([creator, rest]) => action({ ...creator, ...rest }));
 
 // ── Mirror properties ───────────────────────────────────────────────
+
+describe("buildActionAccessWhere mirrors canViewAction", () => {
+  it("admits a row iff the per-row view check does", () => {
+    fc.assert(
+      fc.property(actionArb, (a) => {
+        expect(canRead(a)).toBe(canViewAction(actionAccessOf(a)));
+      }),
+      { numRuns: 2000 },
+    );
+  });
+});
 
 describe("buildActionEditWhere mirrors canEditAction", () => {
   it("admits a row iff the per-row edit check does", () => {
@@ -254,6 +330,68 @@ describe("write scoping vs the read clause", () => {
     const a = action({ createdById: ME, project: null });
     expect(canEdit(a)).toBe(true);
     expect(canDelete(a)).toBe(true);
+  });
+
+  // What an MCP `actions.create` with a workspace, no project and no assignee
+  // writes, as seen by ME in `workspace`.
+  const agentCreated = (ownerId: string, workspace: WorkspaceRow | null) =>
+    action({ createdById: AGENT, createdBy: byAgentOf(ownerId), workspace, project: null });
+
+  it.each<DirectWorkspaceRole>(["member", "admin", "owner"])(
+    "the owner of the agent that created a project-less action reads, edits and deletes it as a workspace %s",
+    (role) => {
+      const a = agentCreated(ME, inWorkspace(role));
+      expect(canRead(a)).toBe(true);
+      expect(canEdit(a)).toBe(true);
+      expect(canDelete(a)).toBe(true);
+    },
+  );
+
+  it("the agent's owner loses the action with the workspace: removal ends the path", () => {
+    const a = agentCreated(ME, { members: [], teams: [] });
+    expect(canRead(a)).toBe(false);
+    expect(canEdit(a)).toBe(false);
+    expect(canDelete(a)).toBe(false);
+  });
+
+  it("the agent's owner, demoted to workspace viewer, still reads it but does not write", () => {
+    const a = agentCreated(ME, inWorkspace("viewer"));
+    expect(canRead(a)).toBe(true);
+    expect(canEdit(a)).toBe(false);
+    expect(canDelete(a)).toBe(false);
+  });
+
+  it("an agent-created action in no workspace follows the agent's owner", () => {
+    const a = agentCreated(ME, null);
+    expect(canRead(a)).toBe(true);
+    expect(canEdit(a)).toBe(true);
+    expect(canDelete(a)).toBe(true);
+  });
+
+  it("an older row with no workspace of its own is judged by its project's workspace", () => {
+    const left = action({
+      createdById: AGENT,
+      createdBy: byAgentOf(ME),
+      project: project({ isRestricted: true, workspace: { members: [], teams: [] } }),
+    });
+    expect(canRead(left)).toBe(false);
+    expect(canEdit(left)).toBe(false);
+  });
+
+  it("someone else's agent grants nothing, whatever the caller's workspace role", () => {
+    const projectLess = agentCreated(OTHER, inWorkspace("owner"));
+    expect(canRead(projectLess)).toBe(false);
+    expect(canEdit(projectLess)).toBe(false);
+    expect(canDelete(projectLess)).toBe(false);
+
+    // In a restricted project the caller cannot reach, owning the workspace's
+    // other agents is not a way in either.
+    const restricted = action({
+      createdById: AGENT,
+      createdBy: byAgentOf(OTHER),
+      project: project({ isRestricted: true, workspace: inWorkspace("member") }),
+    });
+    expect(canRead(restricted)).toBe(false);
   });
 
   it("restricted project: workspace member is refused, owner escape hatch allowed", () => {

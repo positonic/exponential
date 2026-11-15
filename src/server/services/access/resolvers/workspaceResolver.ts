@@ -140,6 +140,28 @@ export function buildWorkspaceAccessWhere(userId: string) {
 }
 
 /**
+ * Build a Prisma WHERE clause that matches workspaces the user holds a
+ * **write role** in: the DB-level twin of
+ * `canEditWorkspaceContent((await getWorkspaceMembership(…))?.role)`.
+ *
+ * A direct `owner` / `admin` / `member` row qualifies. Team-based access
+ * resolves to `member`, but only without a direct row: `getWorkspaceMembership`
+ * lets the direct row win, so a direct `viewer` stays a viewer. Guests never
+ * match.
+ */
+export function buildWorkspaceWriteWhere(userId: string) {
+  return {
+    OR: [
+      { members: { some: { userId, role: { in: ["owner", "admin", "member"] } } } },
+      {
+        teams: { some: { members: { some: { userId } } } },
+        members: { none: { userId } },
+      },
+    ],
+  };
+}
+
+/**
  * Build a Prisma WHERE clause that matches workspaces the user can SEE,
  * including project-only members ("guests").
  *
