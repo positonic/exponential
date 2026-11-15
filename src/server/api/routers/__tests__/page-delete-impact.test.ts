@@ -375,3 +375,43 @@ describe("page.deleteImpact", () => {
     expect((error as TRPCError).code).toBe("FORBIDDEN");
   });
 });
+
+describe("page.duplicate needs edit access", () => {
+  const db = getDbMock();
+  beforeEach(() => mockReset(db));
+
+  it("refuses a workspace viewer before writing anything: a copy would make read-only content editable", async () => {
+    install(db, buildWorkspace([{ id: TARGET, createdById: SOMEONE, updatedAt: 1 }]));
+    const viewer = createMockCaller({ userId: WS_VIEWER, db });
+
+    for (const withSubpages of [false, true]) {
+      const error = await viewer.page.duplicate({ id: TARGET, withSubpages }).then(
+        () => null,
+        (e: unknown) => e,
+      );
+      expect(error).toBeInstanceOf(TRPCError);
+      expect((error as TRPCError).code).toBe("FORBIDDEN");
+    }
+    expect(db.$transaction).not.toHaveBeenCalled();
+    expect(db.knowledgePage.create).not.toHaveBeenCalled();
+  });
+
+  it("refuses a member shared the page as Viewer, who could otherwise place a copy", async () => {
+    // The case the old view-only rule let through: a workspace member (so the
+    // placement gate passes) with a viewer grant on someone's invite-only page.
+    install(
+      db,
+      buildWorkspace([{ id: TARGET, createdById: SOMEONE, isInviteOnly: true, updatedAt: 1 }]),
+    );
+    db.knowledgePageMember.findUnique.mockResolvedValue({ role: "viewer" } as never);
+    const me = createMockCaller({ userId: ME, db });
+
+    const error = await me.page.duplicate({ id: TARGET }).then(
+      () => null,
+      (e: unknown) => e,
+    );
+    expect(error).toBeInstanceOf(TRPCError);
+    expect((error as TRPCError).code).toBe("FORBIDDEN");
+    expect(db.knowledgePage.create).not.toHaveBeenCalled();
+  });
+});

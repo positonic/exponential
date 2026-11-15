@@ -592,6 +592,38 @@ describe("page router", () => {
       expect(await caller.page.parentCrumb({ id: midCopy! })).toEqual({ id: copy.id, title: "Root (copy)" });
     });
 
+    it("duplicating with sub-pages skips a sub-page the caller can only view, linking to the original", async () => {
+      const owner = await createUser(db);
+      const member = await createUser(db);
+      const ws = await createWorkspace(db, { ownerId: owner.id, slug: "pg-links-dup-viewonly" });
+      await addWorkspaceMember(db, ws.id, member.id, "member");
+      const caller = createTestCaller(owner.id);
+      // A sub-page the member is shared as Viewer only: they can see it, not edit it.
+      const privateChild = await createPage(db, {
+        createdById: owner.id,
+        workspaceId: ws.id,
+        title: "Private child",
+        isInviteOnly: true,
+      });
+      await caller.page.invite({ id: privateChild.id, userIds: [member.id], role: "viewer" });
+      const openLeaf = await caller.page.create({ workspaceId: ws.id, title: "Open leaf" });
+      // A project-less page, so the member can edit it and duplicate it.
+      const root = await caller.page.create({
+        workspaceId: ws.id,
+        title: "Root",
+        bodyDoc: linkDoc(privateChild.id, openLeaf.id),
+      });
+
+      const copy = await createTestCaller(member.id).page.duplicate({ id: root.id, withSubpages: true });
+      const links = await storedLinks(db, copy.id);
+      // The view-only sub-page wasn't copied: the copy still links to it.
+      expect(links).toContain(privateChild.id);
+      // The editable one was copied, and the copy links to the copy.
+      expect(links).not.toContain(openLeaf.id);
+      expect(links).toHaveLength(2);
+      expect(await db.knowledgePage.count({ where: { title: "Private child" } })).toBe(1);
+    });
+
     it("the migration's backfill SQL derives the same rows as syncPageLinks", async () => {
       const owner = await createUser(db);
       const ws = await createWorkspace(db, { ownerId: owner.id, slug: "pg-links-backfill" });
@@ -903,12 +935,25 @@ describe("page router", () => {
       expect(sharing.invitees.map((i) => i.id)).toEqual([invitee.id]);
     });
 
-    it("a duplicate of an invite-only page stays invite-only, owned by the duplicator, with no invitees", async () => {
-      const { author, invitee, page } = await setup("pg-io-dup");
+    it("a viewer grant can't duplicate the page: copying needs edit access", async () => {
+      const { author, invitee, page } = await setup("pg-io-dup-viewer");
       await createTestCaller(author.id).page.invite({
         id: page.id,
         userIds: [invitee.id],
         role: "viewer",
+      });
+      await expect(createTestCaller(invitee.id).page.duplicate({ id: page.id })).rejects.toMatchObject({
+        code: "FORBIDDEN",
+      });
+    });
+
+    it("a duplicate of an invite-only page stays invite-only, owned by the duplicator, with no invitees", async () => {
+      const { author, invitee, page } = await setup("pg-io-dup");
+      // Editor: duplicating needs edit access on the source.
+      await createTestCaller(author.id).page.invite({
+        id: page.id,
+        userIds: [invitee.id],
+        role: "editor",
       });
       const { id } = await createTestCaller(invitee.id).page.duplicate({ id: page.id });
       const copy = await db.knowledgePage.findUniqueOrThrow({
@@ -932,10 +977,11 @@ describe("page router", () => {
         projectId: project.id,
         isInviteOnly: true,
       });
+      // Editor: duplicating needs edit access on the source.
       await createTestCaller(author.id).page.invite({
         id: page.id,
         userIds: [invitee.id],
-        role: "viewer",
+        role: "editor",
       });
       const { id } = await createTestCaller(invitee.id).page.duplicate({ id: page.id });
       const copy = await db.knowledgePage.findUniqueOrThrow({

@@ -1766,7 +1766,7 @@ export const pageRouter = createTRPCRouter({
     }),
 
   /**
-   * Duplicate a Page: view access on the source + the same placement gate as
+   * Duplicate a Page: edit access on the source + the same placement gate as
    * create (so the copy lands with identical visibility — same project /
    * workspace, per ADR-0038). Copies content and the search toggle; the copy
    * is owned by the duplicator and never inherits publish state. An
@@ -1776,7 +1776,7 @@ export const pageRouter = createTRPCRouter({
    * With `withSubpages`, the whole sub-tree is copied (ADR-0039): BFS the
    * `pageLink` graph (workspace-scoped, cycle-safe, capped at
    * {@link LINKED_PAGES_LIMIT}), deep-copy the reachable pages the caller can
-   * both view and place, remap old→new ids, and rewrite the copied bodies'
+   * both edit and place, remap old→new ids, and rewrite the copied bodies'
    * `pageLink` targets so the copy links to the copies. Links to pages that
    * can't be copied (no access, or beyond the cap) keep pointing at the
    * originals. Only the root is titled "(copy)"; sub-pages keep their names.
@@ -1787,7 +1787,11 @@ export const pageRouter = createTRPCRouter({
       const userId = ctx.session.user.id;
       const page = await loadPageForAccess(ctx.db, input.id);
       assertNotRow(page, "duplicating");
-      await ensurePageAccess(ctx.db, userId, page, "view");
+      // Edit, not view: a copy is a new page the duplicator owns and can
+      // edit, so copying would turn read-only content into editable content.
+      // The Page actions menu offers Duplicate to editors only; this is the
+      // rule itself, so a viewer calling the API directly is refused too.
+      await ensurePageAccess(ctx.db, userId, page, "edit");
       const rootPlacement = await copyPlacement(ctx.db, userId, page);
       if (!rootPlacement) {
         // Re-run the throwing gate for its specific error message.
@@ -1835,6 +1839,9 @@ export const pageRouter = createTRPCRouter({
         for (const id of extraIds) {
           const row = rowById.get(id);
           if (!row) continue;
+          // Same rule as the root: a sub-page the caller can only view is not
+          // copied, and the copy keeps linking to the original.
+          if (!canEditKnowledgePage(await getKnowledgePageAccess(ctx.db, userId, row))) continue;
           const placeKey = `${row.workspaceId}:${row.projectId ?? ""}:${row.isInviteOnly}`;
           let placement = placements.get(placeKey);
           if (placement === undefined) {
