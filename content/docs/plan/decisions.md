@@ -4,7 +4,7 @@ description: "The Decision Log: every choice your workspace made, where it came 
 section: plan
 order: 4
 icon: IconFlag
-updated: 2026-10-23
+updated: 2026-11-15
 ---
 
 A decision is a recorded choice: one line saying what was decided, the context and alternatives behind it, who decided and when, and where it came from, whether a meeting, a person, or an agent. The Decision Log keeps them beside the architecture decision records (ADRs) of the repositories your workspace tracks, so "why did we do it this way?" has one answer for product and engineering alike. An open question is simply a decision that has not been made yet.
@@ -54,7 +54,7 @@ Open a meeting's **Decisions** tab and click **Extract decisions & questions**. 
 
 ## How to sync ADRs from git
 
-1. Track the repositories under [Settings → Integrations](/settings/integrations) → **GitHub Repositories** (this needs the GitHub App installed by an administrator); see [GitHub, Google & Monday.com](/docs/integrations/github-google-monday).
+1. Track the repositories under [workspace settings → Integrations](/go/settings?section=integrations) → **GitHub** (this needs the GitHub App installed by an administrator); see [GitHub, Google & Monday.com](/docs/integrations/github-google-monday).
 2. Open [workspace settings → **Decisions**](/go/settings/decisions) and enrol the repositories whose `docs/adr` files should appear.
 3. ADRs are projected read-only; git stays the source of truth. Their content becomes readable by every workspace member, including people without access to the repository on GitHub, so enrol deliberately.
 

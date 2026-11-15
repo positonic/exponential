@@ -31,7 +31,7 @@ import { suggestShortCode } from "~/lib/adr/shortCode";
 /**
  * Decision Log enrolment (settings → decisions): bulk multi-select over the
  * workspace's tracked repos with auto-suggested short codes, ADR path probe,
- * and product assignment. Modeled on GithubRepositoriesCard (ADR-0020).
+ * and product assignment. Modeled on GithubRepositoriesSettings (ADR-0020).
  */
 
 interface RowState {

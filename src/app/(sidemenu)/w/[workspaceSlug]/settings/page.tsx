@@ -33,6 +33,7 @@ import {
   IconCoin,
   IconSun,
   IconCalendarCheck,
+  IconBrandGithub,
   IconBrandSlack,
   IconBrandNotion,
   IconRefresh,
@@ -53,7 +54,7 @@ import {
   IconAlertTriangle,
   type Icon as TablerIcon,
 } from '@tabler/icons-react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { useRef, useState } from 'react';
 import { useWorkspace } from '~/providers/WorkspaceProvider';
 import { api } from '~/trpc/react';
@@ -64,6 +65,7 @@ import { PendingInvitationsTable } from '~/app/_components/PendingInvitationsTab
 import { WorkspaceTeamsSection } from '~/app/_components/WorkspaceTeamsSection';
 import { PositionsSection } from '~/app/_components/PositionsSection';
 import { SlackChannelSettings } from '~/app/_components/SlackChannelSettings';
+import { GithubRepositoriesSettings } from '~/app/_components/integrations/GithubRepositoriesSettings';
 import { ZulipSettings } from '~/app/_components/ZulipSettings';
 import { MatrixServerSettings } from '~/app/_components/MatrixServerSettings';
 import { SentrySettings } from '~/app/_components/SentrySettings';
@@ -92,21 +94,32 @@ import {
 import { WorkspaceUpdatesSettings } from '~/app/_components/settings/WorkspaceUpdatesSettings';
 import { AiFeaturesSettings } from '~/app/_components/settings/AiFeaturesSettings';
 
-type SectionId =
-  | 'general'
-  | 'members'
-  | 'teams'
-  | 'features'
-  | 'integrations'
-  | 'plugins'
-  | 'ceremonies'
-  | 'updates'
-  | 'danger';
+const SECTION_IDS = [
+  'general',
+  'members',
+  'teams',
+  'features',
+  'integrations',
+  'plugins',
+  'ceremonies',
+  'updates',
+  'danger',
+] as const;
+
+type SectionId = (typeof SECTION_IDS)[number];
+
+/** `?section=integrations` opens that section, so other pages and OAuth returns can link to it. */
+function sectionFromParam(value: string | null): SectionId {
+  return SECTION_IDS.find((id) => id === value) ?? 'general';
+}
 
 export default function WorkspaceSettingsPage() {
   const router = useRouter();
   const { workspace, workspaceId, isLoading, userRole, refetchWorkspace } = useWorkspace();
-  const [section, setSection] = useState<SectionId>('general');
+  const searchParams = useSearchParams();
+  const [section, setSection] = useState<SectionId>(() =>
+    sectionFromParam(searchParams.get('section')),
+  );
   const [editingField, setEditingField] = useState<'name' | 'description' | 'aiInstructions' | null>(null);
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
@@ -1476,6 +1489,16 @@ export default function WorkspaceSettingsPage() {
                   workspace={{ id: workspaceId, name: workspace.name }}
                   canManage={canEdit}
                 />
+              </SettingsSection>
+            )}
+
+            {workspaceId && (
+              <SettingsSection
+                icon={IconBrandGithub}
+                title="GitHub"
+                description="Choose the repositories this workspace tracks. Their pull requests and commits feed the activity feed, delivery metrics and the Decision Log."
+              >
+                <GithubRepositoriesSettings />
               </SettingsSection>
             )}
 

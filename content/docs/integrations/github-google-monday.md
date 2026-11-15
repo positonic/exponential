@@ -4,16 +4,16 @@ description: Track repositories so pull requests show up in activity and metrics
 section: integrations
 order: 4
 icon: IconBrandGithub
-updated: 2026-09-28
+updated: 2026-11-15
 ---
 
 Three integrations that reach outside the meeting-and-chat loop. **GitHub** connects your workspace to the repositories it ships from, so commits and pull requests feed the activity feed, delivery metrics and the Decision Log's ADR sync. **Google** covers calendar access and importing the people you already know. **Monday.com** pushes actions to a board for teams that plan there.
 
-![Settings → Integrations: Google Calendar early access, calendar feeds and the GitHub Repositories card](/doc-assets/google-access.png)
+![Settings → Integrations: Google Calendar early access and calendar feeds](/doc-assets/google-access.png)
 
 ## Where to find it
 
-- GitHub: [Settings → Integrations](/settings/integrations) → **GitHub Repositories**. The repositories you add are tracked by the workspace you are in.
+- GitHub: [workspace settings → Integrations](/go/settings?section=integrations) → **GitHub**. The repositories you add are tracked by that workspace.
 - Google: [Settings → Integrations](/settings/integrations) for Google Calendar; the CRM's **Import Contacts** dialog for Google Contacts and calendar-derived contacts.
 - Monday.com: [Workflows](/workflows) (from your user menu) → **Monday.com Boards** → **Configure**.
 
@@ -21,8 +21,8 @@ Three integrations that reach outside the meeting-and-chat loop. **GitHub** conn
 
 GitHub is connected through a GitHub App that an administrator of your installation installs on your organisation; a workspace then chooses which of the App's repositories to track. There is no pasting of personal tokens.
 
-1. Ask your administrator to install the Exponential GitHub App on the organisation and grant it the repositories. Until then the card reads "GitHub isn't set up on this deployment yet".
-2. In [Settings → Integrations](/settings/integrations), open **GitHub Repositories**, search the repositories the App can see and add the ones this workspace ships from. A repository can be tracked by more than one workspace.
+1. Ask your administrator to install the Exponential GitHub App on the organisation and grant it the repositories. Until then the section reads "GitHub isn't set up on this deployment yet".
+2. In [workspace settings → Integrations](/go/settings?section=integrations), open **GitHub**, search the repositories the App can see and add the ones this workspace ships from. A repository can be tracked by more than one workspace.
 3. From then on the workspace reads that repository's activity through the App: pull requests and commits appear in the [activity feed](/docs/collaborate/workspaces), merged-PR turnaround feeds the Products plugin's Metrics page, and `docs/adr` files can be projected into the [Decision Log](/docs/plan/decisions).
 
 ## How to use Google

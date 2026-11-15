@@ -14,11 +14,11 @@ import { useWorkspace } from "~/providers/WorkspaceProvider";
  *    owners/admins, who have the controls to act on it.
  *  - Hidden once `CONNECTED` (the workspace tracks at least one repo).
  *  - Hidden when `NOT_CONFIGURED` — don't nag with a CTA that leads nowhere;
- *    `/integrations` shows the graceful state instead.
+ *    workspace settings → Integrations shows the graceful state instead.
  *  - Hidden for plain members.
  */
 export function GithubConnectCta() {
-  const { workspaceId, userRole } = useWorkspace();
+  const { workspaceId, workspaceSlug, userRole } = useWorkspace();
   const isOwnerOrAdmin = userRole === "owner" || userRole === "admin";
 
   const { data } = api.github.getGithubConnectionState.useQuery(
@@ -52,7 +52,7 @@ export function GithubConnectCta() {
           </Group>
           <Button
             component={Link}
-            href="/integrations"
+            href={`/w/${workspaceSlug ?? ""}/settings?section=integrations`}
             variant="filled"
             color="brand"
             size="sm"

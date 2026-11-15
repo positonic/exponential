@@ -16,7 +16,8 @@ import { api } from '~/trpc/react';
  *  - otherwise (members, or not configured) → hidden
  */
 export function GithubReposPanel() {
-  const { workspaceId, userRole } = useWorkspace();
+  const { workspaceId, workspaceSlug, userRole } = useWorkspace();
+  const manageHref = `/w/${workspaceSlug ?? ''}/settings?section=integrations`;
   const isOwnerOrAdmin = userRole === 'owner' || userRole === 'admin';
   const [query, setQuery] = useState('');
 
@@ -91,7 +92,7 @@ export function GithubReposPanel() {
           </p>
           <Button
             component={Link}
-            href="/integrations"
+            href={manageHref}
             variant="filled"
             color="brand"
             size="xs"
@@ -142,7 +143,7 @@ export function GithubReposPanel() {
           )}
 
           <Link
-            href="/integrations"
+            href={manageHref}
             className="wsa-card__caption"
             style={{ marginTop: 10, display: 'inline-block' }}
           >

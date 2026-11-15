@@ -5,7 +5,7 @@ section: self-hosting
 order: 1
 icon: IconSettings
 sidebarTitle: Overview
-updated: 2026-11-14
+updated: 2026-11-15
 ---
 
 Exponential is open source and can run on your own infrastructure. Everything in the rest of these docs describes the product as a user sees it; this page is for the person operating an installation. If you use exponential.im, you can skip it.
@@ -47,7 +47,7 @@ The complete list is validated in `src/env.js` in the repository. These are the 
 | `NEXT_PUBLIC_VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` | Web push notifications. |
 | `UPSTASH_REDIS_REST_URL` / `UPSTASH_REDIS_REST_TOKEN` | Rate limiting for public endpoints. |
 | `NEXT_PUBLIC_SENTRY_DSN` | Error reporting. |
-| The GitHub App credentials | Enable the **GitHub Repositories** card in workspace settings. |
+| The GitHub App credentials | Enable the **GitHub** section in workspace settings → Integrations. |
 
 With no AI variable set the app is a plain project and task tool: each AI feature is hidden or says how to turn it on, and the startup log lists what is on.
 

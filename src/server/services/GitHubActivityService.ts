@@ -142,7 +142,7 @@ async function findIntegrationForRepo(
 ): Promise<{ integrationId: string; workspaceId: string } | null> {
   // Preferred: the workspace GitHub App install (ADR-0020) tracks which repos a
   // workspace follows in the WorkspaceRepository table. This is how repos
-  // connected via /settings/integrations are registered — the legacy
+  // connected via workspace settings → Integrations are registered — the legacy
   // github_metadata credential below is NOT written by that flow, so without
   // this lookup every PR/push webhook for an App-installed repo was dropped and
   // no GitHubActivity was ever recorded.

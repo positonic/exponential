@@ -5,7 +5,7 @@ section: integrations
 order: 1
 icon: IconPlug
 sidebarTitle: Overview
-updated: 2026-10-23
+updated: 2026-11-15
 ---
 
 Exponential connects to the tools your work already flows through: meeting recorders send transcripts in, chat apps let you talk to Zoe, and task tools stay in sync. Connections are personal (they live under your account, not the workspace) unless a page says otherwise.
@@ -30,7 +30,7 @@ Exponential connects to the tools your work already flows through: meeting recor
 | [Monday.com](/docs/integrations/github-google-monday) | Sync actions with a Monday.com board (push, pull or both) | Workflows → **Monday.com Boards** → Configure |
 | Calendar feeds | Subscribe to a published calendar by its ICS address (works with Outlook); events refresh every 15 minutes and appear on Today | Settings → Integrations → **Add calendar feed** |
 | [Google Calendar](/docs/integrations/github-google-monday) | Two-way calendar access; in early access while Google verification completes | Settings → Integrations → **Request Access** |
-| [GitHub](/docs/integrations/github-google-monday) | Track repositories so pull requests and commits show in activity and metrics; needs the GitHub App installed by an administrator | Settings → Integrations → **GitHub Repositories** |
+| [GitHub](/docs/integrations/github-google-monday) | Track repositories so pull requests and commits show in activity and metrics; needs the GitHub App installed by an administrator | Workspace settings → Integrations → **GitHub** |
 | Email (IMAP) | Read a mailbox for the CRM | Settings → Integrations → **Add Integration** → Email (IMAP) |
 | [iOS shortcut](/docs/capture/ios-shortcut), [Chrome extension](/docs/capture/chrome-extension) | Capture actions from your phone or browser using an API key | [Settings → API keys](/settings/api-keys) |
 

@@ -177,7 +177,7 @@ export async function GET(request: NextRequest) {
     if (workspaceId) {
       const membership = await db.workspaceUser.findFirst({
         where: { workspaceId, userId: session.user.id },
-        select: { id: true },
+        select: { id: true, workspace: { select: { slug: true } } },
       });
       if (!membership) {
         return NextResponse.redirect(
@@ -201,8 +201,11 @@ export async function GET(request: NextRequest) {
         processedInstallations.delete(installation_id);
       }, 60000);
 
+      // Back to the workspace the install was started from. `/integrations`
+      // carries no workspace, so it showed the default workspace's repositories
+      // instead of the one that was just connected.
       return NextResponse.redirect(
-        `${BASE_URL}/integrations?github_connected=true`,
+        `${BASE_URL}/w/${membership.workspace.slug}/settings?section=integrations&github_connected=true`,
       );
     }
 

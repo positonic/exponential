@@ -131,8 +131,11 @@ export function PrsWaitingCard({ prs, basePath }: { prs: ManagerOverviewData["pr
       </header>
       {!prs.hasData ? (
         <p className="mo-empty">
-          No pull request data yet. Track repositories under Settings → Integrations, then assign them to
-          this product in{" "}
+          No pull request data yet. Track repositories under{" "}
+          <Link href={`${basePath.split("/products/")[0]}/settings?section=integrations`} className="mo-link">
+            workspace settings → Integrations
+          </Link>
+          , then assign them to this product in{" "}
           <Link href={`${basePath.split("/products/")[0]}/settings/decisions`} className="mo-link">
             workspace settings → Decisions
           </Link>

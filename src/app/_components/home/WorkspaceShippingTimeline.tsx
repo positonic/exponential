@@ -1,6 +1,7 @@
 'use client';
 
 import { useMemo, useState } from 'react';
+import Link from 'next/link';
 import {
   Alert,
   Anchor,
@@ -85,7 +86,7 @@ function categoryOf(item: TimelineItem): CommitCategory {
  * state, so an incomplete timeline never silently reads as a complete one.
  */
 export function WorkspaceShippingTimeline() {
-  const { workspaceId, isLoading: workspaceLoading } = useWorkspace();
+  const { workspaceId, workspaceSlug, isLoading: workspaceLoading } = useWorkspace();
   const [days, setDays] = useState('30');
   const [repo, setRepo] = useState<string | null>(null);
 
@@ -138,8 +139,12 @@ export function WorkspaceShippingTimeline() {
         >
           This workspace isn&apos;t tracking any GitHub repositories, so nothing
           can appear here. Connect them in{' '}
-          <Anchor href="/settings/integrations" size="sm">
-            Settings → Integrations
+          <Anchor
+            component={Link}
+            href={`/w/${workspaceSlug ?? ''}/settings?section=integrations`}
+            size="sm"
+          >
+            workspace settings → Integrations
           </Anchor>
           . Until a repo is registered, its webhooks are received and discarded.
         </Alert>
