@@ -128,6 +128,13 @@ const config = {
         destination: "/features/team-weekly-review",
         permanent: true,
       },
+      // There was never capacity planning behind this page; it now covers
+      // the delivery metrics that exist.
+      {
+        source: "/features/team-capacity",
+        destination: "/features/team-metrics",
+        permanent: true,
+      },
       // The public bounty board was retired (Nov 2026). Its pages and blog post
       // were indexed, so send visitors somewhere useful instead of a 404.
       { source: "/explore/:path*", destination: "/", permanent: true },

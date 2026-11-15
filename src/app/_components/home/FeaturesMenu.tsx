@@ -77,7 +77,7 @@ const featureColumns: FeatureColumn[] = [
       {
         icon: IconCheck,
         title: "Actions",
-        description: "Tasks that connect to your goals",
+        description: "Tasks your team and agents share",
         href: "/features/actions",
       },
       {
@@ -112,7 +112,7 @@ const featureColumns: FeatureColumn[] = [
       {
         icon: IconMicrophone,
         title: "Meeting Intelligence",
-        description: "Auto-capture action items",
+        description: "Meetings into actions and decisions",
         href: "/features/meeting-intelligence",
       },
     ],
@@ -122,14 +122,14 @@ const featureColumns: FeatureColumn[] = [
     items: [
       {
         icon: IconBriefcase,
-        title: "AI Project Manager",
-        description: "Status, risks and follow-ups drafted for you",
+        title: "AI Teammate",
+        description: "Assign an action to your AI assistant",
         href: "/features/ai-project-manager",
       },
       {
         icon: IconBolt,
-        title: "AI Workflows",
-        description: "Hand work to agents and review the result",
+        title: "Automations",
+        description: "Agendas, updates and follow-ups",
         href: "/features/ai-workflows",
       },
     ],
@@ -146,14 +146,14 @@ const featureColumns: FeatureColumn[] = [
       {
         icon: IconChartBar,
         title: "Team Weekly Review",
-        description: "See what everyone and every agent is doing",
+        description: "Async weekly check-ins",
         href: "/features/team-weekly-review",
       },
       {
         icon: IconCalendarStats,
-        title: "Team Capacity",
-        description: "Track human and AI capacity",
-        href: "/features/team-capacity",
+        title: "Team Metrics",
+        description: "Velocity, completion and PRs per cycle",
+        href: "/features/team-metrics",
       },
     ],
   },

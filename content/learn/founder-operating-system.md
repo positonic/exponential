@@ -1,6 +1,6 @@
 ---
 title: "The Founder Operating System in the AI Era"
-description: "Traditional productivity tools were built for employees, not founders. Here's the operating system designed for how founders actually work — with AI handling execution while you steer."
+description: "Productivity tools were built for employees, not founders. Here's an operating system for how founders work: AI handles execution while you steer."
 date: "2026-02-27"
 author: "James Farrell"
 tags: ["productivity", "AI", "founders", "operating system"]

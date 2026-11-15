@@ -1,6 +1,6 @@
 ---
 title: "Why We Chose AGPL-3.0 (And What It Means for You)"
-description: "We open-sourced Exponential under the AGPL. Here's why we picked the most protective open source license, what you can and can't do with the code, and how it fits our vision for AI-native collaboration."
+description: "Why we open-sourced Exponential under the AGPL, the most protective open source license, and what you can and can't do with the code."
 date: "2026-02-23"
 author: "Exponential Team"
 tags: ["open-source", "licensing", "building-in-public"]

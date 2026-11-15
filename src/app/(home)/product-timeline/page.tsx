@@ -29,6 +29,17 @@ export default async function ProductTimelinePage() {
       <MarketingHeader session={session} mobileNav />
 
       <main className="py-8 md:py-12">
+        {/* Server-rendered so crawlers get a heading and an intro; the
+            timeline itself loads on the client. */}
+        <header className="mx-auto max-w-3xl px-4 pt-8">
+          <h1 className="mkt-h2 mb-3">Product Timeline</h1>
+          <p className="mkt-body mb-2">
+            Every change we make to {PRODUCT_NAME}, straight from our git
+            history: features, fixes and releases, newest first. {PRODUCT_NAME}{" "}
+            is open source, so each entry links to the commit or release behind
+            it.
+          </p>
+        </header>
         <ProductTimelineClient />
       </main>
 

@@ -1,6 +1,6 @@
 ---
 title: "The Self-Steering Method: Why the Future of Productivity Is Human Direction + AI Execution"
-description: "Vitalik Buterin's 'AI as the engine, humans as the steering wheel' wasn't about productivity — but it should have been. Here's the framework we're building Exponential around."
+description: "Vitalik Buterin's 'AI as the engine, humans as the steering wheel' wasn't about productivity — but it should have been. Here's the framework we build on."
 date: "2026-02-24"
 author: "James Farrell"
 tags: ["productivity", "AI", "framework", "product"]
