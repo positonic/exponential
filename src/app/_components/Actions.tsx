@@ -4,6 +4,7 @@ import { api } from "~/trpc/react";
 import { ActionsList } from './actions/ActionsList';
 import type { BulkActionDef } from './actions/components/BulkEditToolbar';
 import type { Action } from "~/lib/actions/types";
+import { withoutPausedProjects } from "~/lib/actions/pausedProjects";
 import { CreateActionModal } from './CreateActionModal';
 import { KanbanBoard } from './KanbanBoard';
 import { IconLayoutKanban, IconList, IconBrandNotion, IconRefresh, IconFilterOff, IconTag, IconFilter, IconArchive, IconSearch, IconCircleDot, IconFlag, IconUser, IconLink } from "@tabler/icons-react";
@@ -274,11 +275,19 @@ export function Actions({ viewName, defaultView = 'list', projectId, displayAlig
     });
   }, [notionUnassignedQuery.data]);
 
+  // Outside a project, these are "my actions" views (today, inbox, upcoming,
+  // all): an On hold, Completed or Cancelled project's actions are off the
+  // plate there. The project's own page lists all of its actions.
+  const myPlateActions = useMemo(
+    () => (allActionsQuery.data ? withoutPausedProjects(allActionsQuery.data) : undefined),
+    [allActionsQuery.data],
+  );
+
   // Use filtered results if Notion unassigned filter is active, otherwise use normal query
   // All three queries return the same shape, so we can safely union them
   const actionsBeforeTagFilter = projectId
     ? projectActionsQuery.data
-    : (showNotionUnassigned ? notionUnassignedTodayData : allActionsQuery.data);
+    : (showNotionUnassigned ? notionUnassignedTodayData : myPlateActions);
 
   // Apply tag filter if tags are selected
   const actions = useMemo(() => {

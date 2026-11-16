@@ -15,6 +15,7 @@ import {
   ticketDisplayId,
 } from '~/app/_components/product/overview/overviewShared';
 import { toPlainText } from '~/lib/content/plainText';
+import { withoutPausedProjects } from '~/lib/actions/pausedProjects';
 import { completeActionPatch, DoneCheckbox } from '~/app/_components/home/shared/DoneCheckbox';
 
 const MAX_ROWS = 6;
@@ -58,7 +59,8 @@ export function TodayPanel() {
 
   // status === 'ACTIVE' alone is not enough: legacy rows completed from the
   // kanban board carry kanbanStatus DONE/CANCELLED with status still ACTIVE.
-  const active = (actions ?? []).filter(
+  // A paused project's actions are off the plate.
+  const active = withoutPausedProjects(actions ?? []).filter(
     (a) =>
       a.status === 'ACTIVE' &&
       a.kanbanStatus !== 'DONE' &&

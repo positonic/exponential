@@ -11,6 +11,7 @@ import { useDayRollover } from "~/hooks/useDayRollover";
 import { addDays, hourFloat, startOfLocalDay } from "~/lib/actions/dates";
 import { buildRailBlocks, type RailBlock } from "~/lib/actions/railBlocks";
 import type { Action } from "~/lib/actions/types";
+import { withoutPausedProjects } from "~/lib/actions/pausedProjects";
 import { CreateActionModal } from "../CreateActionModal";
 import { MobileFAB } from "../today-mobile/MobileFAB";
 import { ActionsList } from "./ActionsList";
@@ -58,8 +59,10 @@ export function TodayLayout({ tagIds }: TodayLayoutProps) {
     refetchOnWindowFocus: false,
   });
 
+  // Actions of an On hold, Completed or Cancelled project are off the plate;
+  // the project's own page still lists them.
   const filteredActions = useMemo<ActionData[]>(() => {
-    const all = actionsQuery.data ?? [];
+    const all = withoutPausedProjects(actionsQuery.data ?? []);
     if (!tagIds || tagIds.length === 0) return all;
     return all.filter((a) =>
       a.tags?.some((at) => tagIds.includes(at.tagId.toString())),

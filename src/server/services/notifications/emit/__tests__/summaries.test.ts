@@ -6,6 +6,7 @@ import { generateScheduledSummaries } from "~/server/services/notifications/emit
 import { emitNotification } from "~/server/services/notifications/emit/emitNotification";
 import type { CalendarReader } from "~/server/services/notifications/emit/dailySummary";
 import { reportHandledErrorServer } from "~/server/utils/reportHandledErrorServer";
+import { myPlateActionsWhere } from "~/server/services/actions/myActionsWhere";
 
 vi.mock("~/server/services/notifications/emit/emitNotification", () => ({
   emitNotification: vi.fn().mockResolvedValue(undefined),
@@ -240,21 +241,14 @@ describe("generateScheduledSummaries — daily summary digest", () => {
     expect(subject.message).not.toMatch(/\*\*|\]\(/);
   });
 
-  it("queries the same ownership set as action.getTodaysActions, cross-workspace", async () => {
+  it("queries the same set as action.getTodaysActions, cross-workspace", async () => {
     db.action.findMany.mockResolvedValue([] as never);
 
     await emittedDailySubject();
 
+    // Ownership, ACTIVE, not in a paused project; no workspace scope.
     expect(db.action.findMany).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: {
-          OR: [
-            { createdById: "u1", assignees: { none: {} } },
-            { assignees: { some: { userId: "u1" } } },
-          ],
-          status: "ACTIVE",
-        },
-      }),
+      expect.objectContaining({ where: myPlateActionsWhere("u1") }),
     );
   });
 

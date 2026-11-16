@@ -16,6 +16,7 @@ import {
   ticketDisplayId,
 } from '~/app/_components/product/overview/overviewShared';
 import { toPlainText } from '~/lib/content/plainText';
+import { withoutPausedProjects } from '~/lib/actions/pausedProjects';
 import { completeActionPatch, DoneCheckbox } from '~/app/_components/home/shared/DoneCheckbox';
 
 const MAX_ROWS = 5;
@@ -80,7 +81,8 @@ export function AttentionPanel() {
   startOfToday.setHours(0, 0, 0, 0);
   // status === 'ACTIVE' alone is not enough: legacy rows completed from the
   // kanban board carry kanbanStatus DONE/CANCELLED with status still ACTIVE.
-  const overdue = (actions ?? [])
+  // A paused project's actions are off the overdue pile.
+  const overdue = withoutPausedProjects(actions ?? [])
     .filter(
       (a) =>
         a.status === 'ACTIVE' &&

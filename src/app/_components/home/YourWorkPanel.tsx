@@ -18,6 +18,7 @@ import { ActivityFeed } from './activity/ActivityFeed';
 import './activity/activity-home.css';
 import styles from './YourWorkPanel.module.css';
 import { toPlainText } from '~/lib/content/plainText';
+import { withoutPausedProjects } from '~/lib/actions/pausedProjects';
 import { completeActionPatch, DoneCheckbox } from './shared/DoneCheckbox';
 
 type ActionRow = RouterOutputs['action']['getAll'][number];
@@ -131,7 +132,8 @@ export function YourWorkPanel() {
   const now = new Date();
   // status === 'ACTIVE' alone is not enough: legacy rows completed from the
   // kanban board carry kanbanStatus DONE/CANCELLED with status still ACTIVE.
-  const active = (actions ?? [])
+  // A paused project's actions are off the plate.
+  const active = withoutPausedProjects(actions ?? [])
     .filter(
       (a) =>
         a.status === 'ACTIVE' &&

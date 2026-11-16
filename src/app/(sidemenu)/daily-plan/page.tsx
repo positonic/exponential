@@ -12,6 +12,7 @@ import { FillDayStep } from "./_components/steps/FillDayStep";
 import { ScheduleStep } from "./_components/steps/ScheduleStep";
 import { DocumentStep } from "./_components/steps/DocumentStep";
 import type { RouterOutputs } from "~/trpc/react";
+import { withoutPausedProjects } from "~/lib/actions/pausedProjects";
 
 type WizardStep =
   | "welcome"
@@ -47,21 +48,23 @@ export default function DailyPlanPage() {
   // Fetch all actions for the existing actions panel
   const { data: allActions } = api.action.getAll.useQuery();
 
-  // Filter actions into overdue and scheduled for today
+  // Filter actions into overdue and scheduled for today. A paused project's
+  // actions are left out of both.
   const { overdueActions, todayActions } = useMemo(() => {
     if (!allActions) return { overdueActions: [], todayActions: [] };
+    const onPlate = withoutPausedProjects(allActions);
 
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
-    const overdue = allActions.filter((action) => {
+    const overdue = onPlate.filter((action) => {
       if (!action.scheduledStart || action.status !== "ACTIVE") return false;
       const scheduledDate = new Date(action.scheduledStart);
       scheduledDate.setHours(0, 0, 0, 0);
       return scheduledDate < today;
     });
 
-    const todayList = allActions.filter((action) => {
+    const todayList = onPlate.filter((action) => {
       if (!action.scheduledStart || action.status !== "ACTIVE") return false;
       const scheduledDate = new Date(action.scheduledStart);
       scheduledDate.setHours(0, 0, 0, 0);

@@ -7,6 +7,7 @@ import { api } from '~/trpc/react';
 import { useLocalDay } from '~/hooks/useDayRollover';
 import { useRefetchAfterMutations } from '~/hooks/useRefetchAfterMutations';
 import { partitionActions } from '~/lib/actions/partition';
+import { withoutPausedProjects } from '~/lib/actions/pausedProjects';
 import { isInboxAction } from '~/server/services/actions/myActionsWhere';
 
 /**
@@ -57,7 +58,9 @@ export function useSidebarActionCounts(): {
     if (!listIsFresh || !allActions.data) return undefined;
     return {
       inboxCount: allActions.data.filter(isInboxAction).length,
-      todayCount: partitionActions(allActions.data, { today: day.start }).todays.length,
+      // The server's Today count leaves out paused projects' actions too.
+      todayCount: partitionActions(withoutPausedProjects(allActions.data), { today: day.start })
+        .todays.length,
     };
   }, [listIsFresh, allActions.data, day.start]);
 

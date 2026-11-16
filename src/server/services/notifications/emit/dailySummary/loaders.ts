@@ -8,6 +8,7 @@
 import type { PrismaClient } from "@prisma/client";
 import { formatInTimeZone, toZonedTime } from "date-fns-tz";
 import { partitionActions, type ActionPartition } from "~/lib/actions/partition";
+import { myPlateActionsWhere } from "~/server/services/actions/myActionsWhere";
 import { ticketDisplayId } from "~/lib/fun-ids";
 import { STATUS_ORDER } from "~/lib/ticket-statuses";
 import { currentCycleOrder, currentCycleWhere } from "~/plugins/product/server/currentCycle";
@@ -31,8 +32,8 @@ const UNREFINED_STATUSES = new Set(["BACKLOG", "NEEDS_REFINEMENT", "READY_TO_PLA
  * Today's actions for the digest: exactly the `todays` bucket of the shared
  * `partitionActions` (ADR-0034) over the same ownership set as
  * `action.getTodaysActions` — created-by-me-with-no-assignees OR assigned-to-me,
- * `ACTIVE`, across every workspace — plus the `overdue` bucket (names and
- * count).
+ * `ACTIVE`, not in a paused project, across every workspace — plus the
+ * `overdue` bucket (names and count).
  *
  * `partitionActions` buckets by server-local calendar day. Shifting every
  * instant into the user's timezone frame first (`toZonedTime`, the same shift
@@ -58,13 +59,7 @@ export async function partitionOwnedActions(
   tz: string,
 ): Promise<ActionPartition<OwnedAction>> {
   const actions = await db.action.findMany({
-    where: {
-      OR: [
-        { createdById: userId, assignees: { none: {} } },
-        { assignees: { some: { userId } } },
-      ],
-      status: "ACTIVE",
-    },
+    where: myPlateActionsWhere(userId),
     select: {
       id: true,
       name: true,

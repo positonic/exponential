@@ -14,6 +14,7 @@ import { ToolbarActions } from "./toolbar";
 import { MobileTodayHeader } from "./today-mobile/MobileTodayHeader";
 import { api } from "~/trpc/react";
 import { useDayRollover } from "~/hooks/useDayRollover";
+import { withoutPausedProjects } from "~/lib/actions/pausedProjects";
 
 export type DoFilter = "today" | "tomorrow" | "upcoming";
 
@@ -127,7 +128,7 @@ export function DoPageContent({ initialFilter = "today" }: DoPageContentProps) {
   const mobileTaskCount = useMemo(() => {
     if (!allActionsForMobile) return 0;
     const todayStr = today.toDateString();
-    return allActionsForMobile.filter((a) => {
+    return withoutPausedProjects(allActionsForMobile).filter((a) => {
       if (a.status !== "ACTIVE") return false;
       const due = a.dueDate ? new Date(a.dueDate) : null;
       const sched = a.scheduledStart ? new Date(a.scheduledStart) : null;

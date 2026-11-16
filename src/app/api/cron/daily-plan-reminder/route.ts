@@ -4,6 +4,7 @@ import { headers } from "next/headers";
 import { db } from "~/server/db";
 import { sendPushToUser } from "~/server/services/notifications/WebPushService";
 import { partitionActions } from "~/lib/actions/partition";
+import { myPlateActionsWhere } from "~/server/services/actions/myActionsWhere";
 import { groupOverdueCohorts } from "~/lib/actions/triage";
 import { buildMorningNudge } from "~/server/services/morningNudge";
 
@@ -61,16 +62,11 @@ export async function GET(_request: NextRequest) {
     const results = [];
 
     for (const user of usersWithPush) {
-      // Same ownership rule as action.getTodaysActions: created-by-me with no
-      // assignees, or assigned to me. Cross-workspace, like /today.
+      // The set action.getTodaysActions partitions: created-by-me with no
+      // assignees, or assigned to me, not in a paused project.
+      // Cross-workspace, like /today.
       const actions = await db.action.findMany({
-        where: {
-          OR: [
-            { createdById: user.id, assignees: { none: {} } },
-            { assignees: { some: { userId: user.id } } },
-          ],
-          status: "ACTIVE",
-        },
+        where: myPlateActionsWhere(user.id),
         select: {
           id: true,
           name: true,

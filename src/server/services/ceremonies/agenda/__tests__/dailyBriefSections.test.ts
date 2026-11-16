@@ -7,6 +7,7 @@ import { todaysActionsSection } from "../sections/todays_actions";
 import { todaysMeetingsSection } from "../sections/todays_meetings";
 import { yesterdaySection } from "../sections/yesterday";
 import type { SectionContext } from "../types";
+import { myPlateActionsWhere } from "~/server/services/actions/myActionsWhere";
 
 const { reportHandledErrorServer } = vi.hoisted(() => ({ reportHandledErrorServer: vi.fn() }));
 vi.mock("~/server/utils/reportHandledErrorServer", () => ({ reportHandledErrorServer }));
@@ -105,11 +106,8 @@ describe("todays_actions section", () => {
     const items = await todaysActionsSection.run(ctx(db), { key: "acts", type: "todays_actions", title: "Today's actions" });
 
     const where = db.action.findMany.mock.calls[0]![0]!.where!;
-    expect(where).toMatchObject({ status: "ACTIVE" });
-    expect(where.OR).toEqual([
-      { createdById: "u-1", assignees: { none: {} } },
-      { assignees: { some: { userId: "u-1" } } },
-    ]);
+    // The /today set: ownership, ACTIVE, not in a paused project.
+    expect(where).toEqual(myPlateActionsWhere("u-1"));
     expect(items.map((i) => i.id)).toEqual(["acts:action:a-today", "acts:action:a-old"]);
     expect(items[0]).toMatchObject({ title: "Pay Malte", detail: null, href: "/w/acme/actions/a-today" });
     expect(items[1]).toMatchObject({ title: "Record video with this script", detail: "overdue · due 7 Sept" });

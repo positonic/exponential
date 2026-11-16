@@ -3116,6 +3116,115 @@ describe("action router (mocked)", () => {
       );
     });
   });
+
+  // ────────────────────────────────────────────────────────────────────
+  // Paused projects leave Today's actions (getTodaysActions / getOverdueTriage)
+  // ────────────────────────────────────────────────────────────────────
+  // The mocked findMany evaluates the router's real `where` against in-memory
+  // rows, so these assert what the caller (Zoe, the MCP tools, the CLI) gets
+  // back. The motivating case: a goal whose projects were set On hold kept
+  // every dated action in the overdue pile.
+  describe("paused projects on the plate", () => {
+    const callerId = "caller-1";
+    const now = new Date();
+    const daysAgo = (n: number) => new Date(now.getFullYear(), now.getMonth(), now.getDate() - n, 9);
+    const todayAtNine = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 9);
+
+    type PlateRow = Record<string, unknown> & { id: string };
+    let rows: PlateRow[];
+
+    function plateRow(
+      id: string,
+      projectStatus: string | null,
+      dates: { scheduledStart?: Date | null; dueDate?: Date | null },
+    ): PlateRow {
+      return {
+        id,
+        name: id,
+        status: "ACTIVE",
+        priority: "Quick",
+        createdById: callerId,
+        assignees: [],
+        workspaceId: projectStatus ? null : "ws-1",
+        workspace: projectStatus ? null : { name: "Personal" },
+        projectId: projectStatus ? `p-${id}` : null,
+        project: projectStatus
+          ? { name: `Project ${id}`, status: projectStatus, workspaceId: "ws-1", workspace: { name: "Personal" } }
+          : null,
+        scheduledStart: dates.scheduledStart ?? null,
+        dueDate: dates.dueDate ?? null,
+        completedAt: null,
+      };
+    }
+
+    beforeEach(() => {
+      rows = [
+        plateRow("loose-overdue", null, { scheduledStart: daysAgo(3) }),
+        plateRow("active-overdue", "ACTIVE", { dueDate: daysAgo(3) }),
+        plateRow("active-today", "ACTIVE", { scheduledStart: todayAtNine }),
+        plateRow("loose-inbox", null, {}),
+        // One bulk-dated cohort per paused status, like a generated plan.
+        ...["ON_HOLD", "COMPLETED", "CANCELLED"].flatMap((status) => [
+          plateRow(`${status}-overdue-1`, status, { scheduledStart: daysAgo(10) }),
+          plateRow(`${status}-overdue-2`, status, { scheduledStart: daysAgo(10) }),
+          plateRow(`${status}-overdue-3`, status, { scheduledStart: daysAgo(10) }),
+          plateRow(`${status}-today`, status, { scheduledStart: todayAtNine }),
+        ]),
+      ];
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const matching = (args: any) => rows.filter((r) => matchesWhere(r, args?.where ?? {}));
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      dbMock.action.findMany.mockImplementation(((args: any) => Promise.resolve(matching(args))) as any);
+    });
+
+    const caller = () => createMockCaller({ userId: callerId, db: dbMock });
+    const ids = (group: { actions: Array<{ id: string }> }) => group.actions.map((a) => a.id).sort();
+
+    it("getTodaysActions leaves a paused project's actions out of overdue and today", async () => {
+      const result = await caller().action.getTodaysActions();
+
+      expect(ids(result.overdue)).toEqual(["active-overdue", "loose-overdue"]);
+      expect(result.overdue.count).toBe(2);
+      expect(ids(result.today)).toEqual(["active-today"]);
+      expect(ids(result.inbox)).toEqual(["loose-inbox"]);
+    });
+
+    it("getTodaysActions keeps project-less actions when scoped to a workspace", async () => {
+      const result = await caller().action.getTodaysActions({ workspaceId: "ws-1" });
+
+      expect(ids(result.overdue)).toEqual(["active-overdue", "loose-overdue"]);
+      expect(ids(result.inbox)).toEqual(["loose-inbox"]);
+    });
+
+    it("getOverdueTriage describes the same pile: no cohort from a paused project", async () => {
+      const result = await caller().action.getOverdueTriage();
+
+      expect(result.totalOverdue).toBe(2);
+      expect(result.cohortCount).toBe(0);
+      expect(result.cohorts).toEqual([]);
+      expect(result.loose.map((a) => a.id).sort()).toEqual(["active-overdue", "loose-overdue"]);
+    });
+
+    it("a project set back to Active puts its actions back on the plate", async () => {
+      rows = rows.map((r) =>
+        r.id.startsWith("ON_HOLD")
+          ? { ...r, project: { ...(r.project as Record<string, unknown>), status: "ACTIVE" } }
+          : r,
+      );
+
+      const triage = await caller().action.getOverdueTriage();
+
+      expect(triage.totalOverdue).toBe(5);
+      // cohortCount counts the actions inside cohorts: one cohort of three.
+      expect(triage.cohorts).toHaveLength(1);
+      expect(triage.cohortCount).toBe(3);
+      expect(triage.cohorts[0]?.actionIds.slice().sort()).toEqual([
+        "ON_HOLD-overdue-1",
+        "ON_HOLD-overdue-2",
+        "ON_HOLD-overdue-3",
+      ]);
+    });
+  });
   // ────────────────────────────────────────────────────────────────────
   // Bulk writes are scoped by edit rights, not read rights
   // ────────────────────────────────────────────────────────────────────

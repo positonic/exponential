@@ -7,6 +7,7 @@ import { generateAgentJWT } from "~/server/utils/jwt";
 import { addMinutes, format } from "date-fns";
 import { setTimeInUserTimezone, validateScheduledTimes } from "~/lib/dateUtils";
 import { partitionActions } from "~/lib/actions/partition";
+import { myPlateActionsWhere } from "~/server/services/actions/myActionsWhere";
 import {
   BRIEFING_INTERACTION_TYPES,
   briefingDate,
@@ -354,13 +355,11 @@ export const schedulingRouter = createTRPCRouter({
       // narrower rule here meant the banner could appear on a pile it then had
       // nothing to say about — and it silently ignored every scheduled-but-
       // never-due action, which is the most common overdue shape.
+      // Never proposes slots for a paused project's actions: they are off
+      // the overdue pile the panel is gated on.
       const candidates = await ctx.db.action.findMany({
         where: {
-          OR: [
-            { createdById: userId, assignees: { none: {} } },
-            { assignees: { some: { userId: userId } } },
-          ],
-          status: "ACTIVE",
+          AND: [myPlateActionsWhere(userId)],
           ...(input.actionIds ? { id: { in: input.actionIds } } : {}),
           ...(input.workspaceId ? { workspaceId: input.workspaceId } : {}),
         },

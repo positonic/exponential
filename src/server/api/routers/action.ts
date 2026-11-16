@@ -53,6 +53,8 @@ import {
   myActionsOwnershipWhere,
   myActionsTodayWhere,
   myInboxActionsWhere,
+  myPlateActionsWhere,
+  notInPausedProjectWhere,
   serverLocalDay,
 } from "~/server/services/actions/myActionsWhere";
 import { groupOverdueCohorts, daysOverdue } from "~/lib/actions/triage";
@@ -641,12 +643,15 @@ export const actionRouter = createTRPCRouter({
 
         if (wasOverdue) {
           // Check if all overdue tasks are now cleared
+          // A paused project's actions are off the overdue pile, so they
+          // must not keep it from counting as cleared.
           const remainingOverdue = await ctx.db.action.count({
             where: {
               createdById: ctx.session.user.id,
               status: "ACTIVE",
               id: { not: id },
               scheduledStart: { lt: today },
+              AND: [notInPausedProjectWhere()],
             },
           });
 
@@ -788,29 +793,10 @@ export const actionRouter = createTRPCRouter({
       // Same ownership as action.getAll: created-by-me-with-no-assignees OR
       // assigned-to-me. Cross-workspace by default; optional workspaceId filter
       // matches either the action's own workspace or its project's workspace
-      // (so project-less actions are still scoped correctly).
+      // (so project-less actions are still scoped correctly). Actions in an
+      // On hold, Completed or Cancelled project are not on the plate.
       const actions = await ctx.db.action.findMany({
-        where: {
-          AND: [
-            {
-              OR: [
-                { createdById: userId, assignees: { none: {} } },
-                { assignees: { some: { userId } } },
-              ],
-            },
-            ...(input?.workspaceId
-              ? [
-                  {
-                    OR: [
-                      { workspaceId: input.workspaceId },
-                      { project: { workspaceId: input.workspaceId } },
-                    ],
-                  },
-                ]
-              : []),
-          ],
-          status: "ACTIVE",
-        },
+        where: myPlateActionsWhere(userId, input?.workspaceId),
         select: {
           id: true,
           name: true,
@@ -880,27 +866,7 @@ export const actionRouter = createTRPCRouter({
       // Same ownership and scoping rules as getTodaysActions, so the triage
       // view and the /today page always describe the same pile.
       const actions = await ctx.db.action.findMany({
-        where: {
-          AND: [
-            {
-              OR: [
-                { createdById: userId, assignees: { none: {} } },
-                { assignees: { some: { userId } } },
-              ],
-            },
-            ...(input?.workspaceId
-              ? [
-                  {
-                    OR: [
-                      { workspaceId: input.workspaceId },
-                      { project: { workspaceId: input.workspaceId } },
-                    ],
-                  },
-                ]
-              : []),
-          ],
-          status: "ACTIVE",
-        },
+        where: myPlateActionsWhere(userId, input?.workspaceId),
         select: {
           id: true,
           name: true,

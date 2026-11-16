@@ -2,6 +2,7 @@ import { z } from "zod";
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 import { startOfDay, endOfDay, subDays } from "date-fns";
 import { buildProjectAccessWhere } from "~/server/services/access";
+import { notInPausedProjectWhere } from "~/server/services/actions/myActionsWhere";
 import { isGoogleOAuthTester } from "~/lib/googleAuth";
 
 /**
@@ -170,6 +171,7 @@ export const briefingRouter = createTRPCRouter({
             { assignees: { some: { userId } } },
           ],
           status: "ACTIVE",
+          AND: [notInPausedProjectWhere()],
           dueDate: {
             gte: todayStart,
             lte: todayEnd,
@@ -200,6 +202,7 @@ export const briefingRouter = createTRPCRouter({
             { assignees: { some: { userId } } },
           ],
           status: "ACTIVE",
+          AND: [notInPausedProjectWhere()],
           dueDate: {
             lt: todayStart,
           },
@@ -339,6 +342,7 @@ export const briefingRouter = createTRPCRouter({
               { assignees: { some: { userId } } },
             ],
             status: "ACTIVE",
+            AND: [notInPausedProjectWhere()],
             dueDate: { gte: todayStart, lte: todayEnd },
             ...(workspaceId ? { project: { workspaceId } } : {}),
           },
@@ -352,6 +356,7 @@ export const briefingRouter = createTRPCRouter({
               { assignees: { some: { userId } } },
             ],
             status: "ACTIVE",
+            AND: [notInPausedProjectWhere()],
             dueDate: { lt: todayStart },
             ...(workspaceId ? { project: { workspaceId } } : {}),
           },

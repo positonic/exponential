@@ -4,12 +4,16 @@ import {
   myActionsDueTodayWhere,
   myActionsOwnershipWhere,
   myActionsTodayWhere,
+  myPlateActionsWhere,
+  notInPausedProjectWhere,
   serverLocalDay,
   myInboxActionsWhere,
   myOverdueActionsWhere,
   isInboxAction,
 } from "../myActionsWhere";
 import { partitionActions } from "~/lib/actions/partition";
+import { isInPausedProject, PAUSED_PROJECT_STATUSES } from "~/lib/actions/pausedProjects";
+import { matchesWhere } from "~/test/prismaWhere";
 
 describe("myActionsWhere", () => {
   it("owns actions I created with no assignees, or ones assigned to me", () => {
@@ -56,6 +60,7 @@ describe("myActionsWhere", () => {
     const day = serverLocalDay(new Date(2026, 8, 16, 9));
     expect(myActionsDueTodayWhere("u1", day)).toEqual({
       ...myActionsOwnershipWhere("u1"),
+      AND: [notInPausedProjectWhere()],
       dueDate: { gte: day.start, lt: day.end },
       status: "ACTIVE",
     });
@@ -75,6 +80,7 @@ describe("myActionsWhere", () => {
             { scheduledStart: null, dueDate: inDay },
           ],
         },
+        notInPausedProjectWhere(),
       ],
       status: "ACTIVE",
     });
@@ -85,7 +91,7 @@ describe("myActionsWhere", () => {
     expect(myActionsTodayWhere("u1", day, "w1").AND).toContainEqual({
       OR: [{ workspaceId: "w1" }, { project: { workspaceId: "w1" } }],
     });
-    expect(myActionsTodayWhere("u1", day).AND).toHaveLength(2);
+    expect(myActionsTodayWhere("u1", day).AND).toHaveLength(3);
   });
 
   type Row = {
@@ -181,8 +187,115 @@ describe("myActionsWhere", () => {
             { scheduledStart: null, dueDate: { lt: startOfToday } },
           ],
         },
+        notInPausedProjectWhere(),
       ],
       status: "ACTIVE",
+    });
+  });
+
+  // ── Paused projects ──────────────────────────────────────────────────
+  // Putting a project On hold (or Completed / Cancelled) takes its actions off
+  // the plate. Each builder is evaluated against in-memory rows, so these say
+  // which actions a query admits, not which helper built the clause.
+  describe("paused projects", () => {
+    const today = serverLocalDay(new Date(2026, 10, 16, 9));
+    const yesterday = new Date(2026, 10, 15, 9);
+    const atNine = new Date(2026, 10, 16, 9);
+
+    type PlateRow = {
+      id: string;
+      status: string;
+      createdById: string;
+      assignees: Array<{ userId: string }>;
+      workspaceId: string | null;
+      projectId: string | null;
+      project: { status: string; workspaceId: string } | null;
+      scheduledStart: Date | null;
+      dueDate: Date | null;
+    };
+
+    const row = (
+      id: string,
+      projectStatus: string | null,
+      dates: Partial<Pick<PlateRow, "scheduledStart" | "dueDate">>,
+    ): PlateRow => ({
+      id,
+      status: "ACTIVE",
+      createdById: "u1",
+      assignees: [],
+      workspaceId: null,
+      projectId: projectStatus ? `p-${id}` : null,
+      project: projectStatus ? { status: projectStatus, workspaceId: "w1" } : null,
+      scheduledStart: null,
+      dueDate: null,
+      ...dates,
+    });
+
+    /** One action per project status, plus a project-less one. */
+    const rowsWith = (dates: Partial<Pick<PlateRow, "scheduledStart" | "dueDate">>) => [
+      row("loose", null, dates),
+      row("active-project", "ACTIVE", dates),
+      row("on-hold-project", "ON_HOLD", dates),
+      row("completed-project", "COMPLETED", dates),
+      row("cancelled-project", "CANCELLED", dates),
+    ];
+
+    const admitted = (where: Prisma.ActionWhereInput, rows: PlateRow[]) =>
+      rows.filter((r) => matchesWhere(r, where as Record<string, unknown>)).map((r) => r.id);
+
+    const ON_PLATE = ["loose", "active-project"];
+
+    it("pauses exactly On hold, Completed and Cancelled", () => {
+      expect([...PAUSED_PROJECT_STATUSES].sort()).toEqual(["CANCELLED", "COMPLETED", "ON_HOLD"]);
+    });
+
+    it("keeps project-less actions: the clause is an OR with projectId null, not a NOT", () => {
+      expect(admitted(notInPausedProjectWhere(), rowsWith({}))).toEqual(ON_PLATE);
+    });
+
+    it("agrees with the client-side isInPausedProject on every row", () => {
+      const rows = [...rowsWith({}), row("unknown-status", "SOMETHING_ELSE", {})];
+      for (const r of rows) {
+        expect(matchesWhere(r, notInPausedProjectWhere() as Record<string, unknown>)).toBe(
+          !isInPausedProject(r),
+        );
+      }
+    });
+
+    it("the plate (getTodaysActions / getOverdueTriage) leaves out paused projects' actions", () => {
+      expect(admitted(myPlateActionsWhere("u1"), rowsWith({ scheduledStart: yesterday }))).toEqual(ON_PLATE);
+    });
+
+    it("the plate still scopes by workspace, and keeps a project-less action in it", () => {
+      const rows = rowsWith({}).map((r) => ({ ...r, workspaceId: r.projectId ? null : "w1" }));
+      expect(admitted(myPlateActionsWhere("u1", "w1"), rows)).toEqual(ON_PLATE);
+      expect(admitted(myPlateActionsWhere("u1", "w2"), rows)).toEqual([]);
+    });
+
+    it("the overdue pile leaves out an On hold project's overdue actions", () => {
+      expect(
+        admitted(myOverdueActionsWhere("u1", today.start), rowsWith({ scheduledStart: yesterday })),
+      ).toEqual(ON_PLATE);
+      expect(
+        admitted(myOverdueActionsWhere("u1", today.start), rowsWith({ dueDate: yesterday })),
+      ).toEqual(ON_PLATE);
+    });
+
+    it("today and its badge leave out paused projects' actions", () => {
+      expect(admitted(myActionsTodayWhere("u1", today), rowsWith({ scheduledStart: atNine }))).toEqual(ON_PLATE);
+    });
+
+    it("due today (getToday's default, the CLI's --due-only) leaves them out too", () => {
+      expect(admitted(myActionsDueTodayWhere("u1", today), rowsWith({ dueDate: atNine }))).toEqual(ON_PLATE);
+      // Alongside the project-workspace scope, which a project-less action
+      // never satisfies (unchanged).
+      expect(admitted(myActionsDueTodayWhere("u1", today, "w1"), rowsWith({ dueDate: atNine }))).toEqual([
+        "active-project",
+      ]);
+    });
+
+    it("the inbox needs no clause: it only ever holds project-less actions", () => {
+      expect(admitted(myInboxActionsWhere("u1"), rowsWith({}))).toEqual(["loose"]);
     });
   });
 });

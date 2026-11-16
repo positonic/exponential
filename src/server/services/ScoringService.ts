@@ -1,6 +1,7 @@
 import { type PrismaClient } from "@prisma/client";
 import { startOfDay, endOfDay, subDays, differenceInDays } from "date-fns";
 import { type Context } from "~/server/auth/types";
+import { notInPausedProjectWhere } from "~/server/services/actions/myActionsWhere";
 
 // Types
 export interface DailyScoreBreakdown {
@@ -89,13 +90,16 @@ export class ScoringService {
     let completedHabits = 0;
     let estimationAccuracy: number | null = null;
 
-    // Count overdue actions for the user (scheduled before today, still active)
+    // Count overdue actions for the user (scheduled before today, still
+    // active). A paused project's actions are off the overdue pile, so they
+    // carry no penalty.
     const overdueCount = await ctx.db.action.count({
       where: {
         createdById: userId,
         status: "ACTIVE",
         scheduledStart: { lt: normalizedDate },
         ...(workspaceId ? { workspaceId } : {}),
+        AND: [notInPausedProjectWhere()],
       },
     });
 
