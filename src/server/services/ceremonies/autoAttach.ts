@@ -280,6 +280,26 @@ export async function backfillWorkspaceAttachments(
   return rows;
 }
 
+/** An occurrence row (with its ceremony) as a match candidate. */
+function toCandidate(r: {
+  id: string;
+  workspaceId: string;
+  scheduledStart: Date;
+  ceremony: { name: string; timezone: string; aliases: string[]; durationMinutes: number };
+  scheduledMeeting: { icalUid: string | null } | null;
+}) {
+  return {
+    id: r.id,
+    workspaceId: r.workspaceId,
+    scheduledStart: r.scheduledStart,
+    durationMinutes: r.ceremony.durationMinutes,
+    aliases: r.ceremony.aliases,
+    ceremonyName: r.ceremony.name,
+    timezone: r.ceremony.timezone,
+    scheduledMeetingIcalUid: r.scheduledMeeting?.icalUid ?? null,
+  };
+}
+
 export interface CatchUpResult {
   scanned: number;
   attached: number;
@@ -312,43 +332,44 @@ export async function attachUnlinkedMeetings(
   let attached = 0;
   if (rows.length === 0) return { scanned: 0, attached };
 
-  // One occurrence load per workspace spanning every meeting date in it,
-  // matched in memory (the backfill's batching), then a write per match.
+  // One occurrence load for the whole catch-up: each workspace contributes
+  // its own band spanning every meeting date in it, matched in memory, then
+  // a write per match. (A query per workspace here was an N+1 on the
+  // auto-summarize cron.)
   const byWorkspace = new Map<string, typeof rows>();
   for (const row of rows) {
     const list = byWorkspace.get(row.workspaceId!) ?? [];
     list.push(row);
     byWorkspace.set(row.workspaceId!, list);
   }
-  for (const [wsId, wsRows] of byWorkspace) {
+  const bands = [...byWorkspace].map(([wsId, wsRows]) => {
     const times = wsRows.map((r) => r.meetingDate!.getTime());
-    const occurrenceRows = await db.ceremonyOccurrence.findMany({
-      where: {
-        workspaceId: wsId,
-        ceremony: { isActive: true },
-        scheduledStart: {
-          gte: new Date(Math.min(...times) - CANDIDATE_WINDOW_MS),
-          lte: new Date(Math.max(...times) + CANDIDATE_WINDOW_MS),
-        },
+    return {
+      workspaceId: wsId,
+      scheduledStart: {
+        gte: new Date(Math.min(...times) - CANDIDATE_WINDOW_MS),
+        lte: new Date(Math.max(...times) + CANDIDATE_WINDOW_MS),
       },
-      select: {
-        id: true,
-        workspaceId: true,
-        scheduledStart: true,
-        ceremony: { select: { name: true, timezone: true, aliases: true, durationMinutes: true } },
-        scheduledMeeting: { select: { icalUid: true } },
-      },
-    });
-    const all = occurrenceRows.map((r) => ({
-      id: r.id,
-      workspaceId: r.workspaceId,
-      scheduledStart: r.scheduledStart,
-      durationMinutes: r.ceremony.durationMinutes,
-      aliases: r.ceremony.aliases,
-      ceremonyName: r.ceremony.name,
-      timezone: r.ceremony.timezone,
-      scheduledMeetingIcalUid: r.scheduledMeeting?.icalUid ?? null,
-    }));
+    };
+  });
+  const occurrenceRows = await db.ceremonyOccurrence.findMany({
+    where: { ceremony: { isActive: true }, OR: bands },
+    select: {
+      id: true,
+      workspaceId: true,
+      scheduledStart: true,
+      ceremony: { select: { name: true, timezone: true, aliases: true, durationMinutes: true } },
+      scheduledMeeting: { select: { icalUid: true } },
+    },
+  });
+  const occurrencesByWorkspace = new Map<string, Array<ReturnType<typeof toCandidate>>>();
+  for (const r of occurrenceRows) {
+    const list = occurrencesByWorkspace.get(r.workspaceId) ?? [];
+    list.push(toCandidate(r));
+    occurrencesByWorkspace.set(r.workspaceId, list);
+  }
+  for (const [wsId, wsRows] of byWorkspace) {
+    const all = occurrencesByWorkspace.get(wsId) ?? [];
     for (const row of wsRows) {
       try {
         const at = row.meetingDate!.getTime();

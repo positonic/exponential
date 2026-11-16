@@ -30,6 +30,7 @@ beforeEach(() => {
   mockReset(db);
   vi.clearAllMocks();
   db.notificationPreference.findMany.mockResolvedValue([]);
+  db.notification.findMany.mockResolvedValue([]);
 });
 
 describe("generateDueDateReminders", () => {
@@ -153,5 +154,46 @@ describe("generateDueDateReminders", () => {
     expect(db.notificationPreference.findMany).toHaveBeenCalledTimes(1);
     expect(db.notificationPreference.findUnique).not.toHaveBeenCalled();
     expect(result.emitted).toBe(3);
+  });
+
+  it("skips reminders already sent with one lookup, instead of a full emit per reminder", async () => {
+    // Three actions all crossing their 60-min offset this tick; two of the
+    // reminders went out on an earlier tick of the lookback window.
+    db.action.findMany.mockResolvedValue([
+      action({ id: "a1", assignees: [{ userId: "u1" }] }),
+      action({ id: "a2", assignees: [{ userId: "u2" }] }),
+      action({ id: "a3", assignees: [{ userId: "u3" }] }),
+    ] as never);
+    db.notification.findMany.mockResolvedValue([
+      { dedupeKey: "due_date:a1:60", userId: "u1" },
+      { dedupeKey: "due_date:a3:60", userId: "u3" },
+      // The right key for a different owner does not count as sent to u2.
+      { dedupeKey: "due_date:a2:60", userId: "someone-else" },
+    ] as never);
+
+    const result = await generateDueDateReminders(db, NOW);
+
+    expect(db.notification.findMany).toHaveBeenCalledTimes(1);
+    expect(db.notification.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          dedupeKey: { in: ["due_date:a1:60", "due_date:a2:60", "due_date:a3:60"] },
+          userId: { in: ["u1", "u2", "u3"] },
+        },
+      }),
+    );
+    expect(emitNotification).toHaveBeenCalledTimes(1);
+    expect(emitNotification).toHaveBeenCalledWith(
+      expect.objectContaining({ subject: expect.objectContaining({ actionId: "a2", ownerUserId: "u2" }) }),
+    );
+    expect(result.emitted).toBe(1);
+  });
+
+  it("does not query for sent reminders when nothing crosses an offset", async () => {
+    db.action.findMany.mockResolvedValue([action({ dueDate: inMinutes(120) })] as never);
+
+    await generateDueDateReminders(db, NOW);
+
+    expect(db.notification.findMany).not.toHaveBeenCalled();
   });
 });

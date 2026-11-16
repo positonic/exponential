@@ -39,6 +39,16 @@ async function resolveActionWorkspace(
  * one meeting (the recipient id follows). Exported so resolving the drafts
  * can find and settle that notification.
  */
+
+/**
+ * A Due-date reminder's dedupe key: one per (action, offset), combined with the
+ * owner by the (dedupeKey, userId) unique index. Exported so the cron can skip
+ * already-sent reminders in one query before emitting.
+ */
+export function dueDateDedupeKey(subject: { actionId: string; offsetMinutes: number }): string {
+  return `due_date:${subject.actionId}:${subject.offsetMinutes}`;
+}
+
 export function draftDecisionsDedupePrefix(sessionId: string): string {
   return `meeting_ready:decisions:${sessionId}:`;
 }
@@ -207,7 +217,7 @@ export async function buildContent(
         workspaceId,
         // Per (action, offset); combined with the recipient (owner) via the
         // unique (dedupeKey, userId) index → one reminder per action/offset/owner.
-        dedupeKey: `due_date:${actionId}:${offsetMinutes}`,
+        dedupeKey: dueDateDedupeKey({ actionId, offsetMinutes }),
       };
     }
     case NOTIFICATION_CATEGORIES.SUMMARY: {

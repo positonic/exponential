@@ -325,55 +325,53 @@ export const briefingRouter = createTRPCRouter({
       }).optional()
     )
     .query(async ({ ctx, input }) => {
-      // Reuse the main briefing query
-      const briefing = await ctx.db.$transaction(async () => {
-        // We'll call the main query logic inline to avoid circular issues
-        const userId = ctx.session.user.id;
-        const now = new Date();
-        const todayStart = startOfDay(now);
-        const todayEnd = endOfDay(now);
-        const workspaceId = input?.workspaceId;
+      // Three independent counts, run in parallel. This used to wrap them in
+      // an interactive $transaction whose callback queried ctx.db (not the tx
+      // client): the transaction held a pooled connection doing nothing while
+      // the counts queued for another, which on a small serverless pool can
+      // outlast the 5s transaction timeout (P2028 "Transaction not found").
+      const userId = ctx.session.user.id;
+      const now = new Date();
+      const todayStart = startOfDay(now);
+      const todayEnd = endOfDay(now);
+      const workspaceId = input?.workspaceId;
+      const ownedOrAssigned = [
+        { createdById: userId, assignees: { none: {} } },
+        { assignees: { some: { userId } } },
+      ];
 
-        // Count actions due today
-        const actionsDueCount = await ctx.db.action.count({
+      const [actionsDueCount, overdueCount, projectsAtRiskCount] = await Promise.all([
+        // Actions due today
+        ctx.db.action.count({
           where: {
-            OR: [
-              { createdById: userId, assignees: { none: {} } },
-              { assignees: { some: { userId } } },
-            ],
+            OR: ownedOrAssigned,
             status: "ACTIVE",
             AND: [notInPausedProjectWhere()],
             dueDate: { gte: todayStart, lte: todayEnd },
             ...(workspaceId ? { project: { workspaceId } } : {}),
           },
-        });
-
-        // Count overdue actions
-        const overdueCount = await ctx.db.action.count({
+        }),
+        // Overdue actions
+        ctx.db.action.count({
           where: {
-            OR: [
-              { createdById: userId, assignees: { none: {} } },
-              { assignees: { some: { userId } } },
-            ],
+            OR: ownedOrAssigned,
             status: "ACTIVE",
             AND: [notInPausedProjectWhere()],
             dueDate: { lt: todayStart },
             ...(workspaceId ? { project: { workspaceId } } : {}),
           },
-        });
-
-        // Count projects needing attention
-        const projectsAtRiskCount = await ctx.db.project.count({
+        }),
+        // Projects needing attention
+        ctx.db.project.count({
           where: {
             createdById: userId,
             status: "ACTIVE",
             progress: { lt: 50 },
             ...(workspaceId ? { workspaceId } : {}),
           },
-        });
-
-        return { actionsDueCount, overdueCount, projectsAtRiskCount };
-      });
+        }),
+      ]);
+      const briefing = { actionsDueCount, overdueCount, projectsAtRiskCount };
 
       // Build text summary
       const parts: string[] = [];

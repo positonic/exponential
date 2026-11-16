@@ -51,6 +51,15 @@ export async function emitNotification(input: EmitNotificationInput): Promise<st
   }
 }
 
+/** Prisma's P2002: a unique constraint rejected the write. */
+function isUniqueViolation(error: unknown): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    (error as { code?: unknown }).code === "P2002"
+  );
+}
+
 async function emitForRecipient(
   input: EmitNotificationInput,
   recipientId: string,
@@ -71,18 +80,27 @@ async function emitForRecipient(
   });
   if (existing) return;
 
-  const notification = await db.notification.create({
-    data: {
-      userId: recipientId,
-      category: content.category,
-      title: content.title,
-      message: content.message,
-      deeplink: content.deeplink,
-      metadata: (content.metadata ?? undefined) as Prisma.InputJsonValue | undefined,
-      dedupeKey: content.dedupeKey,
-      scheduledFor: input.scheduledFor ?? null,
-    },
-  });
+  let notification;
+  try {
+    notification = await db.notification.create({
+      data: {
+        userId: recipientId,
+        category: content.category,
+        title: content.title,
+        message: content.message,
+        deeplink: content.deeplink,
+        metadata: (content.metadata ?? undefined) as Prisma.InputJsonValue | undefined,
+        dedupeKey: content.dedupeKey,
+        scheduledFor: input.scheduledFor ?? null,
+      },
+    });
+  } catch (error) {
+    // A concurrent emit (overlapping cron ticks, or the request path racing
+    // the cron) won between the guard above and this insert. The unique index
+    // did its job: the notification exists, so this one is a no-op, not an error.
+    if (isUniqueViolation(error)) return;
+    throw error;
+  }
 
   // Resolve the recipient's enabled channels from their category × channel
   // matrix (seeded defaults + per-workspace email override). Only enabled

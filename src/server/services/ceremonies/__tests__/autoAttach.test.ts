@@ -155,4 +155,30 @@ describe("attachUnlinkedMeetings", () => {
     expect(where).toMatchObject({ occurrenceId: null, archivedAt: null, workspaceId: { not: null }, title: { not: null } });
     expect((where.meetingDate as { gte: Date }).gte.toISOString()).toBe("2026-09-02T12:00:00.000Z");
   });
+
+  it("loads occurrences for every workspace in one query and matches each meeting only within its own workspace", async () => {
+    const db = mockDeep<PrismaClient>();
+    db.transcriptionSession.findMany.mockResolvedValue([
+      { id: "m-1", title: "Daily Standup", meetingDate: new Date("2026-09-08T07:00:00.000Z"), workspaceId: "ws-1", userId: "u-1" },
+      { id: "m-2", title: "Daily Standup", meetingDate: new Date("2026-09-08T07:00:00.000Z"), workspaceId: "ws-2", userId: "u-2" },
+      { id: "m-3", title: "Daily Standup", meetingDate: new Date("2026-09-05T07:00:00.000Z"), workspaceId: "ws-3", userId: "u-3" },
+    ] as never);
+    // Only ws-1 and ws-2 have a standup that morning.
+    db.ceremonyOccurrence.findMany.mockResolvedValue([
+      occurrenceRow,
+      { ...occurrenceRow, id: "occ-2", workspaceId: "ws-2" },
+    ] as never);
+    db.transcriptionSession.update.mockResolvedValue({} as never);
+
+    const result = await attachUnlinkedMeetings(db, { now: new Date("2026-09-09T12:00:00.000Z"), lookbackDays: 7 });
+
+    expect(result).toEqual({ scanned: 3, attached: 2 });
+    expect(db.ceremonyOccurrence.findMany).toHaveBeenCalledTimes(1);
+    const where = db.ceremonyOccurrence.findMany.mock.calls[0]![0]!.where!;
+    expect(where.ceremony).toEqual({ isActive: true });
+    expect((where.OR as Array<{ workspaceId: string }>).map((b) => b.workspaceId)).toEqual(["ws-1", "ws-2", "ws-3"]);
+    expect(db.transcriptionSession.update).toHaveBeenCalledWith({ where: { id: "m-1" }, data: { occurrenceId: "occ-1" } });
+    expect(db.transcriptionSession.update).toHaveBeenCalledWith({ where: { id: "m-2" }, data: { occurrenceId: "occ-2" } });
+    expect(db.transcriptionSession.update).toHaveBeenCalledTimes(2);
+  });
 });

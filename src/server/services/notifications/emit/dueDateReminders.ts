@@ -1,5 +1,6 @@
 import type { PrismaClient } from "@prisma/client";
 import { emitNotification } from "./emitNotification";
+import { dueDateDedupeKey } from "./content";
 import { NOTIFICATION_CATEGORIES } from "./constants";
 import type { DueDateSubject } from "./types";
 
@@ -82,7 +83,12 @@ export async function generateDueDateReminders(
     },
   });
 
-  let emitted = 0;
+  // Collect every crossing first so the dedup check is one query, not a full
+  // emit (access check + dedup lookup) per reminder. The cron ticks every two
+  // minutes inside a 15-minute window, so each reminder is seen ~7 times and
+  // all but the first are already-sent; those used to cost a round of queries
+  // apiece (Sentry N+1 on this cron).
+  const due: DueDateSubject[] = [];
 
   for (const action of actions) {
     if (!action.dueDate) continue;
@@ -99,7 +105,7 @@ export async function generateDueDateReminders(
         if (reminderMs > now.getTime()) continue;
         if (reminderMs <= now.getTime() - LOOKBACK_MS) continue;
 
-        const subject: DueDateSubject = {
+        due.push({
           actionId: action.id,
           actionName: action.name,
           ownerUserId: ownerId,
@@ -107,17 +113,33 @@ export async function generateDueDateReminders(
           dueDate: action.dueDate,
           workspaceId: ws.id,
           workspaceSlug: ws.slug,
-        };
-
-        await emitNotification({
-          category: NOTIFICATION_CATEGORIES.DUE_DATE,
-          actorUserId: null,
-          subject,
-          db,
         });
-        emitted++;
       }
     }
+  }
+
+  if (due.length === 0) return { emitted: 0 };
+
+  const alreadySent = await db.notification.findMany({
+    where: {
+      dedupeKey: { in: [...new Set(due.map(dueDateDedupeKey))] },
+      userId: { in: [...new Set(due.map((d) => d.ownerUserId))] },
+    },
+    select: { dedupeKey: true, userId: true },
+  });
+  const sent = new Set(alreadySent.map((n) => `${n.userId}|${n.dedupeKey}`));
+
+  let emitted = 0;
+  for (const subject of due) {
+    if (sent.has(`${subject.ownerUserId}|${dueDateDedupeKey(subject)}`)) continue;
+
+    await emitNotification({
+      category: NOTIFICATION_CATEGORIES.DUE_DATE,
+      actorUserId: null,
+      subject,
+      db,
+    });
+    emitted++;
   }
 
   return { emitted };

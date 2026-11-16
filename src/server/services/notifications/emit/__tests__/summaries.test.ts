@@ -651,7 +651,7 @@ describe("generateScheduledSummaries — shutdown recap", () => {
   beforeEach(() => {
     recapMocks.buildShutdownRecap.mockResolvedValue(recap);
     recapMocks.narrateRecapOpening.mockResolvedValue("A good day, Ada.");
-    db.notification.findFirst.mockResolvedValue(null);
+    db.notification.findMany.mockResolvedValue([]);
   });
 
   it("emits the recap at the chosen local time on a weekday, with the reply context for Matrix", async () => {
@@ -689,12 +689,16 @@ describe("generateScheduledSummaries — shutdown recap", () => {
 
   it("does not rebuild (or re-narrate) a recap already sent today", async () => {
     db.notificationPreference.findMany.mockResolvedValue([recapPref()] as never);
-    db.notification.findFirst.mockResolvedValue({ id: "n1" } as never);
+    db.notification.findMany.mockResolvedValue([
+      { userId: "u1", dedupeKey: "summary:shutdown:2026-10-08" },
+    ] as never);
 
     await generateScheduledSummaries(db, new Date("2026-10-08T16:20:00.000Z"));
 
-    expect(db.notification.findFirst).toHaveBeenCalledWith(
-      expect.objectContaining({ where: { userId: "u1", dedupeKey: "summary:shutdown:2026-10-08" } }),
+    expect(db.notification.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { userId: { in: ["u1"] }, dedupeKey: { in: ["summary:shutdown:2026-10-08"] } },
+      }),
     );
     expect(recapMocks.buildShutdownRecap).not.toHaveBeenCalled();
     expect(recapMocks.narrateRecapOpening).not.toHaveBeenCalled();
@@ -710,6 +714,38 @@ describe("generateScheduledSummaries — shutdown recap", () => {
     expect(subject.kind).toBe("shutdown");
     expect(subject).not.toHaveProperty("replyHint");
     expect(subject).not.toHaveProperty("agentContext");
+  });
+
+  it("checks every recap-due user's sent state in one query, not one per user", async () => {
+    db.notificationPreference.findMany.mockResolvedValue(
+      ["u1", "u2", "u3", "u4", "u5"].map((userId) => recapPref({ userId })) as never,
+    );
+    db.notification.findMany.mockResolvedValue([
+      { userId: "u2", dedupeKey: "summary:shutdown:2026-10-08" },
+      // Same user, another day's recap: not this period's, so u3 still gets one.
+      { userId: "u3", dedupeKey: "summary:shutdown:2026-10-07" },
+    ] as never);
+
+    await generateScheduledSummaries(db, new Date("2026-10-08T16:04:00.000Z"));
+
+    expect(db.notification.findMany).toHaveBeenCalledTimes(1);
+    expect(db.notification.findFirst).not.toHaveBeenCalled();
+    const built = recapMocks.buildShutdownRecap.mock.calls.map((call) => call[1]);
+    expect(built).toEqual(["u1", "u3", "u4", "u5"]);
+  });
+
+  it("skips recaps for the tick, and reports it, when the sent-state lookup fails", async () => {
+    db.notificationPreference.findMany.mockResolvedValue([recapPref()] as never);
+    db.notification.findMany.mockRejectedValue(new Error("db down"));
+
+    const result = await generateScheduledSummaries(db, new Date("2026-10-08T16:04:00.000Z"));
+
+    expect(result.emitted).toBe(0);
+    expect(recapMocks.buildShutdownRecap).not.toHaveBeenCalled();
+    expect(reportHandledErrorServer).toHaveBeenCalledWith(
+      expect.any(Error),
+      expect.objectContaining({ area: "scheduled-summaries" }),
+    );
   });
 
   it("leaves recaps for the next tick once the tick's budget is spent", async () => {

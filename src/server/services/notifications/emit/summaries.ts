@@ -230,6 +230,38 @@ export async function generateScheduledSummaries(
     },
   });
 
+  // Shutdown recaps already sent this period, in one query. The cron ticks
+  // every two minutes through an hour-long window, so without this each tick
+  // asked once per recap-enabled user (Sentry N+1 on this cron).
+  const recapKeyByUser = new Map<string, string>();
+  for (const pref of prefs) {
+    if (!pref.shutdownRecap) continue;
+    const tz = resolveSummaryTimezone(pref);
+    const recapTime = pref.shutdownRecapTime ?? DEFAULT_SHUTDOWN_RECAP_TIME;
+    if (!isLocalWeekday(now, tz) || !isWithinFireWindow(now, tz, recapTime)) continue;
+    recapKeyByUser.set(pref.userId, `summary:shutdown:${format(toZonedTime(now, tz), "yyyy-MM-dd")}`);
+  }
+  const recapsSent = new Set<string>();
+  if (recapKeyByUser.size > 0) {
+    try {
+      const rows = await db.notification.findMany({
+        where: {
+          userId: { in: [...recapKeyByUser.keys()] },
+          dedupeKey: { in: [...new Set(recapKeyByUser.values())] },
+        },
+        select: { userId: true, dedupeKey: true },
+      });
+      for (const row of rows) {
+        if (recapKeyByUser.get(row.userId) === row.dedupeKey) recapsSent.add(row.userId);
+      }
+    } catch (error) {
+      // Can't tell who already has one: skip recaps this tick rather than pay
+      // for LLM calls that may be duplicates. The next tick retries.
+      reportHandledErrorServer(error, { area: "scheduled-summaries", context: { kind: "shutdown-lookup" } });
+      for (const userId of recapKeyByUser.keys()) recapsSent.add(userId);
+    }
+  }
+
   let emitted = 0;
 
   for (const pref of prefs) {
@@ -282,12 +314,9 @@ export async function generateScheduledSummaries(
         const periodKey = format(toZonedTime(now, tz), "yyyy-MM-dd");
         // The cron ticks every two minutes and dedup only stops a second
         // *delivery*: without this check every tick in the hour-long window
-        // would rebuild the recap and pay for another LLM call.
-        const sent = await db.notification.findFirst({
-          where: { userId: pref.userId, dedupeKey: `summary:shutdown:${periodKey}` },
-          select: { id: true },
-        });
-        if (sent) return;
+        // would rebuild the recap and pay for another LLM call. Looked up
+        // for every user at once above.
+        if (recapsSent.has(pref.userId)) return;
         const digest = await buildShutdownDigest(db, pref.userId, now, tz, options);
         if (digest) {
           await emitSummary(db, pref.userId, "shutdown", digest, periodKey);
