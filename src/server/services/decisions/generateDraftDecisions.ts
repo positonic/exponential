@@ -55,6 +55,13 @@ export interface GenerateDraftDecisionsOptions {
    * in either case, so the owner is notified).
    */
   trigger?: "manual" | "post_summary" | "auto_extract";
+  /**
+   * A re-extract: read the meeting again and put the new drafts in place of
+   * the unreviewed ones. Confirmed and rejected rows are never touched, and
+   * are told to the model as already captured. The old drafts go in the same
+   * transaction that writes the new ones, so a run that fails leaves them.
+   */
+  replaceDrafts?: boolean;
 }
 
 export interface DraftDecisionsResult {
@@ -66,6 +73,8 @@ export interface DraftDecisionsResult {
   /** Drafts now awaiting review (existing or just created). */
   draftCount: number;
   draftsCreated: number;
+  /** Unreviewed drafts a re-extract removed to make way for the new ones. */
+  draftsReplaced: number;
   /** Candidates dropped because no transcript turn supported them. */
   discardedWithoutEvidence: number;
   errors: string[];
@@ -168,6 +177,7 @@ export async function generateDraftDecisions(
     success: false,
     alreadyPublished: false,
     alreadyDrafted: false,
+    draftsReplaced: 0,
     draftCount: 0,
     draftsCreated: 0,
     discardedWithoutEvidence: 0,
@@ -216,14 +226,17 @@ export async function generateDraftDecisions(
       select: { id: true, reviewState: true, statement: true, status: true },
     });
     const existingDraftCount = meetingRows.filter((r) => r.reviewState === "DRAFT").length;
-    if (existingDraftCount > 0) {
+    if (existingDraftCount > 0 && !options.replaceDrafts) {
       console.log(`[generateDraftDecisions] ${meeting.id} already has ${existingDraftCount} draft(s)`);
       result.success = true;
       result.alreadyDrafted = true;
       result.draftCount = existingDraftCount;
       return result;
     }
-    if (meetingRows.some((r) => r.reviewState === "CONFIRMED")) {
+    // A re-extract (`replaceDrafts`) reads the meeting again even when it
+    // already has confirmed decisions: those, and the rejected ones, are told
+    // to the model as already captured, so only what is new comes back.
+    if (!options.replaceDrafts && meetingRows.some((r) => r.reviewState === "CONFIRMED")) {
       console.log(`[generateDraftDecisions] ${meeting.id} already has confirmed decisions`);
       result.success = true;
       result.alreadyPublished = true;
@@ -270,7 +283,11 @@ export async function generateDraftDecisions(
     ]);
     const workspaceDecisions = [...openRows, ...recentConfirmed];
     // A draft someone rejected from this meeting is not proposed again.
-    const rejectedRows = meetingRows.filter((r) => r.reviewState === "REJECTED");
+    // On a re-extract the meeting's own confirmed rows count too: the
+    // workspace read above is bounded, and an older one could fall outside it.
+    const rejectedRows = meetingRows.filter(
+      (r) => r.reviewState === "REJECTED" || (options.replaceDrafts === true && r.reviewState === "CONFIRMED"),
+    );
     // Split by kind (an open question is a Decision in OPEN): a captured item
     // only suppresses candidates of its own kind, so a decision on a topic
     // cannot hide the open question about it, nor an open question the
@@ -445,9 +462,24 @@ export async function generateDraftDecisions(
     // "this meeting is done", so a run killed part-way through a per-candidate
     // loop left a partial set that every retry reported as complete — with no
     // way back short of rejecting them all.
-    if (candidates.length > 0) {
+    const replacingDrafts = options.replaceDrafts === true && existingDraftCount > 0;
+    if (replacingDrafts && result.errors.length > 0) {
+      // Part of the reading failed. The drafts already there came from a
+      // reading that did not, so they stay rather than be replaced by less.
+      result.alreadyDrafted = true;
+      result.draftCount = existingDraftCount;
+      return result;
+    }
+    if (candidates.length > 0 || replacingDrafts) {
       await db.$transaction(
         async (tx) => {
+          if (replacingDrafts) {
+            const { count } = await tx.decision.deleteMany({
+              where: { transcriptionSessionId: meeting.id, workspaceId, reviewState: "DRAFT" },
+            });
+            result.draftsReplaced = count;
+          }
+          if (candidates.length === 0) return;
           // One statement for the whole block of labels, so the transaction is
           // N round trips rather than 2N (see reserveDecisionNumbers).
           const numbers = await reserveDecisionNumbers(tx, workspaceId, candidates.length);

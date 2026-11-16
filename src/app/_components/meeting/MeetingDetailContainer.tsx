@@ -143,7 +143,7 @@ export function MeetingDetailContainer({ id }: { id: string }) {
   // recording takes longer. The route runs the same `transcription.
   // extractOutputs` procedure, so the result and the errors are the same.
   const extractOutputsMutation = useMutation({
-    mutationFn: async (input: { transcriptionId: string }) => {
+    mutationFn: async (input: { transcriptionId: string; replaceDrafts?: boolean }) => {
       const response = await fetch("/api/meetings/extract-outputs", {
         method: "POST",
         headers: { "content-type": "application/json" },
@@ -161,11 +161,11 @@ export function MeetingDetailContainer({ id }: { id: string }) {
     },
   });
 
-  async function handleExtractOutputs(): Promise<boolean> {
+  async function handleExtractOutputs(options: { replaceDrafts?: boolean } = {}): Promise<boolean> {
     if (!session) return false;
     const transcriptionId = session.id;
     const result = await extractOutputsMutation
-      .mutateAsync({ transcriptionId })
+      .mutateAsync({ transcriptionId, replaceDrafts: options.replaceDrafts })
       .catch((error: unknown) => {
         notifications.show({
           title: "Couldn't extract outputs",

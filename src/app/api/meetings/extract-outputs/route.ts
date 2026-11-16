@@ -16,7 +16,7 @@ import { createTRPCContext } from "~/server/api/trpc";
  */
 export const maxDuration = 300;
 
-const bodySchema = z.object({ transcriptionId: z.string().min(1) });
+const bodySchema = z.object({ transcriptionId: z.string().min(1), replaceDrafts: z.boolean().optional() });
 
 export async function POST(request: NextRequest) {
   // A JSON body cannot be sent cross-site without a preflight, which is the
@@ -31,7 +31,7 @@ export async function POST(request: NextRequest) {
 
   try {
     const caller = createCaller(await createTRPCContext({ headers: request.headers }));
-    const result = await caller.transcription.extractOutputs({ transcriptionId: body.data.transcriptionId });
+    const result = await caller.transcription.extractOutputs(body.data);
     return NextResponse.json(result);
   } catch (error) {
     if (error instanceof TRPCError) {

@@ -38,6 +38,8 @@ interface ContextRailProps {
    */
   onExtractOutputs?: () => void;
   isExtractingOutputs?: boolean;
+  /** The meeting already has outputs: the button reads it again and replaces unreviewed drafts. */
+  isReExtract?: boolean;
   participants: MeetingParticipant[];
   project: { name: string } | null;
   projectHref: string | null;
@@ -111,6 +113,7 @@ const PERSONAL_WORKSPACE_VALUE = "__personal__";
 export function ContextRail({
   onExtractOutputs,
   isExtractingOutputs,
+  isReExtract,
   participants,
   project,
   projectHref,
@@ -167,7 +170,7 @@ export function ContextRail({
             disabled={isExtractingOutputs}
           >
             {isExtractingOutputs ? <Loader size={13} color="currentColor" /> : <IconSparkles size={13} />}
-            {isExtractingOutputs ? "Extracting…" : "Extract outputs"}
+            {isExtractingOutputs ? "Extracting…" : isReExtract ? "Re-extract outputs" : "Extract outputs"}
           </button>
           <div className="mp-rail__hint">
             Actions, decisions and open questions from this meeting, to review on the Outputs tab.

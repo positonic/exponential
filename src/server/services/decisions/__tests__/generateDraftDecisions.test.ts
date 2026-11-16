@@ -320,6 +320,77 @@ describe("generateDraftDecisions", () => {
     expect(notesEvidence.length).toBeGreaterThan(0);
   });
 
+  describe("re-extract (replaceDrafts)", () => {
+    const rows = (...states: Array<[string, string, string?]>) =>
+      states.map(([reviewState, statement, status], i) => ({ id: `d${i}`, reviewState, statement, status: status ?? "ACCEPTED" }));
+
+    it("replaces the unreviewed drafts with the new reading, in the transaction that writes it", async () => {
+      db.decision.findMany
+        .mockResolvedValueOnce(rows(["DRAFT", "An old draft"], ["DRAFT", "Another old draft"]) as never)
+        .mockResolvedValue([] as never);
+      db.decision.deleteMany.mockResolvedValue({ count: 2 } as never);
+      extractFromTranscript.mockResolvedValue(transcriptRun([candidate()]));
+
+      const result = await generateDraftDecisions(db, "m1", "u-dev", { replaceDrafts: true });
+
+      expect(db.decision.deleteMany).toHaveBeenCalledWith({
+        where: { transcriptionSessionId: "m1", workspaceId: "w1", reviewState: "DRAFT" },
+      });
+      // Old drafts go before the new ones are written, and inside the transaction.
+      expect(db.$transaction.mock.invocationCallOrder[0]!).toBeLessThan(db.decision.deleteMany.mock.invocationCallOrder[0]!);
+      expect(db.decision.deleteMany.mock.invocationCallOrder[0]!).toBeLessThan(db.decision.create.mock.invocationCallOrder[0]!);
+      expect(result).toMatchObject({ success: true, draftsReplaced: 2, draftsCreated: 1, draftCount: 1, alreadyDrafted: false });
+    });
+
+    it("removes the old drafts when the new reading finds nothing", async () => {
+      db.decision.findMany.mockResolvedValueOnce(rows(["DRAFT", "An old draft"]) as never).mockResolvedValue([] as never);
+      db.decision.deleteMany.mockResolvedValue({ count: 1 } as never);
+      extractFromTranscript.mockResolvedValue(transcriptRun([]));
+
+      const result = await generateDraftDecisions(db, "m1", "u-dev", { replaceDrafts: true });
+
+      expect(result).toMatchObject({ success: true, draftsReplaced: 1, draftsCreated: 0, draftCount: 0 });
+      expect(db.decision.create).not.toHaveBeenCalled();
+    });
+
+    it("keeps the old drafts when the new reading failed", async () => {
+      db.decision.findMany.mockResolvedValueOnce(rows(["DRAFT", "An old draft"]) as never).mockResolvedValue([] as never);
+      extractFromTranscript.mockResolvedValue(transcriptRun([], { chunksFailed: 3, chunksTotal: 3 }));
+
+      const result = await generateDraftDecisions(db, "m1", "u-dev", { replaceDrafts: true });
+
+      expect(db.decision.deleteMany).not.toHaveBeenCalled();
+      expect(result.draftCount).toBe(1);
+      expect(result.errors.length).toBeGreaterThan(0);
+    });
+
+    it("reads a meeting that already has confirmed decisions, and does not propose them or the rejected ones again", async () => {
+      db.decision.findMany
+        .mockResolvedValueOnce(rows(["CONFIRMED", "The API stays REST"], ["REJECTED", "Share the onboarding video"], ["CONFIRMED", "Which vendor hosts staging?", "OPEN"]) as never)
+        .mockResolvedValue([] as never);
+      extractFromTranscript.mockResolvedValue(transcriptRun([candidate()]));
+
+      const result = await generateDraftDecisions(db, "m1", "u-dev", { replaceDrafts: true });
+
+      expect(result).toMatchObject({ alreadyPublished: false, draftsCreated: 1 });
+      const options = extractFromTranscript.mock.calls[0]![1] as { existingStatements: string[]; existingQuestions: string[] };
+      expect(options.existingStatements).toEqual(expect.arrayContaining(["The API stays REST", "Share the onboarding video"]));
+      expect(options.existingQuestions).toContain("Which vendor hosts staging?");
+      // Nothing reviewed is ever deleted: there were no drafts to replace.
+      expect(db.decision.deleteMany).not.toHaveBeenCalled();
+    });
+
+    it("without the flag, still leaves existing drafts and confirmed decisions alone", async () => {
+      db.decision.findMany.mockResolvedValueOnce(rows(["DRAFT", "An old draft"]) as never);
+
+      const result = await generateDraftDecisions(db, "m1", "u-dev");
+
+      expect(result).toMatchObject({ alreadyDrafted: true, draftCount: 1 });
+      expect(extractFromTranscript).not.toHaveBeenCalled();
+      expect(db.decision.deleteMany).not.toHaveBeenCalled();
+    });
+  });
+
   it("drops the notes candidates the review rejects, before they become drafts", async () => {
     db.transcriptionSession.findUnique.mockResolvedValue({ ...MEETING, notes: "## Decisions\n- Park prioritisation debates for the prioritisation ceremony" } as never);
     const kept = candidate({ statement: "Park prioritisation debates for the prioritisation ceremony", evidence: [], origin: "notes" });

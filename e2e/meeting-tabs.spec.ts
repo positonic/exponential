@@ -62,3 +62,20 @@ test("a link to the former Decisions tab opens Outputs", async ({ page }) => {
     timeout: FIRST_PAINT_TIMEOUT,
   });
 });
+
+test("a meeting that already has outputs offers a re-extract, behind a confirmation", async ({ page }) => {
+  // The seeded standup has a confirmed decision, so the button re-extracts.
+  await page.goto(fixture.meetingUrl);
+  const button = page.getByRole("button", { name: "Re-extract outputs" }).first();
+  await expect(button).toBeVisible({ timeout: FIRST_PAINT_TIMEOUT });
+  await expect(page.getByRole("button", { name: "Extract outputs", exact: true })).toHaveCount(0);
+
+  // It says what is replaced and what is kept, and nothing runs until confirmed.
+  await button.click();
+  const dialog = page.getByRole("dialog", { name: "Re-extract outputs?" });
+  await expect(dialog).toBeVisible();
+  await expect(dialog).toContainText("Anything already confirmed, created or rejected stays");
+  await dialog.getByRole("button", { name: "Cancel" }).click();
+  await expect(dialog).toBeHidden();
+  await expect(button).toBeEnabled();
+});

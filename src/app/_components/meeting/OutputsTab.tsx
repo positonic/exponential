@@ -111,6 +111,8 @@ interface OutputsTabProps {
    */
   onExtractOutputs?: () => void;
   isExtractingOutputs?: boolean;
+  /** The meeting already has outputs: the button reads it again and replaces unreviewed drafts. */
+  isReExtract?: boolean;
   /** The draft-decisions review panel, owned by the caller. */
   decisionDraftsPanel?: React.ReactNode;
 }
@@ -132,6 +134,7 @@ export function OutputsTab({
   onLogDecision,
   onExtractOutputs,
   isExtractingOutputs,
+  isReExtract,
   decisionDraftsPanel,
 }: OutputsTabProps) {
   // Drafts are visible to their creator only; the review card reads the same
@@ -157,7 +160,7 @@ export function OutputsTab({
               type="button"
               disabled={isExtractingOutputs}
             >
-              <IconSparkles size={11} /> {isExtractingOutputs ? "Extracting…" : "Extract outputs"}
+              <IconSparkles size={11} /> {isExtractingOutputs ? "Extracting…" : isReExtract ? "Re-extract outputs" : "Extract outputs"}
             </button>
           )}
           {canLogDecision && (

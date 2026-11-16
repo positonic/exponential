@@ -2080,11 +2080,29 @@ export const transcriptionRouter = createTRPCRouter({
    * this throws only when neither produced anything usable.
    */
   extractOutputs: protectedProcedure
-    .input(z.object({ transcriptionId: z.string() }))
+    .input(
+      z.object({
+        transcriptionId: z.string(),
+        /** Re-extract: replace the meeting's unreviewed drafts with a new reading. */
+        replaceDrafts: z.boolean().optional(),
+      }),
+    )
     .mutation(async ({ ctx, input }) => {
+      if (input.replaceDrafts) {
+        // A re-extract deletes drafts, including ones another editor's run
+        // made, so it takes the same bar as discarding them by hand.
+        const transcription = await ctx.db.transcriptionSession.findUnique({
+          where: { id: input.transcriptionId },
+        });
+        if (!transcription) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Transcription not found" });
+        }
+        await ensureTranscriptionAccess(ctx.db, ctx.session.user.id, transcription, "edit");
+      }
       const result = await TranscriptionProcessingService.extractMeetingOutputs(
         input.transcriptionId,
         ctx.session.user.id,
+        { replaceDrafts: input.replaceDrafts },
       );
       if (!result.actions.success && !result.decisions.success) {
         const errors = [...result.actions.errors, ...result.decisions.errors];

@@ -2,7 +2,8 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { Loader } from "@mantine/core";
+import { Loader, Text } from "@mantine/core";
+import { modals } from "@mantine/modals";
 import { notifications } from "@mantine/notifications";
 import {
   IconGavel,
@@ -65,7 +66,7 @@ interface MeetingDetailProps {
    * "Extract outputs": draft actions, decisions and open questions in one
    * run. Resolves true when it ran, so the page can open the Outputs tab.
    */
-  onExtractOutputs: () => Promise<boolean>;
+  onExtractOutputs: (options?: { replaceDrafts?: boolean }) => Promise<boolean>;
   isExtractingOutputs: boolean;
   onArchive: () => void;
 }
@@ -162,10 +163,6 @@ export function MeetingDetail({
     [workspaces, session.workspaceId],
   );
   const canExtractOutputs = session.canEdit && session.hasTranscript;
-  async function handleExtractOutputs() {
-    // Results are triaged on the Outputs tab, so land there once they exist.
-    if (await onExtractOutputs()) selectTab("outputs");
-  }
 
   // Decisions logged from this meeting (confirmed for viewers, drafts for
   // editors) feed the summary tab's Decisions / Open questions block.
@@ -184,6 +181,34 @@ export function MeetingDetail({
     { transcriptionId: session.id },
     { enabled: Boolean(session.id) },
   );
+
+  // Once a meeting has outputs the button re-extracts: a new reading replaces
+  // the drafts nobody has reviewed and leaves everything that was reviewed.
+  const draftCount = draftActions.length + vm.drafts.length;
+  const hasOutputs = draftCount > 0 || actions.length > 0 || (meetingDecisions?.decisions.length ?? 0) > 0;
+  async function runExtractOutputs(options?: { replaceDrafts?: boolean }) {
+    // Results are triaged on the Outputs tab, so land there once they exist.
+    if (await onExtractOutputs(options)) selectTab("outputs");
+  }
+  function handleExtractOutputs() {
+    if (!hasOutputs) {
+      void runExtractOutputs();
+      return;
+    }
+    modals.openConfirmModal({
+      title: "Re-extract outputs?",
+      children: (
+        <Text size="sm">
+          {draftCount > 0
+            ? `This reads the meeting again and replaces the ${draftCount} unreviewed ${draftCount === 1 ? "draft" : "drafts"} with what it finds.`
+            : "This reads the meeting again and drafts anything not captured yet."}{" "}
+          Anything already confirmed, created or rejected stays, and is not proposed again.
+        </Text>
+      ),
+      labels: { confirm: "Re-extract", cancel: "Cancel" },
+      onConfirm: () => void runExtractOutputs({ replaceDrafts: true }),
+    });
+  }
 
   // Evidence capture: transcript turns marked "Use as evidence" collect here
   // until the modal logs them with the decision.
@@ -598,7 +623,8 @@ export function MeetingDetail({
                 isActionsLoading={isActionsLoading}
                 canLogDecision={canLogDecision}
                 onLogDecision={() => setLogDecisionOpen(true)}
-                onExtractOutputs={canExtractOutputs ? () => void handleExtractOutputs() : undefined}
+                onExtractOutputs={canExtractOutputs ? handleExtractOutputs : undefined}
+                isReExtract={hasOutputs}
                 isExtractingOutputs={isExtractingOutputs}
                 decisionDraftsPanel={
                   session.workspaceId ? (
@@ -671,7 +697,8 @@ export function MeetingDetail({
           </main>
 
           <ContextRail
-            onExtractOutputs={canExtractOutputs ? () => void handleExtractOutputs() : undefined}
+            onExtractOutputs={canExtractOutputs ? handleExtractOutputs : undefined}
+                isReExtract={hasOutputs}
             isExtractingOutputs={isExtractingOutputs}
             participants={vm.participants}
             project={session.project ? { name: session.project.name } : null}

@@ -70,7 +70,7 @@ vi.mock("../meetings/assignMeetingPlacement", () => ({
 
 import { TranscriptionProcessingService } from "../TranscriptionProcessingService";
 import { InternalActionProcessor } from "../processors/InternalActionProcessor";
-import { ActionExtractionService } from "../ActionExtractionService";
+import { ActionExtractionService, filterNearDuplicateActions } from "../ActionExtractionService";
 import { FirefliesService } from "../FirefliesService";
 
 const USER_ID = "user-1";
@@ -282,6 +282,57 @@ describe("generateDraftActions with action items from the combined decision pass
 
     const names = db.action.create.mock.calls.map((c) => (c[0] as { data: { name: string } }).data.name);
     expect(names).toEqual(["Review the accordion PR"]);
+  });
+
+  describe("re-extract (replaceDrafts)", () => {
+    beforeEach(() => {
+      db.screenshot.findMany.mockResolvedValue([] as never);
+      db.action.deleteMany.mockResolvedValue({ count: 3 } as never);
+      db.action.findMany.mockResolvedValue([] as never);
+    });
+
+    it("replaces the unreviewed draft actions with the new ones", async () => {
+      // No created actions, three drafts waiting.
+      db.action.count.mockResolvedValueOnce(0).mockResolvedValueOnce(3);
+
+      const result = await TranscriptionProcessingService.generateDraftActions(TRANSCRIPTION_ID, USER_ID, {
+        transcriptActionItems: combinedItems,
+        replaceDrafts: true,
+      });
+
+      expect(db.action.deleteMany).toHaveBeenCalledWith({
+        where: { transcriptionSessionId: TRANSCRIPTION_ID, status: "DRAFT" },
+      });
+      expect(db.action.deleteMany.mock.invocationCallOrder[0]!).toBeLessThan(db.action.create.mock.invocationCallOrder[0]!);
+      expect(result).toMatchObject({ success: true, draftsReplaced: 3, draftCount: 1, alreadyPublished: false });
+    });
+
+    it("runs for a meeting whose actions were already created, without drafting those again", async () => {
+      db.action.count.mockResolvedValueOnce(2).mockResolvedValueOnce(0);
+      db.action.findMany.mockResolvedValue([{ name: "Review the accordion PR" }, { name: "Book the venue" }] as never);
+
+      const result = await TranscriptionProcessingService.generateDraftActions(TRANSCRIPTION_ID, USER_ID, {
+        transcriptActionItems: combinedItems,
+        replaceDrafts: true,
+      });
+
+      expect(result.alreadyPublished).toBe(false);
+      // The created actions are what new items are compared against.
+      const lastCall = vi.mocked(filterNearDuplicateActions).mock.calls.at(-1)!;
+      expect(lastCall[1]).toEqual([{ text: "Review the accordion PR" }, { text: "Book the venue" }]);
+    });
+
+    it("without the flag, a meeting with drafts is left as it is", async () => {
+      db.action.count.mockResolvedValueOnce(0).mockResolvedValueOnce(3);
+
+      const result = await TranscriptionProcessingService.generateDraftActions(TRANSCRIPTION_ID, USER_ID, {
+        transcriptActionItems: combinedItems,
+      });
+
+      expect(result.draftCount).toBe(3);
+      expect(db.action.deleteMany).not.toHaveBeenCalled();
+      expect(db.action.create).not.toHaveBeenCalled();
+    });
   });
 
   it("keeps the dedicated pass for screen recordings, which pairs screenshots", async () => {
