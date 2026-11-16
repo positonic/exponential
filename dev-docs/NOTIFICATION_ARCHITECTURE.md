@@ -7,6 +7,7 @@ The notification system delivers messages across multiple channels (email, push,
 | Event | Trigger | Email | Push | WhatsApp | Preference Gate |
 |-------|---------|-------|------|----------|-----------------|
 | **Task assignment** | User assigned to action | Yes | Yes | - | `shouldSendEmailNotification()` |
+| **Ticket assignment** | Ticket created with, or changed to, a new assignee (UI, CLI, agents, auto-filed bugs) | Yes | Yes | - | `shouldSendEmailNotification()` |
 | **Comment mention** | @mentioned in comment | Yes | Yes | - | `shouldSendEmailNotification()` |
 | **Daily plan reminder** | Cron (morning) | - | Yes | - | Has push subscription |
 | **Task due reminder** | Scheduled (configurable) | - | Yes | Yes | `NotificationPreference.taskReminders` |

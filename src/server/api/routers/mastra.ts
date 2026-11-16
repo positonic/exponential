@@ -61,6 +61,7 @@ import { PRODUCT_NAME } from "~/lib/brand";
 import { filterAgentInstructions } from "~/server/services/agent-routing/agentInstructionFilter";
 import { loadProductWithAccess, assertWorkspaceAccess } from "~/plugins/product/server/routers/product";
 import { createTicketWithNumber } from "~/plugins/product/server/services/createTicket";
+import { notifyTicketAssigned } from "~/plugins/product/server/services/notifyTicketAssigned";
 import { matchCycle, wouldCreateCycle } from "~/plugins/product/server/services/ticketDependencies";
 import { COMPLETED_TICKET_STATUSES } from "~/lib/ticket-statuses";
 import { generateFunId } from "~/lib/fun-ids";
@@ -4526,6 +4527,13 @@ export const mastraRouter = createTRPCRouter({
       });
 
       console.log(`✅ [tRPC createTicket] CREATED: id=${ticket.id}, number=${ticket.number}, shortId=${ticket.shortId ?? 'none'}`);
+
+      await notifyTicketAssigned(ctx.db, {
+        ticketId: ticket.id,
+        assigneeId: input.assigneeId,
+        previousAssigneeId: null,
+        actorUserId: userId,
+      });
 
       const { labels, warnings } = input.labels?.length
         ? await applyTicketLabels(ctx.db, {

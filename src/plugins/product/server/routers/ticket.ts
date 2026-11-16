@@ -32,6 +32,7 @@ import {
   withCarriedCommentMarks,
 } from "~/server/services/prd/anchor-comment";
 import { emitTicketCommentMention } from "~/server/services/notifications/emit/mentionAdapters";
+import { notifyTicketAssigned } from "../services/notifyTicketAssigned";
 import { createTicketWithNumber } from "../services/createTicket";
 import { wouldCreateCycle } from "../services/ticketDependencies";
 import {
@@ -688,6 +689,13 @@ export const ticketRouter = createTRPCRouter({
         assigneeId: input.assigneeId,
       });
 
+      await notifyTicketAssigned(ctx.db, {
+        ticketId: ticket.id,
+        assigneeId: input.assigneeId,
+        previousAssigneeId: null,
+        actorUserId: ctx.session.user.id,
+      });
+
       // Outbound Notion full-mirror (ADR-0046): a ticket born in Exponential
       // gets a Notion row when its product has push enabled. Never throws — a
       // push must not break ticket creation. (The inbound engine creates
@@ -918,6 +926,13 @@ export const ticketRouter = createTRPCRouter({
           });
       }
 
+      await notifyTicketAssigned(ctx.db, {
+        ticketId: id,
+        assigneeId: input.assigneeId,
+        previousAssigneeId: previousTicket.assigneeId,
+        actorUserId: ctx.session.user.id,
+      });
+
       // T7: workspace activity feed instrumentation.
       //  - status moved → fire `status_changed`
       //  - otherwise diff `rest` against the pre-update ticket and fire
@@ -1069,6 +1084,7 @@ export const ticketRouter = createTRPCRouter({
           id: true,
           status: true,
           cycleId: true,
+          assigneeId: true,
           productId: true,
           product: { select: { workspaceId: true } },
         },
@@ -1146,6 +1162,21 @@ export const ticketRouter = createTRPCRouter({
           data,
         });
       }
+
+      // One notification per ticket that actually changed hands. Every
+      // selected ticket was written above (stamped or kept), so the selection
+      // is the updated set. In parallel: a serial send per ticket would make a
+      // large bulk assignment one long mutation.
+      await Promise.all(
+        tickets.map((t) =>
+          notifyTicketAssigned(ctx.db, {
+            ticketId: t.id,
+            assigneeId: input.assigneeId,
+            previousAssigneeId: t.assigneeId,
+            actorUserId: ctx.session.user.id,
+          }),
+        ),
+      );
 
       const patchedFields = fields.map(([k]) => k).filter((k) => k !== "status");
       await Promise.all(

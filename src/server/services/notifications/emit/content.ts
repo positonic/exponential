@@ -1,6 +1,7 @@
 import type { PrismaClient } from "@prisma/client";
 import { NOTIFICATION_CATEGORIES } from "./constants";
 import { buildMentionContent } from "./mention";
+import { ticketUrlId } from "~/lib/fun-ids";
 import { buildPageEditorPath } from "~/lib/pages/page-path";
 import { getPublicBaseUrlFromEnv } from "~/lib/urls";
 import { toChatMarkdown } from "~/server/services/workspaceUpdates/render";
@@ -62,6 +63,62 @@ export function draftDecisionsDedupePrefix(sessionId: string): string {
   return `meeting_ready:decisions:${sessionId}:`;
 }
 
+/**
+ * Content for a ticket assignment. Same category, title shape and channels as
+ * an action assignment; the deep link opens the ticket in its product.
+ */
+async function buildTicketAssignmentContent(
+  db: PrismaClient,
+  ticketId: string,
+  actorUserId: string | null,
+  recipientId: string,
+): Promise<NotificationContent | null> {
+  const [ticket, actor] = await Promise.all([
+    db.ticket.findUnique({
+      where: { id: ticketId },
+      select: {
+        id: true,
+        number: true,
+        title: true,
+        product: {
+          select: {
+            slug: true,
+            workspace: { select: { id: true, slug: true, name: true } },
+          },
+        },
+      },
+    }),
+    actorUserId
+      ? db.user.findUnique({
+          where: { id: actorUserId },
+          select: { name: true, email: true },
+        })
+      : Promise.resolve(null),
+  ]);
+  if (!ticket) return null;
+
+  const ws = ticket.product.workspace;
+  const assignerName = actor?.name ?? actor?.email ?? "Someone";
+
+  return {
+    category: NOTIFICATION_CATEGORIES.ASSIGNMENT,
+    title: `${assignerName} assigned you a ticket`,
+    message: ticket.number > 0 ? `#${ticket.number} ${ticket.title}` : ticket.title,
+    deeplink: `/w/${ws.slug}/products/${ticket.product.slug}/tickets/${ticketUrlId(ticket)}`,
+    metadata: {
+      ticketId,
+      workspaceId: ws.id,
+      workspaceSlug: ws.slug,
+      workspaceName: ws.name,
+      assignerName,
+    },
+    workspaceId: ws.id,
+    // Per (ticket, recipient), as for actions: being handed the same ticket a
+    // second time does not notify again.
+    dedupeKey: `assignment:ticket:${ticketId}:${recipientId}`,
+  };
+}
+
 export async function buildContent(
   input: EmitNotificationInput,
   recipientId: string,
@@ -70,6 +127,14 @@ export async function buildContent(
 
   switch (input.category) {
     case NOTIFICATION_CATEGORIES.ASSIGNMENT: {
+      if (input.subject.ticketId !== undefined) {
+        return buildTicketAssignmentContent(
+          db,
+          input.subject.ticketId,
+          input.actorUserId,
+          recipientId,
+        );
+      }
       const { actionId } = input.subject;
 
       const [action, actor, ws] = await Promise.all([

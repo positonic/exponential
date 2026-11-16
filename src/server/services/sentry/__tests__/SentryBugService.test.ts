@@ -29,7 +29,18 @@ vi.mock("../sentryMatrix", () => ({
   notifyMatrixOfSentryBug: vi.fn(() => Promise.resolve()),
 }));
 
+// The assignee DM goes through the notification pipeline, tested on its own.
+vi.mock("~/plugins/product/server/services/notifyTicketAssigned", () => ({
+  notifyTicketAssigned: vi.fn(() => Promise.resolve()),
+}));
+
+vi.mock("~/server/services/access/resolvers/workspaceResolver", () => ({
+  getWorkspaceMembership: vi.fn(() => Promise.resolve(null)),
+}));
+
 import { createTicketWithNumber } from "~/plugins/product/server/services/createTicket";
+import { notifyTicketAssigned } from "~/plugins/product/server/services/notifyTicketAssigned";
+import { getWorkspaceMembership } from "~/server/services/access/resolvers/workspaceResolver";
 import { notifyZulipOfSentryBug } from "../sentryZulip";
 import { notifyMatrixOfSentryBug } from "../sentryMatrix";
 import { ingestSentryBug, isDueForRenotify, sourceLabel } from "../SentryBugService";
@@ -51,6 +62,7 @@ beforeEach(() => {
   mockReset(dbMock);
   vi.clearAllMocks();
   delete process.env.SENTRY_BUG_PRODUCT_ID;
+  delete process.env.SENTRY_BUG_ASSIGNEE_ID;
   delete process.env.SENTRY_BOT_EMAIL;
   delete process.env.SENTRY_BOT_NAME;
   delete process.env.NEXT_PUBLIC_APP_URL;
@@ -161,6 +173,76 @@ describe("ingestSentryBug", () => {
         (c) => c[0].where.slug_workspaceId?.slug,
       );
       expect(slugs).not.toContain("ai-fixable");
+    });
+  });
+
+  describe("default assignee (SENTRY_BUG_ASSIGNEE_ID)", () => {
+    const member = { role: "owner", workspaceId: "ws-1" } as never;
+
+    it("leaves the ticket unassigned and notifies nobody when unset", async () => {
+      await ingestSentryBug(dbMock, bug);
+
+      const arg = vi.mocked(createTicketWithNumber).mock.calls[0]![1];
+      expect(arg.assigneeId).toBeNull();
+      expect(notifyTicketAssigned).toHaveBeenCalledWith(
+        dbMock,
+        expect.objectContaining({ assigneeId: null }),
+      );
+    });
+
+    it("assigns a new bug in the platform's product to the configured member and tells them, as Errol", async () => {
+      process.env.SENTRY_BUG_PRODUCT_ID = "prod-1";
+      process.env.SENTRY_BUG_ASSIGNEE_ID = "james";
+      vi.mocked(getWorkspaceMembership).mockResolvedValueOnce(member);
+
+      await ingestSentryBug(dbMock, bug);
+
+      expect(getWorkspaceMembership).toHaveBeenCalledWith(dbMock, "james", "ws-1");
+      const arg = vi.mocked(createTicketWithNumber).mock.calls[0]![1];
+      expect(arg.assigneeId).toBe("james");
+      expect(notifyTicketAssigned).toHaveBeenCalledWith(dbMock, {
+        ticketId: "ticket-1",
+        assigneeId: "james",
+        previousAssigneeId: null,
+        actorUserId: "errol-id",
+      });
+    });
+
+    it("does not assign bugs filed into another workspace's product", async () => {
+      // The platform product is the hardcoded default; this ingest targets a
+      // workspace-scoped integration's own product.
+      process.env.SENTRY_BUG_ASSIGNEE_ID = "james";
+
+      await ingestSentryBug(dbMock, bug, { productId: "prod-1" });
+
+      expect(getWorkspaceMembership).not.toHaveBeenCalled();
+      const arg = vi.mocked(createTicketWithNumber).mock.calls[0]![1];
+      expect(arg.assigneeId).toBeNull();
+    });
+
+    it("ignores an assignee who is not a member of the product's workspace", async () => {
+      process.env.SENTRY_BUG_PRODUCT_ID = "prod-1";
+      process.env.SENTRY_BUG_ASSIGNEE_ID = "stranger";
+
+      await ingestSentryBug(dbMock, bug);
+
+      const arg = vi.mocked(createTicketWithNumber).mock.calls[0]![1];
+      expect(arg.assigneeId).toBeNull();
+    });
+
+    it("does not re-notify the assignee when a recurring error dedups onto its ticket", async () => {
+      process.env.SENTRY_BUG_PRODUCT_ID = "prod-1";
+      process.env.SENTRY_BUG_ASSIGNEE_ID = "james";
+      dbMock.ticket.findFirst.mockResolvedValue({
+        id: "existing",
+        number: 3,
+        links: {},
+        updatedAt: new Date(),
+      } as never);
+
+      await ingestSentryBug(dbMock, bug);
+
+      expect(notifyTicketAssigned).not.toHaveBeenCalled();
     });
   });
 

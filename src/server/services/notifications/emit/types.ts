@@ -34,11 +34,14 @@ export interface PositionAssignedSubject {
   addedHolderUserIds: string[];
 }
 
-/** Assignment (V1): the action and the users just assigned to it. */
-export interface AssignmentSubject {
-  actionId: string;
-  assignedUserIds: string[];
-}
+/**
+ * Assignment: the item and the users just assigned to it. The item is an
+ * action (V1) or a ticket; exactly one of `actionId` / `ticketId` is set, and
+ * the content builder and access gate branch on which.
+ */
+export type AssignmentSubject =
+  | { actionId: string; ticketId?: undefined; assignedUserIds: string[] }
+  | { ticketId: string; actionId?: undefined; assignedUserIds: string[] };
 
 /**
  * Meeting participant added: a meeting (TranscriptionSession) and the workspace
