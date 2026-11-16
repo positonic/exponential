@@ -1,6 +1,7 @@
 import { db } from "~/server/db";
 import { type IStepExecutor, type StepContext } from "./IStepExecutor";
 import { startOfDay } from "date-fns";
+import { notInPausedProjectWhere } from "~/server/services/actions/myActionsWhere";
 
 export interface BlockerItem {
   id: string;
@@ -29,7 +30,8 @@ export class FetchBlockersStep implements IStepExecutor {
 
     const today = startOfDay(new Date());
 
-    // Fetch overdue actions
+    // Fetch overdue actions. A paused (On hold, Completed, Cancelled)
+    // project's actions are off the overdue pile, as on /today.
     const overdueActions = await db.action.findMany({
       where: {
         createdById: userId,
@@ -42,6 +44,7 @@ export class FetchBlockersStep implements IStepExecutor {
             workspaceId,
           },
         }),
+        AND: [notInPausedProjectWhere()],
       },
       include: {
         project: {

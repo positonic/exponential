@@ -2,6 +2,7 @@ import cron from 'node-cron';
 import { type Prisma } from '@prisma/client';
 import { db } from '~/server/db';
 import { addDays, startOfDay } from 'date-fns';
+import { notInPausedProjectWhere } from '../actions/myActionsWhere';
 import { WorkflowEngine } from '../workflows/WorkflowEngine';
 import { createStepRegistry } from '../workflows/StepRegistry';
 import { seedWorkflowTemplates } from '../workflows/seedTemplates';
@@ -364,7 +365,9 @@ export class PMScheduler {
   // ============= Task Handlers =============
 
   /**
-   * Check for overdue actions and create alerts
+   * Check for overdue actions and create alerts. A paused project's actions
+   * are off the overdue pile (see `notInPausedProjectWhere`), so they raise
+   * no alert.
    */
   private async checkOverdueActions(): Promise<string | undefined> {
     const today = startOfDay(new Date());
@@ -375,6 +378,7 @@ export class PMScheduler {
         scheduledStart: {
           lt: today,
         },
+        AND: [notInPausedProjectWhere()],
       },
       include: {
         project: true,

@@ -1,6 +1,7 @@
 import { db } from "~/server/db";
 import { type IStepExecutor, type StepContext } from "./IStepExecutor";
 import { startOfDay, endOfDay } from "date-fns";
+import { notInPausedProjectWhere } from "~/server/services/actions/myActionsWhere";
 
 export interface PlannedAction {
   id: string;
@@ -12,7 +13,8 @@ export interface PlannedAction {
 }
 
 /**
- * Fetches actions planned for today (or a specific date)
+ * Fetches actions planned for today (or a specific date). A paused (On hold,
+ * Completed, Cancelled) project's actions are not on the plan, as on /today.
  */
 export class FetchPlannedActionsStep implements IStepExecutor {
   type = "fetch_planned_actions";
@@ -43,6 +45,7 @@ export class FetchPlannedActionsStep implements IStepExecutor {
             workspaceId,
           },
         }),
+        AND: [notInPausedProjectWhere()],
       },
       include: {
         project: {

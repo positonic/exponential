@@ -15,6 +15,7 @@ import {
   startOfDay,
   parseISO,
 } from "date-fns";
+import { notInPausedProjectWhere } from "~/server/services/actions/myActionsWhere";
 
 // Types
 export interface TimeSlot {
@@ -239,7 +240,9 @@ export class AutoSchedulingService {
       }
     }
 
-    // Get already scheduled actions
+    // Get already scheduled actions. A paused project's actions don't hold
+    // their slots: `rescheduleAll` no longer moves them, so counting them as
+    // busy would keep time reserved for work that was put on hold.
     const scheduledActions = await this.db.action.findMany({
       where: {
         OR: [
@@ -249,6 +252,7 @@ export class AutoSchedulingService {
         scheduledStart: { gte: now, lte: maxDate },
         status: "ACTIVE",
         isAutoScheduled: true,
+        AND: [notInPausedProjectWhere()],
       },
       select: {
         id: true,
@@ -573,7 +577,11 @@ export class AutoSchedulingService {
   }
 
   /**
-   * Reschedule all auto-scheduled tasks for a user
+   * Reschedule all auto-scheduled tasks for a user.
+   *
+   * A paused (On hold, Completed, Cancelled) project's actions are left out
+   * entirely: they get no new slot, and the slot they had is not cleared, so
+   * setting the project back to Active and rescheduling picks them up again.
    */
   async rescheduleAll(
     userId: string,
@@ -591,6 +599,7 @@ export class AutoSchedulingService {
         isReminderOnly: false,
         parentChunkId: null, // Don't reschedule child chunks
         ...(workspaceId ? { workspaceId } : {}),
+        AND: [notInPausedProjectWhere()],
       },
       orderBy: [
         { dueDate: "asc" }, // Closest deadline first
@@ -640,7 +649,9 @@ export class AutoSchedulingService {
   }
 
   /**
-   * Update ETA for all tasks
+   * Update ETA for all tasks. Paused projects' actions are kept in: this only
+   * refreshes a stored field and shows nothing, and keeping it current means
+   * a project set back to Active comes back with correct ETAs.
    */
   async updateAllETAs(userId: string, workspaceId?: string): Promise<void> {
     const actions = await this.db.action.findMany({
@@ -674,7 +685,8 @@ export class AutoSchedulingService {
   }
 
   /**
-   * Check for deadline conflicts and return at-risk tasks
+   * Check for deadline conflicts and return at-risk tasks. A paused project's
+   * actions are not on the person's plate, so they are not reported at risk.
    */
   async checkDeadlineConflicts(
     userId: string,
@@ -698,6 +710,7 @@ export class AutoSchedulingService {
         dueDate: { not: null },
         etaStatus: { in: ["at_risk", "overdue"] },
         ...(workspaceId ? { workspaceId } : {}),
+        AND: [notInPausedProjectWhere()],
       },
       select: {
         id: true,

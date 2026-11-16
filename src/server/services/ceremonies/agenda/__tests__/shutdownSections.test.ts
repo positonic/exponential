@@ -5,9 +5,11 @@ import type { CalendarReader } from "~/server/services/notifications/emit/dailyS
 import { activityTodaySection } from "../sections/activity_today";
 import { completedTodaySection } from "../sections/completed_today";
 import { timeTodaySection } from "../sections/time_today";
+import { todaysActionsSection } from "../sections/todays_actions";
 import { tomorrowSection } from "../sections/tomorrow";
 import { yesterdaySection } from "../sections/yesterday";
 import type { SectionContext } from "../types";
+import { matchesWhere } from "~/test/prismaWhere";
 
 const { reportHandledErrorServer, dayReport } = vi.hoisted(() => ({ reportHandledErrorServer: vi.fn(), dayReport: vi.fn() }));
 vi.mock("~/server/utils/reportHandledErrorServer", () => ({ reportHandledErrorServer }));
@@ -183,6 +185,58 @@ describe("tomorrow section", () => {
       expect.arrayContaining([["Write proposal", "scheduled"], ["Invoice", "due"]]),
     );
     expect(items).toHaveLength(3);
+  });
+});
+
+describe("shutdown sections — paused projects", () => {
+  // The Shutdown recap's "Left undone" (the `todays_actions` section) and
+  // "Tomorrow" both read the /today set, so a paused (On hold, Completed,
+  // Cancelled) project's actions must not show up in either.
+  type Row = Record<string, unknown>;
+  const row = (id: string, projectStatus: string | null, dates: { dueDate?: Date; scheduledStart?: Date }): Row => ({
+    id,
+    name: id,
+    createdById: "u-1",
+    assignees: [],
+    status: "ACTIVE",
+    priority: "Quick",
+    completedAt: null,
+    scheduledStart: dates.scheduledStart ?? null,
+    dueDate: dates.dueDate ?? null,
+    projectId: projectStatus ? `p-${id}` : null,
+    project: projectStatus ? { status: projectStatus } : null,
+  });
+  const rows: Row[] = [
+    row("today-active", "ACTIVE", { dueDate: new Date("2026-09-09T10:00:00.000Z") }),
+    row("today-on-hold", "ON_HOLD", { dueDate: new Date("2026-09-09T10:00:00.000Z") }),
+    row("overdue-loose", null, { dueDate: new Date("2026-09-05T10:00:00.000Z") }),
+    row("overdue-cancelled", "CANCELLED", { dueDate: new Date("2026-09-05T10:00:00.000Z") }),
+    row("tomorrow-active", "ACTIVE", { scheduledStart: new Date("2026-09-10T07:00:00.000Z") }),
+    row("tomorrow-completed", "COMPLETED", { scheduledStart: new Date("2026-09-10T07:00:00.000Z") }),
+  ];
+  const serveRows = (db: Db) =>
+    db.action.findMany.mockImplementation(((args: { where?: Record<string, unknown> }) =>
+      Promise.resolve(rows.filter((r) => matchesWhere(r, args.where ?? {})))) as never);
+  const actionIds = (items: Array<{ refType: string; refId: string }>) =>
+    items.filter((i) => i.refType === "action").map((i) => i.refId);
+
+  it("Left undone lists today's and overdue actions, none from a paused project", async () => {
+    const db = setup();
+    serveRows(db);
+
+    const items = await todaysActionsSection.run(ctx(db), { key: "left_undone", type: "todays_actions", title: "Left undone" });
+
+    expect(actionIds(items)).toEqual(["today-active", "overdue-loose"]);
+  });
+
+  it("Tomorrow lists tomorrow's actions, none from a paused project", async () => {
+    const db = setup();
+    serveRows(db);
+    const readCalendar: CalendarReader = async () => [];
+
+    const items = await tomorrowSection.run(ctx(db, { readCalendar }), { key: "tomorrow", type: "tomorrow", title: "Tomorrow" });
+
+    expect(actionIds(items)).toEqual(["tomorrow-active"]);
   });
 });
 

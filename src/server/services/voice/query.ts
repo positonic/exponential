@@ -16,6 +16,7 @@
 import type { Prisma, PrismaClient } from "@prisma/client";
 import { startOfDay, endOfDay, startOfWeek, endOfWeek } from "date-fns";
 
+import { notInPausedProjectWhere } from "~/server/services/actions/myActionsWhere";
 import { matchProject } from "~/server/services/parsing/ProjectMatcher";
 import { boundLength, stripMarkdown } from "~/server/services/voice/speakable";
 
@@ -129,7 +130,14 @@ export async function runQuery(
   if (cls.inbox) {
     where.projectId = null;
   } else if (matched) {
+    // A project named out loud is answered in full, paused or not: asking
+    // "what's overdue in Acme?" is reading that project, like its own page.
     where.projectId = matched.id;
+  } else {
+    // "What's overdue / due today / due this week?" is about my plate, and a
+    // paused (On hold, Completed, Cancelled) project's actions are off it,
+    // as on /today.
+    where.AND = [notInPausedProjectWhere()];
   }
 
   if (cls.temporal === "overdue") {
