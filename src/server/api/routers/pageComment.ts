@@ -125,6 +125,7 @@ async function createQuotedThread(
       commentContent: body,
       commentAuthorId: userId,
     }),
+    { pageId, commentId: comment.id },
   );
 
   return { ...comment, anchor };
@@ -231,6 +232,7 @@ export const pageCommentRouter = createTRPCRouter({
           commentContent: input.body,
           commentAuthorId: ctx.session.user.id,
         }),
+        { pageId: input.pageId, commentId: comment.id },
       );
 
       // Viewers may comment but not edit the body, so only an editor's
@@ -306,6 +308,7 @@ export const pageCommentRouter = createTRPCRouter({
           commentContent: input.body,
           commentAuthorId: ctx.session.user.id,
         }),
+        { pageId: parent.pageId, commentId: comment.id },
       );
 
       return comment;
@@ -378,6 +381,7 @@ export const pageCommentRouter = createTRPCRouter({
           commentAuthorId: ctx.session.user.id,
           previousContent: existing.body,
         }),
+        { pageId: existing.pageId, commentId: updated.id },
       );
 
       return updated;

@@ -95,6 +95,7 @@ export const featureCommentRouter = createTRPCRouter({
           commentContent: input.body,
           commentAuthorId: ctx.session.user.id,
         }),
+        { featureId: input.featureId, commentId: comment.id },
       );
 
       const anchor = input.threadId
@@ -168,6 +169,7 @@ export const featureCommentRouter = createTRPCRouter({
           commentContent: input.body,
           commentAuthorId: ctx.session.user.id,
         }),
+        { featureId: parent.featureId, commentId: comment.id },
       );
 
       return comment;
@@ -208,6 +210,7 @@ export const featureCommentRouter = createTRPCRouter({
           commentAuthorId: ctx.session.user.id,
           previousContent: existing.body,
         }),
+        { featureId: existing.featureId, commentId: input.commentId },
       );
 
       return updated;

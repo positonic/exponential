@@ -498,6 +498,7 @@ async function handleTranscriptionCompleted(meetingId: string, clientReferenceId
             actorUserId: user.id,
             subject: { sessionId: transcriptionSession.id },
           }),
+          { meetingId: transcriptionSession.id },
         );
       }
     }

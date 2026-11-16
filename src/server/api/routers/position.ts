@@ -203,6 +203,7 @@ function notifyNewHolders(
       category: NOTIFICATION_CATEGORIES.POSITION_ASSIGNED,
       subject: { positionId, addedHolderUserIds },
     }),
+    { positionId },
   );
 }
 

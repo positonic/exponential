@@ -50,6 +50,7 @@ export async function createActionComment(
       commentContent: input.content,
       commentAuthorId: input.authorId,
     }),
+    { actionId: input.actionId, commentId: comment.id },
   );
 
   return comment;

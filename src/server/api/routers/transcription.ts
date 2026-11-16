@@ -1145,6 +1145,7 @@ export const transcriptionRouter = createTRPCRouter({
             actorUserId: ctx.session.user.id,
             subject: { sessionId: session.id, participantUserIds: memberUserIds },
           }),
+          { sessionId: session.id },
         );
       }
 
@@ -1225,6 +1226,7 @@ export const transcriptionRouter = createTRPCRouter({
               participantUserIds: [taggedUserId],
             },
           }),
+          { sessionId: session.id },
         );
       }
 

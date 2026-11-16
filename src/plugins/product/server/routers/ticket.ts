@@ -1468,6 +1468,7 @@ export const ticketRouter = createTRPCRouter({
           commentContent: input.content,
           commentAuthorId: ctx.session.user.id,
         }),
+        { ticketId: input.ticketId, commentId: comment.id },
       );
 
       const anchor = input.threadId
@@ -1552,6 +1553,7 @@ export const ticketRouter = createTRPCRouter({
           commentAuthorId: ctx.session.user.id,
           previousContent: comment.content,
         }),
+        { ticketId: updated.ticketId, commentId: updated.id },
       );
 
       return updated;
@@ -1628,6 +1630,7 @@ export const ticketRouter = createTRPCRouter({
           commentContent: input.content,
           commentAuthorId: ctx.session.user.id,
         }),
+        { ticketId: parent.ticketId, commentId: comment.id },
       );
 
       return comment;

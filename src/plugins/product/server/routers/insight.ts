@@ -723,6 +723,7 @@ export const insightRouter = createTRPCRouter({
           commentContent: input.content,
           commentAuthorId: ctx.session.user.id,
         }),
+        { insightId: input.insightId, commentId: comment.id },
       );
 
       return comment;
@@ -777,6 +778,7 @@ export const insightRouter = createTRPCRouter({
           commentAuthorId: ctx.session.user.id,
           previousContent: comment.content,
         }),
+        { insightId: comment.insightId, commentId: comment.id },
       );
 
       return updated;
