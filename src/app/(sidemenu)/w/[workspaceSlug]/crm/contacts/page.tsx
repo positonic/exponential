@@ -497,12 +497,18 @@ export default function ContactsPage() {
           {/* View Selector */}
           <Menu position="bottom-start">
             <Menu.Target>
-              <button className="flex min-w-0 items-center gap-2 rounded-md px-2 py-1.5 hover:bg-surface-hover transition-colors sm:px-3">
+              <button
+                className="flex min-w-0 items-center gap-2 rounded-md px-2 py-1.5 hover:bg-surface-hover transition-colors sm:px-3"
+                // The view name truncates on a phone; keep the full text
+                // reachable on hover and for screen readers.
+                title="Recently Contacted People"
+                aria-label="View: Recently Contacted People"
+              >
                 <div className="h-3 w-3 shrink-0 rounded bg-orange-400" />
                 <Text size="sm" className="truncate font-medium text-text-primary">
                   Recently Contacted People
                 </Text>
-                <IconChevronDown size={16} className="text-text-muted" />
+                <IconChevronDown size={16} className="shrink-0 text-text-muted" />
               </button>
             </Menu.Target>
             <Menu.Dropdown>
