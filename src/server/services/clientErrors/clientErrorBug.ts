@@ -77,6 +77,50 @@ export function fingerprintClientError(report: ClientErrorReport): string {
   return `client:${report.area}:${digest}`;
 }
 
+/** A workspace label attached to a filed ticket. */
+export interface ClientErrorLabel {
+  name: string;
+  slug: string;
+  color: string;
+}
+
+/**
+ * "bug" so it sits with the Sentry-filed ones; "client-error" instead of
+ * "Sentry" so the Sentry label keeps meaning the thing it says.
+ */
+const CLIENT_ERROR_LABELS: readonly ClientErrorLabel[] = [
+  { name: "client-error", slug: "client-error", color: "avatar-orange" },
+  { name: "bug", slug: "bug", color: "avatar-red" },
+];
+
+const CHAT_ERROR_LABEL: ClientErrorLabel = {
+  name: "chat-error",
+  slug: "chat-error",
+  color: "avatar-teal",
+};
+
+/**
+ * Areas where the failure was a turn with the assistant: the browser's stream
+ * reader, the stream route, the agent behind it, and Zoe's canvas stream.
+ * A new assistant surface that reports handled errors adds its area here.
+ */
+const CHAT_ERROR_AREAS = new Set([
+  "chat-stream",
+  "chat-stream-server",
+  "agent-stream",
+  "zoe-canvas-stream",
+]);
+
+/**
+ * The labels a handled-error ticket is filed under. Assistant failures get
+ * "chat-error" on top, so they can be listed apart from the rest of the app.
+ */
+export function clientErrorLabels(area: string): readonly ClientErrorLabel[] {
+  return CHAT_ERROR_AREAS.has(area)
+    ? [...CLIENT_ERROR_LABELS, CHAT_ERROR_LABEL]
+    : CLIENT_ERROR_LABELS;
+}
+
 /** Trim a string for display, marking the cut so nobody reads it as complete. */
 function cap(text: string, max: number): string {
   const clean = text.replace(/\s+/g, " ").trim();

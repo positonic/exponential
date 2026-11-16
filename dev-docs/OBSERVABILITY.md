@@ -67,6 +67,14 @@ Agent-stream failures carry `mastraRunId`, `occurredAt` and a ready-to-run
 `mastraLogs` Railway command in the ticket body, so tracing one is a paste,
 not a log hunt.
 
+These tickets are labelled `client-error` + `bug`. A failure in a turn with
+the assistant (areas `chat-stream`, `chat-stream-server`, `agent-stream`,
+`zoe-canvas-stream`) is also labelled `chat-error`, so assistant failures can
+be listed on their own. The areas live in `clientErrorLabels`
+(`src/server/services/clientErrors/clientErrorBug.ts`); a new assistant surface
+adds its area there. Labels are set when the ticket is created, so a
+recurrence that dedups onto an older ticket does not relabel it.
+
 - **Repeat alerts.** A billing or auth provider failure (out of credit,
   revoked key) fails every turn for everyone until someone acts, so it
   re-announces as **"Still happening"** at most hourly while it recurs

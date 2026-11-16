@@ -62,6 +62,18 @@ describe("POST /api/client-errors", () => {
     expect(bug.title).toContain("Your credit balance is too low");
     expect(options.body).toContain("never reached Sentry");
     // Labelled as what it is, so the "Sentry" label keeps meaning Sentry.
+    // An assistant failure is also labelled "chat-error".
+    expect(options.labels.map((l: { slug: string }) => l.slug)).toEqual([
+      "client-error",
+      "bug",
+      "chat-error",
+    ]);
+  });
+
+  it("leaves chat-error off a failure outside the assistant", async () => {
+    await POST(fakeRequest({ ...report, area: "local-wiki-status" }));
+
+    const [, , options] = ingestSentryBug.mock.calls[0]!;
     expect(options.labels.map((l: { slug: string }) => l.slug)).toEqual([
       "client-error",
       "bug",

@@ -3,6 +3,7 @@ import { describe, it, expect } from "vitest";
 import {
   buildClientErrorBody,
   buildClientErrorBug,
+  clientErrorLabels,
   fingerprintClientError,
   shouldFileClientError,
 } from "../clientErrorBug";
@@ -96,5 +97,25 @@ describe("buildClientErrorBody", () => {
     const secret = "tok_" + "c".repeat(40);
     const body = buildClientErrorBody(report({ context: { url: `https://x.test/${secret}` } }));
     expect(body).not.toContain(secret);
+  });
+});
+
+describe("clientErrorLabels", () => {
+  const slugs = (area: string) => clientErrorLabels(area).map((label) => label.slug);
+
+  it("adds chat-error to every assistant area", () => {
+    for (const area of [
+      "chat-stream",
+      "chat-stream-server",
+      "agent-stream",
+      "zoe-canvas-stream",
+    ]) {
+      expect(slugs(area)).toEqual(["client-error", "bug", "chat-error"]);
+    }
+  });
+
+  it("files the rest of the app under client-error and bug only", () => {
+    expect(slugs("workspace-invitation-email")).toEqual(["client-error", "bug"]);
+    expect(slugs("local-wiki-status")).toEqual(["client-error", "bug"]);
   });
 });

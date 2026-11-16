@@ -7,6 +7,7 @@ import { ingestSentryBug } from "~/server/services/sentry/SentryBugService";
 import {
   buildClientErrorBody,
   buildClientErrorBug,
+  clientErrorLabels,
   shouldFileClientError,
   type ClientErrorReport,
 } from "~/server/services/clientErrors/clientErrorBug";
@@ -88,7 +89,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   try {
     const result = await ingestSentryBug(db, buildClientErrorBug(report), {
       body: buildClientErrorBody(report),
-      labels: CLIENT_ERROR_LABELS,
+      labels: clientErrorLabels(report.area),
       heading: "New app error",
     });
     return NextResponse.json({ filed: result.created, ticketId: result.ticketId });
@@ -98,12 +99,3 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ filed: false, reason: "ingest-failed" });
   }
 }
-
-/**
- * "bug" so it sits with the Sentry-filed ones; "client-error" instead of
- * "Sentry" so the Sentry label keeps meaning the thing it says.
- */
-const CLIENT_ERROR_LABELS = [
-  { name: "client-error", slug: "client-error", color: "avatar-orange" },
-  { name: "bug", slug: "bug", color: "avatar-red" },
-] as const;

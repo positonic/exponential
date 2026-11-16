@@ -5,6 +5,7 @@ import { ingestSentryBug } from "~/server/services/sentry/SentryBugService";
 import {
   buildClientErrorBody,
   buildClientErrorBug,
+  clientErrorLabels,
   shouldFileClientError,
   type ClientErrorReport,
 } from "~/server/services/clientErrors/clientErrorBug";
@@ -23,12 +24,6 @@ import {
  * raise one, so every failure here is swallowed. Same `CLIENT_ERROR_BUGS`
  * env gate as the route, so per-environment filing stays one decision.
  */
-
-/** Same "bug" labels the /api/client-errors route files under. */
-const CLIENT_ERROR_LABELS = [
-  { name: "client-error", slug: "client-error", color: "avatar-orange" },
-  { name: "bug", slug: "bug", color: "avatar-red" },
-] as const;
 
 function messageOf(error: unknown): string {
   if (error instanceof Error) return error.message;
@@ -91,7 +86,7 @@ export function reportHandledErrorServer(
   // fingerprint happens inside ingestSentryBug.
   void ingestSentryBug(db, buildClientErrorBug(report), {
     body: buildClientErrorBody(report),
-    labels: CLIENT_ERROR_LABELS,
+    labels: clientErrorLabels(area),
     heading: "New app error",
     ...(renotifyAfterMs !== undefined ? { renotifyAfterMs } : {}),
   }).catch((ingestError: unknown) => {
