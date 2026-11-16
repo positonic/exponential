@@ -33,6 +33,7 @@ import { ChatOpenAI } from "@langchain/openai";
 import { HumanMessage, SystemMessage } from "@langchain/core/messages";
 import type { TranscriptTurn } from "~/lib/transcript";
 import type { DecisionEvidenceTurn } from "~/lib/decision-evidence";
+import { maskTokenLike } from "~/server/utils/redactToolArgs";
 
 /** One extracted decision, before anyone has confirmed it. */
 export interface DecisionCandidate {
@@ -134,6 +135,8 @@ export const MAX_TRANSCRIPT_CHUNKS = 24;
  * one call after another.
  */
 export const TRANSCRIPT_CONCURRENCY = 6;
+/** Distinct chunk-failure reasons kept on a run for the error report. */
+const MAX_FAILURE_REASONS = 3;
 /** One section's model call; a call that hangs costs that section only. */
 const TRANSCRIPT_CALL_TIMEOUT_MS = 90_000;
 /** The same bound for notes, which are far shorter in practice. */
@@ -834,6 +837,13 @@ export interface TranscriptExtractionRun {
   chunksTotal: number;
   /** Chunks whose model call or parse failed; their candidates are lost. */
   chunksFailed: number;
+  /**
+   * Why those chunks failed: the distinct first lines of their errors, masked
+   * and capped. "All N sections failed" said nothing about whether the model
+   * timed out, the key was rejected, or the output would not parse, and the
+   * per-chunk reasons only ever reached a console line.
+   */
+  failureReasons?: string[];
   /** Chunks never attempted because the cap was reached. */
   chunksSkipped: number;
 }
@@ -885,6 +895,7 @@ export class DecisionExtractionService {
     const chunks = allChunks.slice(0, MAX_TRANSCRIPT_CHUNKS);
     const chunksSkipped = allChunks.length - chunks.length;
     let chunksFailed = 0;
+    const failureReasons = new Set<string>();
     console.log(
       `[DecisionExtraction] model=${modelName}, turns=${turns.length}, passages=${passages.length}, chunks=${chunks.length}/${allChunks.length}, existing=${existingStatements.length}+${existingQuestions.length}q, open=${openDecisions.length}`,
     );
@@ -912,9 +923,12 @@ export class DecisionExtractionService {
         );
         return parsed;
       } catch (chunkErr) {
-        console.log(
-          `[DecisionExtraction] Chunk ${i + 1}/${chunks.length} failed: ${chunkErr instanceof Error ? chunkErr.message : String(chunkErr)}`,
-        );
+        const reason = chunkErr instanceof Error ? chunkErr.message : String(chunkErr);
+        console.log(`[DecisionExtraction] Chunk ${i + 1}/${chunks.length} failed: ${reason}`);
+        if (failureReasons.size < MAX_FAILURE_REASONS) {
+          const firstLine = maskTokenLike(reason.split("\n")[0]?.trim() ?? "").slice(0, 300);
+          if (firstLine) failureReasons.add(firstLine);
+        }
         return null;
       }
     });
@@ -1006,7 +1020,14 @@ export class DecisionExtractionService {
     console.log(
       `[DecisionExtraction] Transcript extraction found ${results.length} candidate(s), ${actionItems.length} action item(s)`,
     );
-    return { candidates: results, actionItems, chunksTotal: allChunks.length, chunksFailed, chunksSkipped };
+    return {
+      candidates: results,
+      actionItems,
+      chunksTotal: allChunks.length,
+      chunksFailed,
+      chunksSkipped,
+      failureReasons: [...failureReasons],
+    };
   }
 
   /**

@@ -36,6 +36,7 @@ import {
 import { emitNotification } from "~/server/services/notifications/emit/emitNotification";
 import { NOTIFICATION_CATEGORIES } from "~/server/services/notifications/emit/constants";
 import { reportHandledErrorServer } from "~/server/utils/reportHandledErrorServer";
+import { classifyProviderError } from "~/server/services/ai/providerError";
 
 /**
  * Budget for the all-or-nothing draft write. Prisma's defaults (5 s / 2 s)
@@ -393,9 +394,24 @@ export async function generateDraftDecisions(
         if (run.chunksFailed > 0 && run.candidates.length === 0) {
           const message = `All ${run.chunksFailed} transcript section(s) failed to extract`;
           result.errors.push(message);
+          // The reasons are what make this actionable: a provider auth or
+          // billing failure is an ops fix (rotate the key, top up), a timeout
+          // or parse failure is ours. Context, not the message, so recurrences
+          // still dedupe onto one ticket.
+          const reasons = run.failureReasons ?? [];
+          const firstReason = reasons[0];
           reportHandledErrorServer(new Error(message), {
             area: "generateDraftDecisions: transcript decision extraction failed",
-            context: { transcriptionSessionId: meeting.id, chunksFailed: String(run.chunksFailed) },
+            context: {
+              transcriptionSessionId: meeting.id,
+              chunksFailed: String(run.chunksFailed),
+              ...(firstReason
+                ? {
+                    failureReasons: reasons.join(" | "),
+                    providerErrorKind: classifyProviderError(firstReason),
+                  }
+                : {}),
+            },
           });
         }
       } catch (error) {

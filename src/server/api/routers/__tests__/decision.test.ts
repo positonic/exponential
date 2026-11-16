@@ -709,6 +709,37 @@ describe("decision router", () => {
       ]);
     });
 
+    it("re-anchors a verbatim quote cited at the wrong index to the turn that holds it", async () => {
+      withWorkspaceRole(db, "member");
+      withMeeting(db);
+      withTransaction(db);
+      reportHandledErrorServer.mockClear();
+      db.workspace.update.mockResolvedValue({ decisionCounter: 1 } as never);
+      db.decision.create.mockResolvedValue({
+        id: "dec-1", number: 1, statement: "Review the accordion", status: "ACCEPTED", source: "MEETING", transcriptionSessionId: MEETING_ID,
+      } as never);
+
+      await caller(db).decision.create({
+        workspaceId: WORKSPACE_ID,
+        statement: "Review the accordion",
+        source: "AGENT",
+        transcriptionSessionId: MEETING_ID,
+        evidence: [
+          // Agents read flat transcript text, so the index is a guess; the
+          // words are real and belong to turn 1.
+          { turnIndex: 3, speaker: "Pat Reviewer", text: "the accordion PR is waiting on a review" },
+          // Too short to place anywhere but where it was cited.
+          { turnIndex: 0, speaker: "Pat Reviewer", text: "park it" },
+        ],
+      });
+
+      const data = (db.decision.create.mock.calls[0]![0] as { data: Record<string, unknown> }).data;
+      expect(data.evidence).toEqual([
+        { turnIndex: 1, speaker: "Pat Reviewer", startTime: null, text: "The accordion PR is waiting on a review." },
+      ]);
+      expect(reportHandledErrorServer).not.toHaveBeenCalled();
+    });
+
     it("will not let a trivially short turn stand as evidence for a longer quote, and reports the wholesale rejection", async () => {
       withWorkspaceRole(db, "member");
       withTransaction(db);

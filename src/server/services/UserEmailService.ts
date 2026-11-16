@@ -17,6 +17,44 @@ import { simpleParser } from "mailparser";
 import { db } from "~/server/db";
 import { decryptCredential } from "~/server/utils/credentialHelper";
 
+// ==================== IMAP client ====================
+
+/**
+ * Build an ImapFlow client with an `error` listener attached.
+ *
+ * ImapFlow is an EventEmitter and reports socket failures (most often
+ * "Socket timeout", ETIMEOUT, when a slow IMAP server stalls mid-command) by
+ * emitting `error`. An EventEmitter with no `error` listener rethrows that as
+ * an uncaught exception, which took down the whole tRPC request as a fatal
+ * crash instead of the calm "could not reach your mailbox" the callers'
+ * try/catch blocks already produce. ImapFlow also rejects the in-flight
+ * command and closes the connection, so the caller still sees the failure;
+ * the listener only stops the emit from escalating into a process-level throw.
+ */
+export function createImapClient(options: {
+  host: string;
+  port: number;
+  user: string;
+  pass: string;
+}): ImapFlow {
+  const client = new ImapFlow({
+    host: options.host,
+    port: options.port,
+    secure: true,
+    auth: { user: options.user, pass: options.pass },
+    logger: false,
+  });
+  client.on("error", (error: unknown) => {
+    const err = error as { message?: unknown; code?: unknown };
+    console.warn("[UserEmailService] IMAP connection error", {
+      host: options.host,
+      code: typeof err?.code === "string" ? err.code : undefined,
+      message: typeof err?.message === "string" ? err.message : String(error),
+    });
+  });
+  return client;
+}
+
 // ==================== Types ====================
 
 interface EmailCredentials {
@@ -176,12 +214,11 @@ export class UserEmailService {
    * Caller must call client.logout() when done.
    */
   private async connectImap(creds: EmailCredentials): Promise<ImapFlow> {
-    const client = new ImapFlow({
+    const client = createImapClient({
       host: creds.imapHost,
       port: creds.imapPort,
-      secure: true,
-      auth: { user: creds.emailAddress, pass: creds.appPassword },
-      logger: false,
+      user: creds.emailAddress,
+      pass: creds.appPassword,
     });
     await client.connect();
     return client;
@@ -605,12 +642,11 @@ export class UserEmailService {
     imapHost: string;
     imapPort: number;
   }): Promise<{ success: boolean; error?: string }> {
-    const client = new ImapFlow({
+    const client = createImapClient({
       host: creds.imapHost,
       port: creds.imapPort,
-      secure: true,
-      auth: { user: creds.emailAddress, pass: creds.appPassword },
-      logger: false,
+      user: creds.emailAddress,
+      pass: creds.appPassword,
     });
 
     try {

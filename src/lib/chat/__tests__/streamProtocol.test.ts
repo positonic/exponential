@@ -208,6 +208,13 @@ describe('classifyStreamError', () => {
         ),
       ),
     ).toEqual({ kind: 'model', retryable: false });
+    // The server's own 503 sentence for a billing/auth outage: not transport,
+    // so the client does not auto-retry into the same dead account.
+    expect(
+      classifyStreamError(
+        new Error("⚠️ The assistant's AI provider is unavailable right now — please try again in a little while."),
+      ),
+    ).toEqual({ kind: 'model', retryable: false });
     expect(classifyStreamError(new Error('You exceeded your current quota'))).toEqual({
       kind: 'model',
       retryable: false,

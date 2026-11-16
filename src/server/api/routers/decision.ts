@@ -205,6 +205,16 @@ async function ensureDecisionAccess(
  *
  * Unresolvable turns are dropped, not fatal: a decision worth logging should
  * not be lost because one quote was wrong.
+ *
+ * A quote whose words are verbatim but whose index is wrong is re-anchored to
+ * the turn that really holds them (the nearest one to the claimed index).
+ * Agents read meetings as flat transcript text — no tool hands them this
+ * parser's turn numbering — so their indices are guesses, and checking the
+ * index alone rejected every quote of real, correctly quoted words ("Every
+ * evidence turn failed transcript verification"). The words are still the
+ * test: re-anchoring only uses the forward match (the turn contains the
+ * whole quote), never the looser reverse one, so a quote found nowhere is
+ * still dropped.
  */
 function validateEvidenceAgainstTranscript(
   evidence: Array<{ turnIndex: number; speaker?: string | null; startTime?: number | null; text: string }>,
@@ -214,21 +224,22 @@ function validateEvidenceAgainstTranscript(
   let dropped = 0;
   const seen = new Set<number>();
   for (const turn of evidence) {
-    const actual = turns[turn.turnIndex];
-    if (!actual || seen.has(turn.turnIndex)) {
-      dropped += 1;
-      continue;
-    }
     // The words must be the transcript's, not the model's recollection of
     // them. Compared loosely (case, punctuation and whitespace) so a quote
     // that is genuinely from this turn survives normalisation differences.
-    if (!quoteMatchesTurn(turn.text, actual.text)) {
+    const claimed = turns[turn.turnIndex];
+    const turnIndex =
+      claimed && quoteMatchesTurn(turn.text, claimed.text)
+        ? turn.turnIndex
+        : findTurnContainingQuote(turn.text, turns, turn.turnIndex);
+    const actual = turnIndex === undefined ? undefined : turns[turnIndex];
+    if (turnIndex === undefined || !actual || seen.has(turnIndex)) {
       dropped += 1;
       continue;
     }
-    seen.add(turn.turnIndex);
+    seen.add(turnIndex);
     kept.push({
-      turnIndex: turn.turnIndex,
+      turnIndex,
       // Attribution comes from the transcript, never from the caller.
       speaker: actual.speaker,
       startTime: actual.startTime,
@@ -238,9 +249,33 @@ function validateEvidenceAgainstTranscript(
   return { kept, dropped };
 }
 
-/** Loose containment: normalised quote must appear in the normalised turn. */
-function quoteMatchesTurn(quote: string, turnText: string): boolean {
-  const normalize = (value: string) =>
+/** Shortest normalised quote that may be re-anchored to another turn. */
+const MIN_REANCHOR_QUOTE_CHARS = 12;
+
+/**
+ * Index of the turn whose text contains the whole quote, nearest to the
+ * index the caller claimed; undefined when no turn does, or the quote is too
+ * short to place unambiguously ("yes", "ok").
+ */
+function findTurnContainingQuote(
+  quote: string,
+  turns: TranscriptTurn[],
+  claimedIndex: number,
+): number | undefined {
+  const q = normalizeQuoteText(quote);
+  if (q.length < MIN_REANCHOR_QUOTE_CHARS) return undefined;
+  let best: number | undefined;
+  for (let i = 0; i < turns.length; i++) {
+    if (!normalizeQuoteText(turns[i]!.text).includes(q)) continue;
+    if (best === undefined || Math.abs(i - claimedIndex) < Math.abs(best - claimedIndex)) {
+      best = i;
+    }
+  }
+  return best;
+}
+
+function normalizeQuoteText(value: string): string {
+  return (
     value
       .toLowerCase()
       // Apostrophes vanish rather than splitting a word, so "Let's" and
@@ -248,9 +283,14 @@ function quoteMatchesTurn(quote: string, turnText: string): boolean {
       .replace(/['\u2018\u2019]/g, "")
       .replace(/[^\p{L}\p{N}\s]/gu, " ")
       .replace(/\s+/g, " ")
-      .trim();
-  const q = normalize(quote);
-  const t = normalize(turnText);
+      .trim()
+  );
+}
+
+/** Loose containment: normalised quote must appear in the normalised turn. */
+function quoteMatchesTurn(quote: string, turnText: string): boolean {
+  const q = normalizeQuoteText(quote);
+  const t = normalizeQuoteText(turnText);
   if (q.length === 0) return false;
   if (t.includes(q)) return true;
   // The reverse direction lets a quote spanning several turns cite the first

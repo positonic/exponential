@@ -1197,6 +1197,14 @@ export async function POST(req: Request) {
             finishReason: lastStepFinishReason ?? 'unknown',
             error: err instanceof Error ? err.message : (typeof err === 'string' ? err : 'unknown error'),
           });
+          // A provider billing/auth failure can also surface as a throw (the
+          // Sonnet retry's agent.stream(), or a provider error Mastra rethrows
+          // rather than yielding as an `error` chunk). Same treatment as the
+          // chunk path: deterministic, so say "unavailable" and keep paging.
+          const thrownProviderKind = classifyProviderError(
+            maskTokenLike(err instanceof Error ? err.message : String(err)),
+          );
+          const thrownNonRetryable = isNonRetryableProviderError(thrownProviderKind);
           // Server-side failures abort the stream before the client can
           // classify anything, so this is the only place they can be reported.
           reportHandledErrorServer(err, {
@@ -1206,7 +1214,9 @@ export async function POST(req: Request) {
               threadId,
               platform,
               partialChars: String(fullText.length),
+              providerErrorKind: thrownProviderKind,
             },
+            ...(thrownNonRetryable ? { renotifyAfterMs: PROVIDER_OUTAGE_RENOTIFY_MS } : {}),
           });
           // The steps that finished before the failure were still billed.
           usageWrites.push(meterAttempt());
@@ -1260,7 +1270,21 @@ export async function POST(req: Request) {
           } catch (logErr) {
             console.error("Failed-turn logging threw:", logErr);
           }
-          controller.error(err);
+          if (thrownNonRetryable) {
+            // Erroring the stream reads as a dropped connection to the client,
+            // which auto-retries it as transport — three more calls into an
+            // account that cannot answer. Close cleanly on a plain sentence.
+            try {
+              controller.enqueue(
+                new TextEncoder().encode(`\n\n${USER_FACING_PROVIDER_UNAVAILABLE}\n`),
+              );
+              controller.close();
+            } catch {
+              controller.error(err);
+            }
+          } else {
+            controller.error(err);
+          }
         } finally {
           clearInterval(heartbeat);
           void Promise.allSettled(usageWrites).then(releaseUsageWrites);
@@ -1277,6 +1301,24 @@ export async function POST(req: Request) {
     });
   } catch (error) {
     console.error("Streaming error:", error);
+    // The first agent.stream() runs before the response stream exists, so a
+    // provider that rejects the request outright (credit exhausted, revoked
+    // key) lands here. Answer with the calm provider-unavailable sentence and
+    // a 503 the client shows as-is, instead of a bare 500 it retries.
+    const providerKind = classifyProviderError(
+      maskTokenLike(error instanceof Error ? error.message : String(error)),
+    );
+    if (isNonRetryableProviderError(providerKind)) {
+      reportHandledErrorServer(error, {
+        area: "chat-stream-server",
+        context: { stage: "agent-stream-start", providerErrorKind: providerKind },
+        renotifyAfterMs: PROVIDER_OUTAGE_RENOTIFY_MS,
+      });
+      return new Response(
+        JSON.stringify({ error: USER_FACING_PROVIDER_UNAVAILABLE }),
+        { status: 503, headers: { "Content-Type": "application/json" } },
+      );
+    }
     return new Response(
       JSON.stringify({ error: "Failed to stream response" }),
       {

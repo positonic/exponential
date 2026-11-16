@@ -213,6 +213,18 @@ describe("DecisionExtractionService.extractFromTranscript", () => {
     expect(result[0]!.evidence[0]!.turnIndex).toBe(199);
   });
 
+  it("keeps the distinct reasons chunks failed, masked, for the error report", async () => {
+    invokeMock.mockRejectedValue(new Error("401 Incorrect API key provided: sk-proj-abcdefghijklmnopqrstuvwxyz0123456789\n    at stack"));
+
+    const run = await DecisionExtractionService.extractFromTranscript(TURNS);
+
+    expect(run.chunksFailed).toBe(run.chunksTotal);
+    expect(run.failureReasons).toHaveLength(1);
+    expect(run.failureReasons![0]).toMatch(/^401 Incorrect API key provided/);
+    expect(run.failureReasons![0]).not.toContain("abcdefghijklmnopqrstuvwxyz0123456789");
+    expect(run.failureReasons![0]).not.toContain("at stack");
+  });
+
   it("returns nothing without an API key and never calls the model", async () => {
     delete process.env.OPENAI_API_KEY;
     const { candidates: result } = await DecisionExtractionService.extractFromTranscript(TURNS);

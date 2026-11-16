@@ -106,6 +106,14 @@ export async function streamChatResponse(
             "You've hit the chat rate limit. Please wait a moment and try again.",
         );
       }
+      if (response.status === 503) {
+        // The server's calm "AI provider unavailable" (billing/auth outage).
+        // Not transport: a retry hits the same exhausted or revoked account.
+        const data = (await response.json().catch(() => null)) as
+          | { error?: string }
+          | null;
+        if (data?.error) throw new Error(data.error);
+      }
       throw new Error('Stream request failed');
     }
 

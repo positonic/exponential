@@ -45,6 +45,7 @@ import {
   summaryDecisionText,
 } from "../generateDraftDecisions";
 import type { DecisionCandidate } from "~/server/services/DecisionExtractionService";
+import { reportHandledErrorServer } from "~/server/utils/reportHandledErrorServer";
 
 const TRANSCRIPT = [
   "Dev Fixture: Morning. Blockers first - anything stuck?",
@@ -110,7 +111,7 @@ const MANY_TRANSCRIPT = MANY_STATEMENTS.map((statement, i) => `${i % 2 === 0 ? "
 const manyNotesCandidates = () => MANY_STATEMENTS.map((statement) => candidate({ statement, evidence: [], origin: "notes" }));
 
 /** `extractFromTranscript` returns a run object, not a bare array. */
-function transcriptRun(candidates: unknown[], over: Record<string, number> = {}) {
+function transcriptRun(candidates: unknown[], over: Record<string, number | string[]> = {}) {
   return { candidates, chunksTotal: 1, chunksFailed: 0, chunksSkipped: 0, ...over };
 }
 
@@ -618,6 +619,27 @@ describe("generateDraftDecisions", () => {
     extractFromTranscript.mockResolvedValue(transcriptRun([], { chunksFailed: 3, chunksTotal: 3 }));
     const result = await generateDraftDecisions(db, "m1", "u-dev");
     expect(result.errors.join(" ")).toMatch(/failed to extract/i);
+  });
+
+  it("carries why the sections failed into the report, classified", async () => {
+    vi.mocked(reportHandledErrorServer).mockClear();
+    extractFromTranscript.mockResolvedValue(
+      transcriptRun([], {
+        chunksFailed: 3,
+        chunksTotal: 3,
+        failureReasons: ["401 Incorrect API key provided: sk-proj-****"],
+      }),
+    );
+    await generateDraftDecisions(db, "m1", "u-dev");
+    expect(reportHandledErrorServer).toHaveBeenCalledWith(
+      expect.objectContaining({ message: "All 3 transcript section(s) failed to extract" }),
+      expect.objectContaining({
+        context: expect.objectContaining({
+          failureReasons: "401 Incorrect API key provided: sk-proj-****",
+          providerErrorKind: "auth",
+        }),
+      }),
+    );
   });
 
   it("warns about partial transcript coverage without failing the run", async () => {

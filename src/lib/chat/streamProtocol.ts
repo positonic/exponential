@@ -161,6 +161,7 @@ export function classifyStreamError(error: unknown): { kind: StreamFailureKind; 
   // one fact that would have fixed it.
   if (
     text.includes('credit balance') ||
+    text.includes('provider is unavailable') ||
     text.includes('quota') ||
     text.includes('billing') ||
     text.includes('insufficient_quota') ||
