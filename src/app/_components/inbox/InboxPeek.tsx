@@ -117,7 +117,12 @@ export function InboxPeekDrawer({
         <PeekContent
           key={href}
           target={target}
-          onReviewed={() => setPeek(nextDraft ?? null)}
+          onReviewed={() => {
+            // The review settles after its invalidations: if the drawer was
+            // closed or moved to another item meanwhile, leave it there.
+            const current = new URL(window.location.href).searchParams.get(PEEK_PARAM);
+            if (current === href) setPeek(nextDraft ?? null);
+          }}
         />
       )}
     </PeekDrawer>
