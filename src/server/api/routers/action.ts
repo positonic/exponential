@@ -58,6 +58,7 @@ import {
   serverLocalDay,
 } from "~/server/services/actions/myActionsWhere";
 import { groupOverdueCohorts, daysOverdue } from "~/lib/actions/triage";
+import { emitAfterResponse } from "~/server/services/notifications/emit/emitAfterResponse";
 
 /**
  * `quickCreate` keeps its free-form `source` input (the iOS shortcut has sent
@@ -1563,15 +1564,17 @@ export const actionRouter = createTRPCRouter({
       // Resolves recipients + enabled channels, persists a durable Notification
       // record, and delivers best-effort synchronously; the cron worker retries
       // any channel that failed. Never notifies the assigner about their own action.
-      void emitNotification({
-        category: NOTIFICATION_CATEGORIES.ASSIGNMENT,
-        actorUserId: ctx.session.user.id,
-        subject: {
-          actionId: input.actionId,
-          assignedUserIds: input.userIds,
-        },
-        db: ctx.db,
-      });
+      emitAfterResponse("action.assign.notification", () =>
+        emitNotification({
+          category: NOTIFICATION_CATEGORIES.ASSIGNMENT,
+          actorUserId: ctx.session.user.id,
+          subject: {
+            actionId: input.actionId,
+            assignedUserIds: input.userIds,
+          },
+          db: ctx.db,
+        }),
+      );
 
       // Return updated action with assignees. `agentRunsQueued` is the number
       // of Agent runs this call actually started (Agent PRD D8.2): 0 whenever

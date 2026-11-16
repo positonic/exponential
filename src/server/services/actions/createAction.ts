@@ -32,6 +32,7 @@ import {
   setActionBlockers,
 } from "./dependencies";
 import type { ActionWriteDeps } from "./types";
+import { emitAfterResponse } from "~/server/services/notifications/emit/emitAfterResponse";
 
 /**
  * The row every create path returns. Callers that expose a narrower shape
@@ -276,16 +277,18 @@ export async function createAction(
 
   // Unified notification pipeline (ADR-0045): one Assignment emit for every
   // assignee who is not the actor, the owner an agent's Action defaulted to
-  // included. Best-effort and not awaited, matching `action.assign`; the cron
-  // worker retries any channel that failed.
+  // included. Runs after the response (kept alive by the platform), matching
+  // `action.assign`; the cron worker retries any channel that failed.
   const notifiedAssigneeIds = assigneeIdsToWrite.filter((id) => id !== actor.userId);
   if (notifiedAssigneeIds.length > 0) {
-    void emitNotification({
-      category: NOTIFICATION_CATEGORIES.ASSIGNMENT,
-      actorUserId: actor.userId,
-      subject: { actionId: created.id, assignedUserIds: notifiedAssigneeIds },
-      db,
-    });
+    emitAfterResponse("createAction.assignmentNotification", () =>
+      emitNotification({
+        category: NOTIFICATION_CATEGORIES.ASSIGNMENT,
+        actorUserId: actor.userId,
+        subject: { actionId: created.id, assignedUserIds: notifiedAssigneeIds },
+        db,
+      }),
+    );
   }
 
   return created;

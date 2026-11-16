@@ -6,6 +6,7 @@ import {
 import { recordActivity } from "~/server/services/activity/recordActivity";
 import { emitNotification } from "~/server/services/notifications/emit/emitNotification";
 import { NOTIFICATION_CATEGORIES } from "~/server/services/notifications/emit/constants";
+import { reportEmitFailure } from "~/server/services/notifications/emit/emitAfterResponse";
 import { markOccurrenceCaptured } from "~/server/services/ceremonies/agenda/items";
 import { summaryToMarkdown } from "~/server/services/ceremonies/notesSeed";
 import {
@@ -215,15 +216,7 @@ export async function summarizeMeetingRow(
   return { status: "created", summary: summaryJson, eventEmitted };
 }
 
-/**
- * Loaded on the failure path only: the reporter imports the Prisma singleton,
- * and this module is imported by routers and meeting services whose unit
- * tests run without one.
- */
-async function reportNotifyError(error: unknown, context: Record<string, string>): Promise<void> {
-  const { reportHandledErrorServer } = await import("~/server/utils/reportHandledErrorServer");
-  reportHandledErrorServer(error, { area: "meetings.summary.notifyMeetingReady", context });
-}
+const NOTIFY_AREA = "meetings.summary.notifyMeetingReady";
 
 /**
  * Emit the meeting-ready notification and report (rather than drop) a
@@ -242,9 +235,9 @@ async function notifyMeetingReady(
       subject: { sessionId: meeting.id },
     });
     if (notified === null) {
-      await reportNotifyError(new Error("meeting-ready notification failed to resolve recipients"), context);
+      await reportEmitFailure(new Error("meeting-ready notification failed to resolve recipients"), NOTIFY_AREA, context);
     }
   } catch (error) {
-    await reportNotifyError(error, context).catch(() => undefined);
+    await reportEmitFailure(error, NOTIFY_AREA, context);
   }
 }

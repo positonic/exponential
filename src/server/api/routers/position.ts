@@ -15,6 +15,7 @@ import {
 import { blankToNull } from "~/server/utils/blankToNull";
 import { emitNotification } from "~/server/services/notifications/emit/emitNotification";
 import { NOTIFICATION_CATEGORIES } from "~/server/services/notifications/emit/constants";
+import { emitAfterResponse } from "~/server/services/notifications/emit/emitAfterResponse";
 
 /**
  * Positions (ADR-0068): who does what in a workspace, for humans and agents
@@ -195,12 +196,14 @@ function notifyNewHolders(
   addedHolderUserIds: string[],
 ): void {
   if (addedHolderUserIds.length === 0) return;
-  void emitNotification({
-    db,
-    actorUserId,
-    category: NOTIFICATION_CATEGORIES.POSITION_ASSIGNED,
-    subject: { positionId, addedHolderUserIds },
-  });
+  emitAfterResponse("position.assignedNotification", () =>
+    emitNotification({
+      db,
+      actorUserId,
+      category: NOTIFICATION_CATEGORIES.POSITION_ASSIGNED,
+      subject: { positionId, addedHolderUserIds },
+    }),
+  );
 }
 
 /** The holders' `WorkspaceUser` ids keyed by userId, so an import can map each row's holders. */

@@ -12,6 +12,7 @@ import { checkStaleWrite } from "~/lib/prd/stale-write";
 import { uploadToBlob } from "~/lib/blob";
 import { recordActivity } from "~/server/services/activity/recordActivity";
 import { emitInsightCommentMention } from "~/server/services/notifications/emit/mentionAdapters";
+import { emitAfterResponse } from "~/server/services/notifications/emit/emitAfterResponse";
 
 // Loose shape for a ProseMirror document (same treatment as feature.ts).
 const prosemirrorDoc = z.record(z.string(), z.unknown());
@@ -715,12 +716,14 @@ export const insightRouter = createTRPCRouter({
       });
 
       // Fire-and-forget: notify mentioned workspace members via the pipeline.
-      void emitInsightCommentMention(ctx.db, {
-        insightId: input.insightId,
-        commentId: comment.id,
-        commentContent: input.content,
-        commentAuthorId: ctx.session.user.id,
-      });
+      emitAfterResponse("insight.commentMention", () =>
+        emitInsightCommentMention(ctx.db, {
+          insightId: input.insightId,
+          commentId: comment.id,
+          commentContent: input.content,
+          commentAuthorId: ctx.session.user.id,
+        }),
+      );
 
       return comment;
     }),
@@ -766,13 +769,15 @@ export const insightRouter = createTRPCRouter({
 
       // Fire-and-forget: notify mentions added by the edit. Passing the old
       // content means already-notified users aren't pinged again.
-      void emitInsightCommentMention(ctx.db, {
-        insightId: comment.insightId,
-        commentId: comment.id,
-        commentContent: input.content,
-        commentAuthorId: ctx.session.user.id,
-        previousContent: comment.content,
-      });
+      emitAfterResponse("insight.commentMention", () =>
+        emitInsightCommentMention(ctx.db, {
+          insightId: comment.insightId,
+          commentId: comment.id,
+          commentContent: input.content,
+          commentAuthorId: ctx.session.user.id,
+          previousContent: comment.content,
+        }),
+      );
 
       return updated;
     }),

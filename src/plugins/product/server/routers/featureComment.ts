@@ -11,6 +11,7 @@ import {
   commentAnchorInput,
   NOT_ANCHORED,
 } from "~/server/services/prd/anchor-comment";
+import { emitAfterResponse } from "~/server/services/notifications/emit/emitAfterResponse";
 
 const authorSelect = {
   id: true,
@@ -86,13 +87,15 @@ export const featureCommentRouter = createTRPCRouter({
       });
 
       // Fire-and-forget: notify mentioned workspace members via the pipeline.
-      void emitFeatureCommentMention(ctx.db, {
-        featureId: input.featureId,
-        scopeId: input.scopeId,
-        commentId: comment.id,
-        commentContent: input.body,
-        commentAuthorId: ctx.session.user.id,
-      });
+      emitAfterResponse("featureComment.mention", () =>
+        emitFeatureCommentMention(ctx.db, {
+          featureId: input.featureId,
+          scopeId: input.scopeId,
+          commentId: comment.id,
+          commentContent: input.body,
+          commentAuthorId: ctx.session.user.id,
+        }),
+      );
 
       const anchor = input.threadId
         ? await anchorThreadInStoredDoc({
@@ -157,13 +160,15 @@ export const featureCommentRouter = createTRPCRouter({
 
       // Fire-and-forget: notify mentioned workspace members. Deep-link to the
       // parent's scope thread when the conversation lives on a scope.
-      void emitFeatureCommentMention(ctx.db, {
-        featureId: parent.featureId,
-        scopeId: parent.scopeId ?? undefined,
-        commentId: comment.id,
-        commentContent: input.body,
-        commentAuthorId: ctx.session.user.id,
-      });
+      emitAfterResponse("featureComment.mention", () =>
+        emitFeatureCommentMention(ctx.db, {
+          featureId: parent.featureId,
+          scopeId: parent.scopeId ?? undefined,
+          commentId: comment.id,
+          commentContent: input.body,
+          commentAuthorId: ctx.session.user.id,
+        }),
+      );
 
       return comment;
     }),
@@ -194,14 +199,16 @@ export const featureCommentRouter = createTRPCRouter({
 
       // Fire-and-forget: notify mentions added by the edit. Passing the old
       // body means already-notified users aren't pinged again.
-      void emitFeatureCommentMention(ctx.db, {
-        featureId: existing.featureId,
-        scopeId: existing.scopeId ?? undefined,
-        commentId: input.commentId,
-        commentContent: input.body,
-        commentAuthorId: ctx.session.user.id,
-        previousContent: existing.body,
-      });
+      emitAfterResponse("featureComment.mention", () =>
+        emitFeatureCommentMention(ctx.db, {
+          featureId: existing.featureId,
+          scopeId: existing.scopeId ?? undefined,
+          commentId: input.commentId,
+          commentContent: input.body,
+          commentAuthorId: ctx.session.user.id,
+          previousContent: existing.body,
+        }),
+      );
 
       return updated;
     }),

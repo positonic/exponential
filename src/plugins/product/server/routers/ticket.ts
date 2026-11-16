@@ -49,6 +49,7 @@ import { TEXT_LIMITS, boundedText } from "~/lib/text-limits";
 import { uploadToBlob } from "~/lib/blob";
 import { parseTicketUrlId } from "~/lib/fun-ids";
 import { searchTicketsIdFirst } from "../services/ticketTextSearch";
+import { emitAfterResponse } from "~/server/services/notifications/emit/emitAfterResponse";
 
 const prosemirrorDoc = z.record(z.string(), z.unknown());
 
@@ -1460,12 +1461,14 @@ export const ticketRouter = createTRPCRouter({
 
       // Fire-and-forget: notify mentioned workspace members via the pipeline
       // (same path as feature comments).
-      void emitTicketCommentMention(ctx.db, {
-        ticketId: input.ticketId,
-        commentId: comment.id,
-        commentContent: input.content,
-        commentAuthorId: ctx.session.user.id,
-      });
+      emitAfterResponse("ticket.commentMention", () =>
+        emitTicketCommentMention(ctx.db, {
+          ticketId: input.ticketId,
+          commentId: comment.id,
+          commentContent: input.content,
+          commentAuthorId: ctx.session.user.id,
+        }),
+      );
 
       const anchor = input.threadId
         ? await anchorThreadInStoredDoc({
@@ -1541,13 +1544,15 @@ export const ticketRouter = createTRPCRouter({
 
       // Fire-and-forget: notify mentions added by the edit. Passing the old
       // body means already-notified users aren't pinged again.
-      void emitTicketCommentMention(ctx.db, {
-        ticketId: updated.ticketId,
-        commentId: updated.id,
-        commentContent: input.content,
-        commentAuthorId: ctx.session.user.id,
-        previousContent: comment.content,
-      });
+      emitAfterResponse("ticket.commentMention", () =>
+        emitTicketCommentMention(ctx.db, {
+          ticketId: updated.ticketId,
+          commentId: updated.id,
+          commentContent: input.content,
+          commentAuthorId: ctx.session.user.id,
+          previousContent: comment.content,
+        }),
+      );
 
       return updated;
     }),
@@ -1616,12 +1621,14 @@ export const ticketRouter = createTRPCRouter({
       });
 
       // Fire-and-forget: notify mentioned workspace members.
-      void emitTicketCommentMention(ctx.db, {
-        ticketId: parent.ticketId,
-        commentId: comment.id,
-        commentContent: input.content,
-        commentAuthorId: ctx.session.user.id,
-      });
+      emitAfterResponse("ticket.commentMention", () =>
+        emitTicketCommentMention(ctx.db, {
+          ticketId: parent.ticketId,
+          commentId: comment.id,
+          commentContent: input.content,
+          commentAuthorId: ctx.session.user.id,
+        }),
+      );
 
       return comment;
     }),

@@ -64,6 +64,7 @@ import { emitNotification } from "~/server/services/notifications/emit/emitNotif
 import { NOTIFICATION_CATEGORIES } from "~/server/services/notifications/emit/constants";
 import { randomUUID } from "crypto";
 import { personSchema, resolvePerson, type Person } from "~/server/services/meetings/resolvePerson";
+import { emitAfterResponse } from "~/server/services/notifications/emit/emitAfterResponse";
 
 // Keep in-memory store for development/debugging
 const transcriptionStore: Record<string, string[]> = {};
@@ -1137,12 +1138,14 @@ export const transcriptionRouter = createTRPCRouter({
         .map((p) => p.userId)
         .filter((id): id is string => !!id);
       if (session.workspaceId && memberUserIds.length > 0) {
-        void emitNotification({
-          db: ctx.db,
-          category: NOTIFICATION_CATEGORIES.MEETING_PARTICIPANT_ADDED,
-          actorUserId: ctx.session.user.id,
-          subject: { sessionId: session.id, participantUserIds: memberUserIds },
-        });
+        emitAfterResponse("transcription.participantAdded.notification", () =>
+          emitNotification({
+            db: ctx.db,
+            category: NOTIFICATION_CATEGORIES.MEETING_PARTICIPANT_ADDED,
+            actorUserId: ctx.session.user.id,
+            subject: { sessionId: session.id, participantUserIds: memberUserIds },
+          }),
+        );
       }
 
       return session;
@@ -1208,18 +1211,21 @@ export const transcriptionRouter = createTRPCRouter({
 
       // Notify the tagged workspace member (ADR-0045 pipeline). Only the member
       // (userId) path is notifiable; CRM-contact / free-text adds resolve to a
-      // contact with no User account. Fire-and-forget; the actor is dropped
+      // contact with no User account. Runs after the response; the actor is dropped
       // downstream (self-adds don't self-notify).
-      if (input.userId) {
-        void emitNotification({
-          db: ctx.db,
-          category: NOTIFICATION_CATEGORIES.MEETING_PARTICIPANT_ADDED,
-          actorUserId: ctx.session.user.id,
-          subject: {
-            sessionId: session.id,
-            participantUserIds: [input.userId],
-          },
-        });
+      const taggedUserId = input.userId;
+      if (taggedUserId) {
+        emitAfterResponse("transcription.participantAdded.notification", () =>
+          emitNotification({
+            db: ctx.db,
+            category: NOTIFICATION_CATEGORIES.MEETING_PARTICIPANT_ADDED,
+            actorUserId: ctx.session.user.id,
+            subject: {
+              sessionId: session.id,
+              participantUserIds: [taggedUserId],
+            },
+          }),
+        );
       }
 
       return participant;

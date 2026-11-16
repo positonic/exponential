@@ -1,6 +1,7 @@
 import type { PrismaClient } from "@prisma/client";
 import { recordActivity } from "~/server/services/activity/recordActivity";
 import { emitActionCommentMention } from "~/server/services/notifications/emit/mentionAdapters";
+import { emitAfterResponse } from "~/server/services/notifications/emit/emitAfterResponse";
 
 /**
  * Create a comment on an action as `authorId`, with the two side effects every
@@ -40,13 +41,16 @@ export async function createActionComment(
     });
   }
 
-  // Fire-and-forget mention notifications via the unified pipeline (ADR-0045).
-  void emitActionCommentMention(db, {
-    actionId: input.actionId,
-    commentId: comment.id,
-    commentContent: input.content,
-    commentAuthorId: input.authorId,
-  });
+  // Mention notifications via the unified pipeline (ADR-0045), run after the
+  // response with the platform keeping the function alive until they settle.
+  emitAfterResponse("actionComment.mention", () =>
+    emitActionCommentMention(db, {
+      actionId: input.actionId,
+      commentId: comment.id,
+      commentContent: input.content,
+      commentAuthorId: input.authorId,
+    }),
+  );
 
   return comment;
 }
