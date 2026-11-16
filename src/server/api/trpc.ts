@@ -10,16 +10,11 @@
 import { initTRPC, TRPCError } from "@trpc/server";
 import superjson from "superjson";
 import { ZodError } from "zod";
-import jwt from 'jsonwebtoken';
-import { type Session } from "next-auth";
 
 import { auth } from "~/server/auth";
 import { db } from "~/server/db";
-import {
-  SECURITY_FIX_TIMESTAMP,
-  CURRENT_SECURITY_VERSION,
-} from "~/server/utils/jwt";
-import { hashExternalAgentKey, isExternalAgentKey } from "~/server/utils/external-agent-keys";
+import { isExternalAgentKey } from "~/server/utils/external-agent-keys";
+import { bearerTokenFrom, resolveBearerToken } from "~/server/services/access/bearer";
 import { captureProcedureCall, resolveSurface } from "~/server/analytics/posthog";
 import { conflictFromError } from "~/server/services/revisions/revisionConflict";
 import { propertyRejectionFromError } from "~/server/services/databases/values";
@@ -42,53 +37,18 @@ export const createTRPCContext = async (opts: { headers: Headers }) => {
   // First try to get the session from NextAuth
   const session = await auth();
 
-  // If no session, check for JWT token in Authorization header
+  // If no session, check for a bearer credential: an External agent key or a
+  // JWT. Resolved by the shared bearer resolver, which `/api/mcp` also uses.
   if (!session?.user) {
-    const authHeader = opts.headers.get('authorization');
-    
-    if (authHeader?.startsWith('Bearer ')) {
-      const token = authHeader.substring(7);
-
-      // External-agent key (ADR-0049): an opaque `exp_agent_…` credential, never
-      // a JWT. Resolved by hash to the agent's shadow User so the request runs as
-      // that principal. A prefixed token that fails to resolve is unauthenticated
-      // — it can never be a valid JWT, so we don't fall through to jwt.verify.
+    const token = bearerTokenFrom(opts.headers);
+    if (token) {
+      const resolved = await resolveBearerToken(token);
+      if (resolved) {
+        return { db, ...resolved, ...opts };
+      }
+      // A prefixed agent key that fails to resolve is unauthenticated: it can
+      // never be a valid JWT, and it never falls back to the cookie session.
       if (isExternalAgentKey(token)) {
-        try {
-          const key = await db.externalAgentKey.findUnique({
-            where: { keyHash: hashExternalAgentKey(token) },
-            include: { agent: { include: { shadowUser: true } } },
-          });
-
-          if (key && (!key.expiresAt || key.expiresAt > new Date())) {
-            // Fire-and-forget: lastUsedAt is observability, not auth.
-            void db.externalAgentKey
-              .update({ where: { id: key.id }, data: { lastUsedAt: new Date() } })
-              .catch((error) => console.error('[external-agent] lastUsedAt update failed:', error));
-
-            const shadowUser = key.agent.shadowUser;
-            const agentSession: Session = {
-              user: {
-                id: shadowUser.id,
-                email: shadowUser.email,
-                name: shadowUser.name,
-                image: shadowUser.image,
-                // Agents are never admins, whatever the row says.
-                isAdmin: false,
-              },
-              expires: (key.expiresAt ?? new Date(Date.now() + 60 * 60 * 1000)).toISOString(),
-            };
-            return {
-              db,
-              session: agentSession,
-              tokenType: 'agent-key' as string | undefined,
-              agentRunId: undefined as string | undefined,
-              ...opts,
-            };
-          }
-        } catch (error) {
-          console.error('[external-agent] key resolution failed:', error);
-        }
         return {
           db,
           session: null,
@@ -96,108 +56,6 @@ export const createTRPCContext = async (opts: { headers: Headers }) => {
           agentRunId: undefined as string | undefined,
           ...opts,
         };
-      }
-
-      try {
-        // Verify the JWT token
-        const decoded = jwt.verify(token, process.env.AUTH_SECRET ?? '') as {
-          userId?: string;   // Legacy format
-          sub?: string;      // New API token format
-          email: string;
-          name?: string;
-          picture?: string;
-          tokenType?: string;
-          /** Agent-run JWTs carry the run they act for (ADR-0067). */
-          runId?: string;
-          exp?: number;
-          iat?: number;
-          nbf?: number;      // Not before timestamp
-          jti?: string;
-          securityVersion?: number;
-        };
-
-        // Security validation - require security claims on all tokens
-        // Tokens without nbf or securityVersion are rejected (closes security gap)
-        if (decoded.nbf === undefined || decoded.securityVersion === undefined) {
-          console.warn('🚨 [JWT SECURITY] Token missing required security claims', {
-            tokenType: decoded.tokenType,
-            hasNbf: decoded.nbf !== undefined,
-            hasSecurityVersion: decoded.securityVersion !== undefined,
-          });
-          throw new Error('JWT missing required security claims');
-        }
-
-        if (decoded.nbf < SECURITY_FIX_TIMESTAMP) {
-          throw new Error('JWT issued before security fix - token invalidated');
-        }
-
-        if (decoded.securityVersion < CURRENT_SECURITY_VERSION) {
-          throw new Error('JWT security version too old - token invalidated');
-        }
-
-        // Support both legacy and new token formats
-        const userId = decoded.userId || decoded.sub;
-        if (!userId) {
-          throw new Error('Invalid token: missing user identifier');
-        }
-
-        // PII (email, name) must never be logged here — this runs on every
-        // JWT-authenticated request, including production.
-        if (process.env.NODE_ENV === 'development') {
-          console.log('🔐 [JWT DEBUG] Token decoded successfully', {
-            userId: userId,
-            tokenType: decoded.tokenType,
-            issuedAt: decoded.iat ? new Date(decoded.iat * 1000).toISOString() : 'not set',
-            expiresAt: decoded.exp ? new Date(decoded.exp * 1000).toISOString() : 'not set',
-            securityVersion: decoded.securityVersion
-          });
-        }
-
-        // Find the user
-        const user = await db.user.findUnique({
-          where: { id: userId }
-        });
-
-        if (process.env.NODE_ENV === 'development') {
-          console.log('👤 [USER LOOKUP] Database user lookup', {
-            userId: userId,
-            userFound: !!user,
-          });
-        }
-
-        if (user) {
-          // Create a session-like object from the JWT token
-          const jwtSession: Session = {
-            user: {
-              id: user.id,
-              email: user.email,
-              name: user.name,
-              image: user.image,
-              isAdmin: user.isAdmin,
-            },
-            expires: decoded.exp
-              ? new Date(decoded.exp * 1000).toISOString()
-              : new Date(Date.now() + 5 * 60 * 1000).toISOString(), // 5 minutes fallback
-          };
-          return {
-            db,
-            session: jwtSession,
-            // Surface the JWT token type so procedures can attribute writes to
-            // the calling surface (e.g. Action.source for chat gateways).
-            tokenType: decoded.tokenType,
-            // The Agent run this token was minted for (agent-context JWTs
-            // from the dispatcher). Run tools address their run through
-            // this claim, never through tool input.
-            agentRunId: decoded.tokenType === 'agent-context' ? decoded.runId : undefined,
-            ...opts,
-          };
-        }
-      } catch (error) {
-        // Log only the message — never the raw token or decoded payload.
-        console.error(
-          'JWT verification failed:',
-          error instanceof Error ? error.message : 'unknown error',
-        );
       }
     }
   }
