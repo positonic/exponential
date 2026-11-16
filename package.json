@@ -128,7 +128,7 @@
     "dayjs": "^1.11.13",
     "diff": "^9.0.0",
     "dompurify": "^3.2.6",
-    "exponential-mcp": "^0.14.0",
+    "exponential-mcp": "^0.14.1",
     "exponential-sdk": "^1.33.1",
     "framer-motion": "^12.5.0",
     "fuse.js": "^7.1.0",
