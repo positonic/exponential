@@ -165,28 +165,29 @@ export const integrations: IntegrationData[] = [
       },
       {
         title: "Claude Desktop: run the setup",
-        body: "Paste the key when asked. It stores the key locally and, on a Mac, writes the Claude Desktop configuration for you. Restart Claude Desktop afterwards.",
+        body: "You need Node.js 18 or later. Paste the key when asked. It stores the key locally and adds the server to Claude Desktop's configuration on macOS, Windows and Linux. Quit and reopen Claude Desktop afterwards.",
         code: { language: "bash", content: "npx exponential-mcp init" },
       },
       {
-        title: "Claude Code: add .mcp.json to your project",
-        body: "The serve argument is required. Reload the window afterwards.",
+        title: "Claude Code: add the server",
+        body: "Run this with the key you copied. --scope user makes the server available in every project; leave it out to add it to the current project only.",
         code: {
-          language: "json",
-          content: `{
-  "mcpServers": {
-    "exponential": {
-      "command": "npx",
-      "args": ["-y", "exponential-mcp", "serve"]
-    }
-  }
-}`,
+          language: "bash",
+          content:
+            "claude mcp add --scope user exponential -e EXPONENTIAL_API_KEY=exp_agent_... -- npx -y exponential-mcp serve",
         },
       },
       {
         title: "Check the connection",
-        body: "The doctor command checks the setup and prints a configuration snippet for your machine.",
-        code: { language: "bash", content: "npx exponential-mcp doctor" },
+        body: "For Claude Desktop, the doctor command checks the saved key and Claude Desktop's configuration, and prints an entry that works on your machine. It does not look at Claude Code. There, list your MCP servers: exponential should show as connected.",
+        code: {
+          language: "bash",
+          content: `# Claude Desktop
+npx exponential-mcp doctor
+
+# Claude Code
+claude mcp list`,
+        },
       },
     ],
     tools: MCP_TOOLS,
@@ -212,7 +213,12 @@ export const integrations: IntegrationData[] = [
       {
         question: "Which Claude clients work?",
         answer:
-          "Claude Desktop (configured by init) and Claude Code (via .mcp.json). Any other MCP client that can run a local command works with the same serve command.",
+          "Claude Desktop (configured by init) and Claude Code (added with claude mcp add). Any other MCP client that can run a local command works with the same serve command.",
+      },
+      {
+        question: "Claude Desktop does not show the tools. What now?",
+        answer:
+          "Quit Claude Desktop completely and reopen it, because it loads MCP servers only at startup. If the tools are still missing, run npx exponential-mcp doctor. If you installed Node with nvm or a similar version manager, run npx exponential-mcp init again: Claude Desktop does not use your shell's PATH, so init writes an entry with the full path to npx.",
       },
       {
         question: "Is my API key sent to Claude?",
@@ -269,7 +275,7 @@ export const integrations: IntegrationData[] = [
       MCP_SETUP_AGENT_STEP,
       {
         title: "Store the key on your machine",
-        body: "Run the setup and paste the key when asked. It saves the key in a local config store, so it never goes in a file you might commit. (On a Mac it also adds Exponential to Claude Desktop, which you can ignore.)",
+        body: "You need Node.js 18 or later. Run the setup and paste the key when asked. It saves the key in a local config store, so it never goes in a file you might commit. (If Claude Desktop is installed, it also adds Exponential there, which you can ignore.)",
         code: { language: "bash", content: "npx exponential-mcp init" },
       },
       {
@@ -368,7 +374,7 @@ export const integrations: IntegrationData[] = [
       MCP_SETUP_AGENT_STEP,
       {
         title: "Add the server to ~/.codex/config.toml",
-        body: "Paste this into Codex's configuration file with the key you copied. The serve argument is required.",
+        body: "Paste this into Codex's configuration file with the key you copied. The serve argument is required. Codex starts the server with npx, so you need Node.js 18 or later.",
         code: {
           language: "toml",
           content: `[mcp_servers.exponential]
@@ -383,8 +389,11 @@ env = { EXPONENTIAL_API_KEY = "exp_agent_..." }`,
       },
       {
         title: "If it does not connect",
-        body: "The doctor command checks the setup and prints a configuration snippet for your machine.",
-        code: { language: "bash", content: "npx exponential-mcp doctor" },
+        body: "Start the server by hand with the same key. It prints \"Exponential MCP server running\" when it starts; press Ctrl+C to stop it. An error here is the reason Codex cannot start it.",
+        code: {
+          language: "bash",
+          content: "EXPONENTIAL_API_KEY=exp_agent_... npx -y exponential-mcp serve",
+        },
       },
     ],
     tools: MCP_TOOLS,
