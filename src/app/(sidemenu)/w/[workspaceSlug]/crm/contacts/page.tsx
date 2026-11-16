@@ -499,13 +499,15 @@ export default function ContactsPage() {
             <Menu.Target>
               <button
                 className="flex min-w-0 items-center gap-2 rounded-md px-2 py-1.5 hover:bg-surface-hover transition-colors sm:px-3"
-                // The view name truncates on a phone; keep the full text
-                // reachable on hover and for screen readers.
+                // Below sm the name wraps instead of truncating: a phone has
+                // no hover, so a tooltip/title would never show, and a
+                // touch-triggered tooltip would fight the tap that opens this
+                // menu. From sm up it truncates, with `title` for hover.
                 title="Recently Contacted People"
                 aria-label="View: Recently Contacted People"
               >
                 <div className="h-3 w-3 shrink-0 rounded bg-orange-400" />
-                <Text size="sm" className="truncate font-medium text-text-primary">
+                <Text size="sm" className="text-left font-medium text-text-primary sm:truncate">
                   Recently Contacted People
                 </Text>
                 <IconChevronDown size={16} className="shrink-0 text-text-muted" />
