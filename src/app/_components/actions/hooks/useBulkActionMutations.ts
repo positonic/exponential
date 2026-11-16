@@ -25,14 +25,6 @@ interface BulkDeleteInput {
   onError?: () => void;
 }
 
-interface BulkDeferInput {
-  actionIds: string[];
-  /** When true, fires `dailyPlan.markProcessedOverdue` after success. */
-  fromOverdue?: boolean;
-  onSuccess?: (data: { count: number }) => void;
-  onError?: () => void;
-}
-
 interface BulkAssignProjectInput {
   actionIds: string[];
   projectId: string;
@@ -43,7 +35,6 @@ interface BulkAssignProjectInput {
 interface UseBulkActionMutationsResult {
   bulkReschedule: (input: BulkRescheduleInput) => void;
   bulkDelete: (input: BulkDeleteInput) => void;
-  bulkDefer: (input: BulkDeferInput) => void;
   bulkAssignProject: (input: BulkAssignProjectInput) => void;
   isMutating: boolean;
 }
@@ -80,15 +71,10 @@ export function useBulkActionMutations(
     onSettled: invalidateAll,
   });
 
-  const defer = api.action.bulkDefer.useMutation({
-    onSettled: invalidateAll,
-  });
-
   const isMutating =
     reschedule.isPending ||
     remove.isPending ||
-    assignProject.isPending ||
-    defer.isPending;
+    assignProject.isPending;
 
   return {
     bulkReschedule: ({
@@ -118,32 +104,6 @@ export function useBulkActionMutations(
             notifications.show({
               title: "Reschedule failed",
               message: "Could not reschedule the selected actions.",
-              color: "red",
-            });
-            onError?.();
-          },
-        },
-      );
-    },
-
-    bulkDefer: ({ actionIds, fromOverdue, onSuccess, onError }) => {
-      if (actionIds.length === 0) return;
-      defer.mutate(
-        { actionIds },
-        {
-          onSuccess: (data) => {
-            notifications.show({
-              title: "Back in the backlog",
-              message: `${data.count} action${data.count === 1 ? "" : "s"} no longer counted as overdue. They're still in their projects, just undated.`,
-              color: "green",
-            });
-            if (fromOverdue) markProcessedOverdue.mutate({});
-            onSuccess?.(data);
-          },
-          onError: () => {
-            notifications.show({
-              title: "Could not defer",
-              message: "The selected actions were left unchanged.",
               color: "red",
             });
             onError?.();
