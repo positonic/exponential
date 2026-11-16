@@ -13,7 +13,7 @@
 
 import type { PrismaClient } from "@prisma/client";
 import { parseTranscript, type TranscriptTurn } from "~/lib/transcript";
-import { parseFirefliesSummary } from "~/lib/fireflies-summary";
+import { summaryDecisionText } from "~/server/services/decisions/summaryDecisionText";
 import { buildDecisionAccessWhere, canEditTranscription, getTranscriptionAccess } from "~/server/services/access";
 import { recordActivity } from "~/server/services/activity/recordActivity";
 import {
@@ -131,25 +131,9 @@ export function resolveDeciders(
   return out;
 }
 
-/**
- * The curated text of a stored summary: the Fireflies-shaped JSON's themed
- * breakdown, bullets and overview joined as one document, or the plain
- * string as-is. The summary prompts ask for "Decision:" / "Agreed:"
- * callouts and a "Key Decisions" section, which is exactly what the
- * deterministic notes parser reads — along with the "Open question:" /
- * "Still open:" callouts it turns into open questions.
- */
-export function summaryDecisionText(summary: string | null | undefined): string {
-  if (!summary?.trim()) return "";
-  const parsed = parseFirefliesSummary(summary);
-  if (!parsed) return summary;
-  const parts = [
-    parsed.detailed_breakdown ?? "",
-    (parsed.shorthand_bullet ?? []).map((line) => (/^\s*[-*•]/.test(line) ? line : `- ${line}`)).join("\n"),
-    parsed.overview ?? "",
-  ];
-  return parts.filter((part) => part.trim().length > 0).join("\n\n");
-}
+// Kept in a module of its own so the offline eval can use it without loading
+// the database client; re-exported here for existing callers.
+export { summaryDecisionText };
 
 /** The draft's Markdown body, with the ADR headings the detail page renders. */
 /**

@@ -129,3 +129,6 @@ db-backups/
 # beads (`bd`) was retired in Nov 2026; its history is in git. Old checkouts may
 # still hold a local .beads/ (database, daemon socket) — never commit or upload it.
 /.beads/
+
+# Meeting extraction eval: exported transcripts and saved runs (private data)
+.eval/
