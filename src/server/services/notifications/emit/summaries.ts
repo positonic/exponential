@@ -5,6 +5,7 @@ import { NotificationTemplates } from "~/server/services/notifications/Notificat
 import { reportHandledErrorServer } from "~/server/utils/reportHandledErrorServer";
 import { emitNotification } from "./emitNotification";
 import { NOTIFICATION_CATEGORIES } from "./constants";
+import { summaryDedupeKey } from "./content";
 import {
   DAILY_SUMMARY_TITLE,
   type BuildDailySummaryOptions,
@@ -125,6 +126,31 @@ function isLocalWeekday(now: Date, tz: string): boolean {
   return day >= 1 && day <= 5;
 }
 
+/**
+ * Whether a user's Shutdown recap is due this tick: opted in, a local weekday,
+ * and inside the fire window after their recap time. The one gate both the
+ * sent-state precompute and the emit loop use, so they can't drift apart.
+ */
+export function isShutdownRecapDue(
+  pref: { shutdownRecap: boolean; shutdownRecapTime: string | null },
+  now: Date,
+  tz: string,
+): boolean {
+  if (!pref.shutdownRecap) return false;
+  const recapTime = pref.shutdownRecapTime ?? DEFAULT_SHUTDOWN_RECAP_TIME;
+  return isLocalWeekday(now, tz) && isWithinFireWindow(now, tz, recapTime);
+}
+
+/** The period a Shutdown recap closes: the user's local day. */
+export function shutdownRecapPeriodKey(now: Date, tz: string): string {
+  return format(toZonedTime(now, tz), "yyyy-MM-dd");
+}
+
+/** The dedupe key the emit writes for this tick's Shutdown recap (content.ts). */
+export function shutdownRecapDedupeKey(now: Date, tz: string): string {
+  return summaryDedupeKey("shutdown", shutdownRecapPeriodKey(now, tz));
+}
+
 /** True when today (local) is the user's weekly day and we're in the fire window. */
 function isWeeklyDue(
   now: Date,
@@ -235,11 +261,9 @@ export async function generateScheduledSummaries(
   // asked once per recap-enabled user (Sentry N+1 on this cron).
   const recapKeyByUser = new Map<string, string>();
   for (const pref of prefs) {
-    if (!pref.shutdownRecap) continue;
     const tz = resolveSummaryTimezone(pref);
-    const recapTime = pref.shutdownRecapTime ?? DEFAULT_SHUTDOWN_RECAP_TIME;
-    if (!isLocalWeekday(now, tz) || !isWithinFireWindow(now, tz, recapTime)) continue;
-    recapKeyByUser.set(pref.userId, `summary:shutdown:${format(toZonedTime(now, tz), "yyyy-MM-dd")}`);
+    if (!isShutdownRecapDue(pref, now, tz)) continue;
+    recapKeyByUser.set(pref.userId, shutdownRecapDedupeKey(now, tz));
   }
   const recapsSent = new Set<string>();
   if (recapKeyByUser.size > 0) {
@@ -304,14 +328,13 @@ export async function generateScheduledSummaries(
       });
     }
 
-    const recapTime = pref.shutdownRecapTime ?? DEFAULT_SHUTDOWN_RECAP_TIME;
-    if (pref.shutdownRecap && isLocalWeekday(now, tz) && isWithinFireWindow(now, tz, recapTime)) {
+    if (isShutdownRecapDue(pref, now, tz)) {
       await attempt("shutdown", async () => {
         if (Date.now() - startedAt >= recapBudgetMs) {
           recapsDeferred++;
           return;
         }
-        const periodKey = format(toZonedTime(now, tz), "yyyy-MM-dd");
+        const periodKey = shutdownRecapPeriodKey(now, tz);
         // The cron ticks every two minutes and dedup only stops a second
         // *delivery*: without this check every tick in the hour-long window
         // would rebuild the recap and pay for another LLM call. Looked up

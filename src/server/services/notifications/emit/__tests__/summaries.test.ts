@@ -4,6 +4,7 @@ import type { PrismaClient } from "@prisma/client";
 
 import { generateScheduledSummaries } from "~/server/services/notifications/emit/summaries";
 import { emitNotification } from "~/server/services/notifications/emit/emitNotification";
+import { buildContent } from "~/server/services/notifications/emit/content";
 import type { CalendarReader } from "~/server/services/notifications/emit/dailySummary";
 import { reportHandledErrorServer } from "~/server/utils/reportHandledErrorServer";
 import { myPlateActionsWhere } from "~/server/services/actions/myActionsWhere";
@@ -732,6 +733,17 @@ describe("generateScheduledSummaries — shutdown recap", () => {
     expect(db.notification.findFirst).not.toHaveBeenCalled();
     const built = recapMocks.buildShutdownRecap.mock.calls.map((call) => call[1]);
     expect(built).toEqual(["u1", "u3", "u4", "u5"]);
+  });
+
+  it("looks up exactly the dedupe key the emitted recap is stored under", async () => {
+    db.notificationPreference.findMany.mockResolvedValue([recapPref()] as never);
+
+    await generateScheduledSummaries(db, new Date("2026-10-08T16:04:00.000Z"));
+
+    const where = db.notification.findMany.mock.calls[0]![0]!.where as { dedupeKey: { in: string[] } };
+    const emitted = vi.mocked(emitNotification).mock.calls[0]![0];
+    const content = await buildContent(emitted, "u1");
+    expect(where.dedupeKey.in).toEqual([content!.dedupeKey]);
   });
 
   it("skips recaps for the tick, and reports it, when the sent-state lookup fails", async () => {

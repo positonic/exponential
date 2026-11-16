@@ -41,6 +41,15 @@ async function resolveActionWorkspace(
  */
 
 /**
+ * A Summary's dedupe key: one per (kind, period), combined with the user by the
+ * (dedupeKey, userId) unique index. Exported so the summaries cron's
+ * shutdown-recap sent check looks up exactly the key the emit writes.
+ */
+export function summaryDedupeKey(kind: string, periodKey: string): string {
+  return `summary:${kind}:${periodKey}`;
+}
+
+/**
  * A Due-date reminder's dedupe key: one per (action, offset), combined with the
  * owner by the (dedupeKey, userId) unique index. Exported so the cron can skip
  * already-sent reminders in one query before emitting.
@@ -238,7 +247,7 @@ export async function buildContent(
           ...(agentContext ? { agentContext } : {}),
         },
         workspaceId: "",
-        dedupeKey: `summary:${input.subject.kind}:${input.subject.periodKey}`,
+        dedupeKey: summaryDedupeKey(input.subject.kind, input.subject.periodKey),
       };
     }
     case NOTIFICATION_CATEGORIES.PAGE_SHARED: {
