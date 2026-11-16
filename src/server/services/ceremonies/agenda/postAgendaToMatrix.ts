@@ -16,6 +16,7 @@
 import type { Prisma, PrismaClient } from "@prisma/client";
 import { reportHandledErrorServer } from "~/server/utils/reportHandledErrorServer";
 import { getMatrixClientForServer, listMatrixServers } from "~/server/services/matrix/matrixServer";
+import { MatrixEncryptedRoomError } from "~/server/services/matrix/MatrixClient";
 import { readAgendaSnapshot, type AgendaMatrixPost, type AgendaSnapshot } from "./types";
 import { withAgendaTransaction } from "./items";
 import { renderAgendaMessage } from "./renderAgendaMessage";
@@ -117,6 +118,14 @@ export async function postAgendaToMatrix(
       txnId: buildAgendaTransactionId(occurrence.id, roomId, priorHere.length),
     }));
   } catch (error) {
+    // An encrypted room is a configuration state, not a fault: the client
+    // refused before anything reached the homeserver, and every hourly sweep
+    // would refuse again until the room (or ADR-0043's E2EE retrofit)
+    // changes. Its message already says what to do, so hand it back as the
+    // reason and keep it out of Sentry.
+    if (error instanceof MatrixEncryptedRoomError) {
+      return { kind: "failed", reason: error.message };
+    }
     reportHandledErrorServer(error, { area: "ceremonies.postAgendaToMatrix", context: { occurrenceId: occurrence.id, roomId, serverId } });
     return { kind: "failed", reason: error instanceof Error ? error.message : "Matrix rejected the post." };
   }

@@ -11,6 +11,7 @@ import ical from "node-ical";
 import type { PrismaClient } from "@prisma/client";
 
 import { decryptFromBase64 } from "~/server/utils/encryption";
+import { classifyIntegrationError } from "~/server/utils/integrationErrors";
 import { type ResolveHost } from "~/server/utils/privateAddress";
 import type { CalendarEvent as ProviderEvent, CalendarProvider } from "../CalendarProvider";
 import { assertSafeFeedUrl } from "./feedUrlGuard";
@@ -198,6 +199,25 @@ export class FeedFetchError extends Error {
 }
 
 /**
+ * Whether a sync failure is a state of the *source* — a feed host that is
+ * down, slow or answering 4xx, a calendar grant that was revoked — rather
+ * than a fault in our code. Those are recorded on the feed/account (where the
+ * UI shows them, with a reconnect prompt) but not reported to Sentry: a user's
+ * dead feed URL is not a bug anyone here can fix (windy.bell).
+ */
+export function isExpectedSourceFailure(error: unknown): boolean {
+  if (error instanceof FeedFetchError) return true;
+  return classifyIntegrationError(error) !== null;
+}
+
+/** The message stored for the user: a readable one for expected failures. */
+function sourceFailureMessage(error: unknown, provider: string): string {
+  const classified = classifyIntegrationError(error, provider);
+  if (classified) return classified.message;
+  return error instanceof Error ? error.message : "Unknown sync error";
+}
+
+/**
  * Fetch ICS text from a feed URL with the SSRF guard applied to the initial
  * URL and to every redirect hop, a response size cap, and a timeout.
  */
@@ -307,7 +327,7 @@ export async function syncFeed(
     // without each 15-minute sweep re-alerting. Imported lazily: the static
     // import chain reaches ~/server/db, whose env validation breaks the pure
     // parse tests that import this module.
-    if (feed.syncStatus !== "error") {
+    if (feed.syncStatus !== "error" && !isExpectedSourceFailure(cause)) {
       try {
         const { reportHandledErrorServer } = await import(
           "~/server/utils/reportHandledErrorServer"
@@ -348,8 +368,7 @@ export async function syncFeed(
     }
     parsed = parseIcsFeed(icsText, getSyncWindow(syncedAt));
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown sync error";
-    return recordFailure(message, error);
+    return recordFailure(sourceFailureMessage(error, "The feed host"), error);
   }
 
   await db.$transaction([
@@ -498,7 +517,7 @@ export async function syncConnectedAccount(
   });
 
   const recordFailure = async (message: string, cause?: unknown): Promise<SyncAccountResult> => {
-    if (account.calendarSyncStatus !== "error") {
+    if (account.calendarSyncStatus !== "error" && !isExpectedSourceFailure(cause)) {
       try {
         const { reportHandledErrorServer } = await import(
           "~/server/utils/reportHandledErrorServer"
@@ -544,8 +563,7 @@ export async function syncConnectedAccount(
       }
     }
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown sync error";
-    return recordFailure(message, error);
+    return recordFailure(sourceFailureMessage(error, "The calendar provider"), error);
   }
 
   await db.$transaction([
@@ -591,6 +609,50 @@ export interface CalendarSweepResult {
 }
 
 /**
+ * Wall-clock budget for one sweep, well inside the route's 300s maxDuration.
+ * Sources left over when it runs out are simply the oldest-attempted next
+ * run — syncs are delete-and-replace, so a skipped or repeated one is safe.
+ */
+const SWEEP_BUDGET_MS = 240_000;
+
+/**
+ * The share of the budget feeds may start syncing in. Feeds run first, and
+ * the two source types have separate queues, so without a reservation a run
+ * of slow feed hosts would consume the whole budget on every sweep and the
+ * connected accounts (Google/Outlook busy time) would never sync. Stopping
+ * feeds at 60% leaves accounts at least ~96s, less any feed still in flight.
+ */
+const FEED_BUDGET_MS = 144_000;
+
+/**
+ * Run one source's sync so that nothing it throws — a DB blip mid-write, a
+ * provider error that escaped the sync's own handling — can fail the whole
+ * sweep. The sync functions record expected failures themselves; anything
+ * reaching here is unexpected, so it is reported (unless it is a recognised
+ * source failure) and the sweep moves on.
+ */
+async function isolated(
+  run: () => Promise<{ ok: true } | { ok: false; error: string }>,
+  report: { area: string; context: Record<string, string> },
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  try {
+    return await run();
+  } catch (error) {
+    if (!isExpectedSourceFailure(error)) {
+      try {
+        const { reportHandledErrorServer } = await import(
+          "~/server/utils/reportHandledErrorServer"
+        );
+        reportHandledErrorServer(error, report);
+      } catch {
+        // Reporting must never break the sweep.
+      }
+    }
+    return { ok: false, error: error instanceof Error ? error.message : "Unknown sync error" };
+  }
+}
+
+/**
  * Providers included in the busy-time account sweep. Google accounts are
  * additionally gated per user by the OAuth-tester allowlist — non-testers'
  * tokens must not be exercised against Google's unverified scopes.
@@ -607,6 +669,7 @@ export async function runCalendarSync(
   db: PrismaClient,
   resolveHost?: ResolveHost,
 ): Promise<CalendarSweepResult> {
+  const startedAt = Date.now();
   // Ordered by ATTEMPT time, not success time — a feed that fails every
   // sync still advances to the back of the queue, so broken feeds can't
   // monopolize the batch and starve healthy ones.
@@ -627,7 +690,11 @@ export async function runCalendarSync(
   // Sequential on purpose: feed hosts are third parties, and a serverless
   // function fanning out N concurrent fetches is how timeouts get flaky.
   for (const feed of feeds) {
-    const outcome = await syncFeed(db, feed.id, resolveHost);
+    if (Date.now() - startedAt > FEED_BUDGET_MS) break;
+    const outcome = await isolated(() => syncFeed(db, feed.id, resolveHost), {
+      area: "calendar.runCalendarSync.feed",
+      context: { feedId: feed.id },
+    });
     if (outcome.ok) {
       result.succeeded += 1;
     } else {
@@ -657,7 +724,11 @@ export async function runCalendarSync(
 
   result.accounts.processed = accounts.length;
   for (const account of accounts) {
-    const outcome = await syncConnectedAccount(db, account.id);
+    if (Date.now() - startedAt > SWEEP_BUDGET_MS) break;
+    const outcome = await isolated(() => syncConnectedAccount(db, account.id), {
+      area: "calendar.runCalendarSync.account",
+      context: { accountId: account.id },
+    });
     if (outcome.ok) {
       result.accounts.succeeded += 1;
     } else {

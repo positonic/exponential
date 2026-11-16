@@ -1,7 +1,7 @@
 import { z } from "zod";
 import type { Prisma, PrismaClient } from "@prisma/client";
 import { TRPCError } from "@trpc/server";
-import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
+import { createTRPCRouter, protectedProcedure as baseProtectedProcedure } from "~/server/api/trpc";
 import { GoogleCalendarService } from "~/server/services/GoogleCalendarService";
 import { MicrosoftCalendarService } from "~/server/services/MicrosoftCalendarService";
 import { CalendarEventPermissionError } from "~/server/services/CalendarProvider";
@@ -14,6 +14,23 @@ import { listIcsCalendarEvents } from "~/server/services/calendar/icsEventRead";
 import { listMeetingCalendarEvents } from "~/server/services/calendar/meetingEventRead";
 import { shiftWindowByDays, todayWindow } from "~/server/services/calendar/todayWindow";
 import { reportHandledErrorServer } from "~/server/utils/reportHandledErrorServer";
+import { toIntegrationTRPCError } from "~/server/utils/integrationErrors";
+
+/**
+ * Every procedure here is an integration boundary: it calls Google, Microsoft
+ * or a feed host. A disconnected or revoked calendar, a timeout or an
+ * unreachable provider is an expected state the UI renders ("connect your
+ * calendar", "try again"), so map those to typed errors instead of letting
+ * them reach Sentry as 500s (lively.mist).
+ */
+const protectedProcedure = baseProtectedProcedure.use(async ({ next }) => {
+  const result = await next();
+  if (!result.ok) {
+    const mapped = toIntegrationTRPCError(result.error, { provider: "The calendar provider" });
+    if (mapped) throw mapped;
+  }
+  return result;
+});
 
 const providerSchema = z.enum(["google", "microsoft"]).default("google");
 

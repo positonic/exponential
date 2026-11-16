@@ -3,6 +3,7 @@ import { db } from '~/server/db';
 import NodeCache from 'node-cache';
 import { withTimeout } from '~/server/utils/withTimeout';
 import { CalendarEventPermissionError } from './CalendarProvider';
+import { IntegrationAuthError, oauthRefreshFailure } from '~/server/utils/integrationErrors';
 import type {
   CalendarEvent,
   CalendarInfo,
@@ -73,14 +74,14 @@ export class GoogleCalendarService implements CalendarProvider {
     const account = await this.resolveAccount(userId, accountId);
 
     if (!account?.access_token) {
-      throw new Error('No Google Calendar access token found. Please connect your Google Calendar.');
+      throw new IntegrationAuthError('Google Calendar', 'No Google Calendar access token found. Please connect your Google Calendar.');
     }
 
     // Check if token is expired and refresh if needed
     const now = Math.floor(Date.now() / 1000);
     if (account.expires_at && account.expires_at <= now) {
       if (!account.refresh_token) {
-        throw new Error('Access token expired and no refresh token available. Please reconnect your Google Calendar.');
+        throw new IntegrationAuthError('Google Calendar', 'Access token expired and no refresh token available. Please reconnect your Google Calendar.');
       }
 
       // Refresh the token
@@ -116,7 +117,11 @@ export class GoogleCalendarService implements CalendarProvider {
         return google.calendar({ version: 'v3', auth: oauth2Client });
       } catch (error) {
         console.error('Failed to refresh Google Calendar token:', error);
-        throw new Error('Failed to refresh access token. Please reconnect your Google Calendar.');
+        // Only a rejected grant (400 invalid_grant / 401) means "reconnect".
+        // A 429/5xx from Google's token endpoint means "try again"; a timeout,
+        // a network failure or our own DB write failing is rethrown as-is.
+        const status = (error as { response?: { status?: unknown } } | null)?.response?.status;
+        throw oauthRefreshFailure('Google Calendar', typeof status === 'number' ? status : undefined, error) ?? error;
       }
     } else {
       // Token is still valid

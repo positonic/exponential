@@ -20,6 +20,7 @@ import { conflictFromError } from "~/server/services/revisions/revisionConflict"
 import { propertyRejectionFromError } from "~/server/services/databases/values";
 import { alreadyInProjectFromError } from "~/server/services/resources/alreadyInProject";
 import { isPersonCredential, resolvePrincipal, type Principal } from "~/server/services/access/principal";
+import { toIntegrationTRPCError } from "~/server/utils/integrationErrors";
 
 /**
  * 1. CONTEXT
@@ -129,7 +130,26 @@ export const createTRPCRouter = t.router;
  * guarantee that a user querying is authorized, but you can still access user session data if they
  * are logged in.
  */
-export const publicProcedure = t.procedure;
+/**
+ * Expired, revoked or missing third-party credentials (a GitHub token that
+ * now says "Bad credentials", a Notion token that is "invalid", a calendar
+ * that was never connected) are user states, not server faults. Wherever
+ * they escape a procedure as a plain error, re-type them as
+ * PRECONDITION_FAILED with a "reconnect" message, so the client can render
+ * it and `handleTRPCRequest` doesn't report it to Sentry as a 500. Only the
+ * `auth` kind is mapped app-wide: a network failure here could be one of our
+ * own services, so integration boundaries map those themselves. See
+ * `~/server/utils/integrationErrors`.
+ */
+function integrationAuthErrors<R extends { ok: boolean; error?: unknown }>(result: R): R {
+  if (!result.ok) {
+    const mapped = toIntegrationTRPCError(result.error, { kinds: ["auth"] });
+    if (mapped) throw mapped;
+  }
+  return result;
+}
+
+export const publicProcedure = t.procedure.use(async ({ next }) => integrationAuthErrors(await next()));
 
 /**
  * Product analytics (PostHog) for every authenticated procedure call.
@@ -167,6 +187,7 @@ const analyticsMiddleware = t.middleware(async ({ ctx, path, type, next }) => {
  * @see https://trpc.io/docs/procedures
  */
 export const protectedProcedure = t.procedure
+  .use(async ({ next }) => integrationAuthErrors(await next()))
   .use(({ ctx, next }) => {
     if (!ctx.session?.user) {
       throw new TRPCError({ code: "UNAUTHORIZED" });

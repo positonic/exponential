@@ -18,6 +18,7 @@ import { normalizeAccessibleRepos } from "~/server/services/github/accessibleRep
 import { reconcileWorkspaceRepositories } from "~/server/services/github/reconcileRepositories";
 import { githubIntegrationService } from "~/server/services/github-integration";
 import { setWorkspaceGithubLogin } from "~/server/services/github/memberLogins";
+import { readPublicRepo } from "~/server/services/github/publicRepoRead";
 
 export const githubRouter = createTRPCRouter({
   listCommits: publicProcedure
@@ -36,18 +37,14 @@ export const githubRouter = createTRPCRouter({
       const branch = input?.branch;
       const page = input?.page;
       const perPage = input?.perPage;
-      const octokit = githubService.initGithubClient(
-        process.env.GITHUB_TOKEN ?? "",
-      );
-      return githubService.listCommits(
-        octokit,
-        owner,
-        repo,
-        {
-          branch,
-          page,
-          perPage,
-        },
+      return readPublicRepo(
+        (octokit) =>
+          githubService.listCommits(octokit, owner, repo, {
+            branch,
+            page,
+            perPage,
+          }),
+        { token: process.env.GITHUB_TOKEN },
       );
     }),
 
@@ -63,13 +60,14 @@ export const githubRouter = createTRPCRouter({
     .query(async ({ input }) => {
       const owner = input?.owner ?? "exponential-im";
       const repo = input?.repo ?? "exponential";
-      const octokit = githubService.initGithubClient(
-        process.env.GITHUB_TOKEN ?? "",
+      return readPublicRepo(
+        (octokit) =>
+          githubService.listReleases(octokit, owner, repo, {
+            page: input?.page,
+            perPage: input?.perPage,
+          }),
+        { token: process.env.GITHUB_TOKEN },
       );
-      return githubService.listReleases(octokit, owner, repo, {
-        page: input?.page,
-        perPage: input?.perPage,
-      });
     }),
 
   createIssue: protectedProcedure

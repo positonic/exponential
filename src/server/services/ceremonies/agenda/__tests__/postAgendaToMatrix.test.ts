@@ -8,6 +8,7 @@ const report = vi.hoisted(() => vi.fn());
 vi.mock("~/server/services/matrix/matrixServer", () => ({ listMatrixServers, getMatrixClientForServer }));
 vi.mock("~/server/utils/reportHandledErrorServer", () => ({ reportHandledErrorServer: report }));
 
+import { MatrixEncryptedRoomError } from "~/server/services/matrix/MatrixClient";
 import { buildAgendaRedactionTransactionId, buildAgendaTransactionId, postAgendaToMatrix, removeAgendaFromMatrix } from "../postAgendaToMatrix";
 
 /** The ledger append runs in a serializable transaction; run the callback against the same mock. */
@@ -84,6 +85,21 @@ describe("postAgendaToMatrix", () => {
     const failed = await postAgendaToMatrix(db, { occurrenceId: "occ-1", actorUserId: null, client });
     expect(failed).toEqual({ kind: "failed", reason: "M_FORBIDDEN" });
     expect(report).toHaveBeenCalled();
+    expect(db.ceremonyOccurrence.update).not.toHaveBeenCalled();
+  });
+
+  it("hands back an encrypted room as a failed post without reporting it — no sweep can fix it", async () => {
+    const db = withTransaction(mockDeep<PrismaClient>());
+    db.ceremonyOccurrence.findUnique.mockResolvedValue(occurrence as never);
+    listMatrixServers.mockResolvedValue([{ id: "srv-1" }]);
+    const client = {
+      joinedRooms: async () => [],
+      send: vi.fn(async () => { throw new MatrixEncryptedRoomError("!room:syntro.fi"); }),
+    };
+    const res = await postAgendaToMatrix(db, { occurrenceId: "occ-1", actorUserId: null, client });
+    expect(res.kind).toBe("failed");
+    expect(res).toMatchObject({ reason: expect.stringContaining("encrypted") });
+    expect(report).not.toHaveBeenCalled();
     expect(db.ceremonyOccurrence.update).not.toHaveBeenCalled();
   });
 

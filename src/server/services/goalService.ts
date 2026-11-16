@@ -1,4 +1,5 @@
 import type { Prisma } from "@prisma/client";
+import { TRPCError } from "@trpc/server";
 import { type Context } from "~/server/auth/types";
 import {
   getWorkspaceMembership,
@@ -18,7 +19,7 @@ import { recordActivity } from "~/server/services/activity/recordActivity";
  */
 export async function verifyGoalAccess({ ctx, goalId }: { ctx: Context; goalId: number }) {
   const userId = ctx.session?.user?.id;
-  if (!userId) throw new Error("User not authenticated");
+  if (!userId) throw new TRPCError({ code: "UNAUTHORIZED", message: "User not authenticated" });
 
   const goal = await ctx.db.goal.findUnique({
     where: { id: goalId },
@@ -27,7 +28,7 @@ export async function verifyGoalAccess({ ctx, goalId }: { ctx: Context; goalId: 
     select: { id: true, userId: true, driUserId: true, workspaceId: true, title: true },
   });
 
-  if (!goal) throw new Error("Goal not found");
+  if (!goal) throw new TRPCError({ code: "NOT_FOUND", message: "Goal not found" });
 
   // Owner or DRI always has access
   if (goal.userId === userId || goal.driUserId === userId) return goal;
@@ -38,7 +39,7 @@ export async function verifyGoalAccess({ ctx, goalId }: { ctx: Context; goalId: 
     if (membership) return goal;
   }
 
-  throw new Error("Access denied");
+  throw new TRPCError({ code: "FORBIDDEN", message: "Access denied" });
 }
 
 /**
@@ -54,14 +55,14 @@ export async function verifyGoalAccess({ ctx, goalId }: { ctx: Context; goalId: 
  */
 export async function verifyGoalWriteAccess({ ctx, goalId }: { ctx: Context; goalId: number }) {
   const userId = ctx.session?.user?.id;
-  if (!userId) throw new Error("User not authenticated");
+  if (!userId) throw new TRPCError({ code: "UNAUTHORIZED", message: "User not authenticated" });
 
   const goal = await ctx.db.goal.findUnique({
     where: { id: goalId },
     select: { id: true, userId: true, driUserId: true, workspaceId: true, title: true },
   });
 
-  if (!goal) throw new Error("Goal not found");
+  if (!goal) throw new TRPCError({ code: "NOT_FOUND", message: "Goal not found" });
 
   await assertCanEditGoal(ctx.db, userId, goal, {
     notFound: "Goal not found or access denied",
@@ -101,7 +102,7 @@ export async function createGoalUpdate({
   const goal = await verifyGoalWriteAccess({ ctx, goalId });
 
   const userId = ctx.session?.user?.id;
-  if (!userId) throw new Error("User not authenticated");
+  if (!userId) throw new TRPCError({ code: "UNAUTHORIZED", message: "User not authenticated" });
 
   const [update] = await ctx.db.$transaction([
     ctx.db.goalUpdate.create({
@@ -168,7 +169,7 @@ export async function createGoalComment({
   const goal = await verifyGoalAccess({ ctx, goalId });
 
   const userId = ctx.session?.user?.id;
-  if (!userId) throw new Error("User not authenticated");
+  if (!userId) throw new TRPCError({ code: "UNAUTHORIZED", message: "User not authenticated" });
 
   const comment = await ctx.db.goalComment.create({
     data: {
@@ -247,7 +248,7 @@ interface GoalInput {
 
 export async function createGoal({ ctx, input }: { ctx: Context, input: GoalInput }) {
   if (!ctx.session?.user?.id) {
-    throw new Error("User not authenticated");
+    throw new TRPCError({ code: "UNAUTHORIZED", message: "User not authenticated" });
   }
 
   // A sub-goal's parent must be ACCESSIBLE to the caller — never nest under
@@ -328,7 +329,7 @@ async function assertCanPlaceGoalInWorkspace({
   workspaceId: string;
 }) {
   const userId = ctx.session?.user?.id;
-  if (!userId) throw new Error("User not authenticated");
+  if (!userId) throw new TRPCError({ code: "UNAUTHORIZED", message: "User not authenticated" });
   await assertWorkspaceWriteRole(ctx.db, userId, workspaceId);
 }
 
@@ -348,7 +349,7 @@ async function validateParentAssignment({
   parentGoalId: number;
 }) {
   if (goalId !== undefined && parentGoalId === goalId) {
-    throw new Error("A goal cannot be its own parent");
+    throw new TRPCError({ code: "BAD_REQUEST", message: "A goal cannot be its own parent" });
   }
   let depth = 1;
   let currentParentId: number | null = parentGoalId;
@@ -359,12 +360,12 @@ async function validateParentAssignment({
     });
     if (!parent) break;
     if (goalId !== undefined && parent.parentGoalId === goalId) {
-      throw new Error("Cannot set a descendant goal as parent (would create a cycle)");
+      throw new TRPCError({ code: "BAD_REQUEST", message: "Cannot set a descendant goal as parent (would create a cycle)" });
     }
     currentParentId = parent.parentGoalId;
     depth++;
     if (depth > 5) {
-      throw new Error("Maximum nesting depth of 5 levels exceeded");
+      throw new TRPCError({ code: "BAD_REQUEST", message: "Maximum nesting depth of 5 levels exceeded" });
     }
   }
 }
@@ -407,7 +408,7 @@ interface UpdateGoalInput {
 
 export async function updateGoal({ ctx, input }: { ctx: Context, input: UpdateGoalInput }) {
   if (!ctx.session?.user?.id) {
-    throw new Error("User not authenticated");
+    throw new TRPCError({ code: "UNAUTHORIZED", message: "User not authenticated" });
   }
 
   await verifyGoalWriteAccess({ ctx, goalId: input.id });
@@ -525,7 +526,7 @@ export async function setGoalParent({
   parentGoalId: number | null;
 }) {
   if (!ctx.session?.user?.id) {
-    throw new Error("User not authenticated");
+    throw new TRPCError({ code: "UNAUTHORIZED", message: "User not authenticated" });
   }
   // Write access to the goal being moved; the parent only has to be visible.
   await verifyGoalWriteAccess({ ctx, goalId });
@@ -547,7 +548,7 @@ export async function setGoalParent({
  */
 export async function getProjectGoals({ ctx, projectId }: { ctx: Context, projectId: string }) {
   const userId = ctx.session?.user?.id;
-  if (!userId) throw new Error("User not authenticated");
+  if (!userId) throw new TRPCError({ code: "UNAUTHORIZED", message: "User not authenticated" });
   return await ctx.db.goal.findMany({
     where: {
       userId,
@@ -573,7 +574,7 @@ export async function getProjectGoals({ ctx, projectId }: { ctx: Context, projec
  */
 export async function getGoalTree({ ctx, workspaceId, status }: { ctx: Context, workspaceId?: string, status?: string }) {
   const userId = ctx.session?.user?.id;
-  if (!userId) throw new Error("User not authenticated");
+  if (!userId) throw new TRPCError({ code: "UNAUTHORIZED", message: "User not authenticated" });
 
   const goals = await ctx.db.goal.findMany({
     where: {
@@ -731,7 +732,7 @@ export async function computeGoalHealth({ ctx, goalId }: { ctx: Context, goalId:
 
 export async function getGoalById({ ctx, id }: { ctx: Context, id: number }) {
   const userId = ctx.session?.user?.id;
-  if (!userId) throw new Error("User not authenticated");
+  if (!userId) throw new TRPCError({ code: "UNAUTHORIZED", message: "User not authenticated" });
 
   const goal = await ctx.db.goal.findUnique({
     where: { id },

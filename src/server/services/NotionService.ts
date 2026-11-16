@@ -104,7 +104,7 @@ export class NotionService {
       return users;
     } catch (error) {
       console.error('Failed to fetch Notion workspace users:', error);
-      throw new Error('Failed to fetch workspace users from Notion');
+      throw new Error('Failed to fetch workspace users from Notion', { cause: error });
     }
   }
 
@@ -129,7 +129,7 @@ export class NotionService {
       }));
     } catch (error) {
       console.error('Failed to fetch Notion databases:', error);
-      throw new Error('Failed to fetch databases from Notion');
+      throw new Error('Failed to fetch databases from Notion', { cause: error });
     }
   }
 
@@ -276,7 +276,7 @@ export class NotionService {
       };
     } catch (error) {
       console.error('Failed to fetch Notion database:', error);
-      throw new Error('Failed to fetch database from Notion');
+      throw new Error('Failed to fetch database from Notion', { cause: error });
     }
   }
 
@@ -301,7 +301,7 @@ export class NotionService {
       };
     } catch (error) {
       console.error('Failed to fetch Notion database:', error);
-      throw new Error('Failed to fetch database from Notion');
+      throw new Error('Failed to fetch database from Notion', { cause: error });
     }
   }
 
@@ -318,7 +318,7 @@ export class NotionService {
       });
     } catch (error) {
       console.error('❌ Failed to update Notion page:', error);
-      throw new Error('Failed to update page in Notion');
+      throw new Error('Failed to update page in Notion', { cause: error });
     }
   }
 
@@ -393,7 +393,7 @@ export class NotionService {
         message: error instanceof Error ? error.message : 'Unknown error',
         stack: error instanceof Error ? error.stack : undefined,
       });
-      throw new Error('Failed to create page in Notion');
+      throw new Error('Failed to create page in Notion', { cause: error });
     }
   }
 
@@ -419,7 +419,7 @@ export class NotionService {
       return { id: response.id, url: (response as any).url ?? null };
     } catch (error) {
       console.error('❌ Failed to create Notion page (with content):', error);
-      throw new Error('Failed to create page in Notion');
+      throw new Error('Failed to create page in Notion', { cause: error });
     }
   }
 
@@ -486,7 +486,7 @@ export class NotionService {
       return response.results;
     } catch (error) {
       console.error('Failed to fetch pages from Notion database:', error);
-      throw new Error('Failed to fetch pages from Notion database');
+      throw new Error('Failed to fetch pages from Notion database', { cause: error });
     }
   }
 
@@ -517,7 +517,7 @@ export class NotionService {
       return projects;
     } catch (error) {
       console.error('Failed to fetch projects from Notion Projects database:', error);
-      throw new Error('Failed to fetch projects from Notion Projects database');
+      throw new Error('Failed to fetch projects from Notion Projects database', { cause: error });
     }
   }
 
@@ -657,7 +657,7 @@ export class NotionService {
       };
     } catch (error) {
       console.error('Failed to parse Notion page:', error);
-      throw new Error('Failed to parse Notion page data');
+      throw new Error('Failed to parse Notion page data', { cause: error });
     }
   }
 

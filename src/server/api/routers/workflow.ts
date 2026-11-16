@@ -10,6 +10,7 @@ import {
 } from "~/server/services/sync";
 import { getProjectAccess, hasProjectAccess } from "~/server/services/access";
 import { getDecryptedKey } from "~/server/utils/credentialHelper";
+import { toIntegrationTRPCError } from "~/server/utils/integrationErrors";
 
 // Helper function for Notion pull sync
 async function runNotionPullSync(ctx: any, workflow: any, runId: string, deletionBehavior?: string, projectId?: string) {
@@ -2125,10 +2126,15 @@ export const workflowRouter = createTRPCRouter({
         const projects = await notionService.getProjectsFromDatabase(config.projectsDatabaseId);
         return projects;
       } catch (error) {
+        // A revoked token, an unshared database or Notion being down is a
+        // state the settings screen can explain — not a 500 (gold.peak).
+        const expected = toIntegrationTRPCError(error, { provider: 'Notion' });
+        if (expected) throw expected;
         console.error('Failed to fetch Notion projects:', error);
         throw new TRPCError({
           code: 'INTERNAL_SERVER_ERROR',
           message: 'Failed to fetch Notion projects',
+          cause: error,
         });
       }
     }),
@@ -2414,10 +2420,13 @@ export const workflowRouter = createTRPCRouter({
           linkedCount: linkedProjects.length,
         };
       } catch (error) {
+        const expected = toIntegrationTRPCError(error, { provider: 'Notion' });
+        if (expected) throw expected;
         console.error('Failed to fetch unlinked Notion projects:', error);
         throw new TRPCError({
           code: 'INTERNAL_SERVER_ERROR',
           message: 'Failed to fetch Notion projects',
+          cause: error,
         });
       }
     }),

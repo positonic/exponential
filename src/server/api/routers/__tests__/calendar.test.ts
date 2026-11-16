@@ -347,4 +347,31 @@ describe("calendar router — ConnectedAccount (mocked)", () => {
       expect(deleteSpy).not.toHaveBeenCalled();
     });
   });
+
+  describe("integration failures are typed, not 500s", () => {
+    beforeEach(() => {
+      vi.stubEnv("GOOGLE_OAUTH_TESTER_EMAILS", `${userId}@test.com`);
+    });
+
+    it("a never-connected Google Calendar is PRECONDITION_FAILED with the connect message", async () => {
+      // resolveAccount finds no connected Google account.
+      dbMock.connectedAccount.findFirst.mockResolvedValue(null);
+      const caller = createMockCaller({ userId, db: dbMock });
+      const error = await caller.calendar.getUpcomingEvents({ provider: "google" }).catch((e: unknown) => e);
+      expect(error).toMatchObject({
+        code: "PRECONDITION_FAILED",
+        message: expect.stringContaining("No Google Calendar access token found"),
+      });
+    });
+
+    it("an unreachable provider is BAD_GATEWAY", async () => {
+      const spy = vi
+        .spyOn(GoogleCalendarService.prototype, "getUpcomingEvents")
+        .mockRejectedValueOnce(new TypeError("fetch failed"));
+      const caller = createMockCaller({ userId, db: dbMock });
+      const error = await caller.calendar.getUpcomingEvents({ provider: "google" }).catch((e: unknown) => e);
+      expect(error).toMatchObject({ code: "BAD_GATEWAY" });
+      spy.mockRestore();
+    });
+  });
 });
