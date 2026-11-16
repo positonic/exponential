@@ -1,9 +1,10 @@
 'use client';
 
 import { useAiCapabilities } from "~/providers/AiCapabilitiesProvider";
-import { api } from "~/trpc/react";
+import { api, type RouterOutputs } from "~/trpc/react";
 import { Skeleton, Paper, Text } from "@mantine/core";
 import { useEffect, useMemo, useRef } from "react";
+import { useMutation } from "@tanstack/react-query";
 import { notifications } from "@mantine/notifications";
 import { useRouter } from "next/navigation";
 import { useAgentModal, type ChatMessage } from "~/providers/AgentModalProvider";
@@ -136,7 +137,29 @@ export function MeetingDetailContainer({ id }: { id: string }) {
   // drafts its actions, decisions and open questions, so each item lands in
   // exactly one bucket. Nothing is created or logged until it is reviewed on
   // the Outputs tab (ADR-0007, ADR-0060), which MeetingDetail opens on success.
-  const extractOutputsMutation = api.transcription.extractOutputs.useMutation();
+  //
+  // The call goes to a route of its own rather than through the tRPC client:
+  // the shared tRPC route stops at 60 seconds, and reading the whole of a long
+  // recording takes longer. The route runs the same `transcription.
+  // extractOutputs` procedure, so the result and the errors are the same.
+  const extractOutputsMutation = useMutation({
+    mutationFn: async (input: { transcriptionId: string }) => {
+      const response = await fetch("/api/meetings/extract-outputs", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(input),
+      });
+      const body = (await response.json().catch(() => null)) as unknown;
+      if (!response.ok) {
+        const message =
+          body !== null && typeof body === "object" && "error" in body && typeof body.error === "string"
+            ? body.error
+            : "Extraction failed";
+        throw new Error(message);
+      }
+      return body as RouterOutputs["transcription"]["extractOutputs"];
+    },
+  });
 
   async function handleExtractOutputs(): Promise<boolean> {
     if (!session) return false;

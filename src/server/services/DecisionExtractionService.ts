@@ -106,13 +106,30 @@ export const DEFAULT_MAX_DECISIONS = 15;
 export const DEFAULT_MAX_ACTION_ITEMS = 25;
 const MAX_CHARS_PER_CHUNK = 6000;
 /**
- * Hard cap on model calls per transcript. Chunking is one call per 6 000
- * characters with no natural bound, and every caller runs inside a
- * serverless function with a fixed deadline, so a long recording could
- * otherwise spend the whole budget. A truncated pass is reported through
- * `chunksSkipped` rather than passed off as "this meeting had no decisions".
+ * Size of one transcript section sent to the model, about 7 500 tokens. The
+ * notes keep the smaller {@link MAX_CHARS_PER_CHUNK}. A section this size
+ * holds several minutes of conversation, so a question raised and answered a
+ * little later is read in one piece rather than split across two calls, and
+ * an hour of talk is two or three calls instead of ten.
  */
-export const MAX_TRANSCRIPT_CHUNKS = 6;
+export const TRANSCRIPT_CHUNK_CHARS = 30_000;
+/**
+ * Hard cap on model calls per transcript, about 18 hours of talk at
+ * {@link TRANSCRIPT_CHUNK_CHARS}. It is a guard against a runaway input, not
+ * a reading budget: a 6-section cap at 6 000 characters used to stop after
+ * the first half hour of a long recording. A truncated pass is reported
+ * through `chunksSkipped` rather than passed off as "this meeting had no
+ * decisions".
+ */
+export const MAX_TRANSCRIPT_CHUNKS = 24;
+/**
+ * Sections read at once. Every caller runs inside a serverless function with
+ * a fixed deadline, so a long recording is read in parallel waves rather than
+ * one call after another.
+ */
+export const TRANSCRIPT_CONCURRENCY = 6;
+/** One section's model call; a call that hangs costs that section only. */
+const TRANSCRIPT_CALL_TIMEOUT_MS = 90_000;
 /** The same bound for notes, which are far shorter in practice. */
 export const MAX_NOTES_CHUNKS = 4;
 /**
@@ -524,7 +541,7 @@ function formatPassageLine(passage: TranscriptPassage, index: number): string {
  * shows the model always names text the model was shown in full. Nothing is
  * cut off: a passage that is alone over the budget gets a chunk to itself.
  */
-export function chunkPassages(passages: TranscriptPassage[], maxChars: number = MAX_CHARS_PER_CHUNK): TurnChunk[] {
+export function chunkPassages(passages: TranscriptPassage[], maxChars: number = TRANSCRIPT_CHUNK_CHARS): TurnChunk[] {
   const chunks: TurnChunk[] = [];
   let lines: string[] = [];
   let indices = new Set<number>();
@@ -551,7 +568,7 @@ export function chunkPassages(passages: TranscriptPassage[], maxChars: number = 
 }
 
 /** The chunks a transcript is read in: its turns as passages, then {@link chunkPassages}. */
-export function chunkTurns(turns: TranscriptTurn[], maxChars: number = MAX_CHARS_PER_CHUNK): TurnChunk[] {
+export function chunkTurns(turns: TranscriptTurn[], maxChars: number = TRANSCRIPT_CHUNK_CHARS): TurnChunk[] {
   return chunkPassages(toPassages(turns, Math.min(MAX_PASSAGE_CHARS, maxChars)), maxChars);
 }
 
@@ -693,6 +710,45 @@ function cleanNames(names: string[] | undefined): string[] {
   return out;
 }
 
+/** Run `task` over `items`, at most `limit` at a time, results in input order. */
+async function mapWithConcurrency<T, R>(items: T[], limit: number, task: (item: T, index: number) => Promise<R>): Promise<R[]> {
+  const results = new Array<R>(items.length);
+  let next = 0;
+  const worker = async () => {
+    while (next < items.length) {
+      const index = next++;
+      results[index] = await task(items[index]!, index);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+  return results;
+}
+
+/**
+ * Keep at most `max` items, taken evenly from every section of the meeting
+ * rather than from the start: one from each section in turn until the budget
+ * is spent. The result stays in transcript order. Without this a long
+ * meeting's budget is used up by its first hour.
+ */
+export function spreadAcrossChunks<T>(perChunk: T[][], max: number): T[] {
+  const total = perChunk.reduce((sum, items) => sum + items.length, 0);
+  if (total <= max) return perChunk.flat();
+  const taken = perChunk.map(() => 0);
+  let remaining = Math.max(0, max);
+  while (remaining > 0) {
+    let tookAny = false;
+    for (let i = 0; i < perChunk.length && remaining > 0; i++) {
+      if (taken[i]! < perChunk[i]!.length) {
+        taken[i]! += 1;
+        remaining -= 1;
+        tookAny = true;
+      }
+    }
+    if (!tookAny) break;
+  }
+  return perChunk.flatMap((items, i) => items.slice(0, taken[i]));
+}
+
 /**
  * A transcript pass, with enough of the run's shape for the caller to tell
  * "this meeting had no decisions" apart from "every model call failed".
@@ -738,7 +794,7 @@ export class DecisionExtractionService {
     const maxDecisions = options.maxDecisions ?? DEFAULT_MAX_DECISIONS;
     const maxActionItems = DEFAULT_MAX_ACTION_ITEMS;
     const modelName = options.modelName ?? process.env.LLM_MODEL ?? "gpt-4o";
-    const model = new ChatOpenAI({ modelName, temperature: 0 });
+    const model = new ChatOpenAI({ modelName, temperature: 0, timeout: TRANSCRIPT_CALL_TIMEOUT_MS });
 
     const existingStatements = options.existingStatements ?? [];
     const existingQuestions = options.existingQuestions ?? [];
@@ -760,44 +816,56 @@ export class DecisionExtractionService {
       `[DecisionExtraction] model=${modelName}, turns=${turns.length}, passages=${passages.length}, chunks=${chunks.length}/${allChunks.length}, existing=${existingStatements.length}+${existingQuestions.length}q, open=${openDecisions.length}`,
     );
 
-    const results: DecisionCandidate[] = [];
-    const actionItems: ActionCandidate[] = [];
-    const actionDedupe = new Set<string>();
     /** Indices from the model that resolve to passages this chunk showed it. */
     const resolveEvidence = (chunk: TurnChunk, indices: number[]) =>
       Array.from(new Set(indices))
         .filter((index) => chunk.indices.has(index) && passages[index] !== undefined)
         .sort((a, b) => a - b);
 
-    for (let i = 0; i < chunks.length; i++) {
-      // Decisions and action items have separate budgets: a meeting full of
-      // tasks must not stop the pass before its decisions are read, nor the
-      // reverse. Stop only when both are spent.
-      if (results.length >= maxDecisions && actionItems.length >= maxActionItems) break;
-      const chunk = chunks[i]!;
-      let parsed: z.infer<typeof transcriptExtractionSchema> | null = null;
-      // The invoke is inside the try: a rate-limit on one chunk must cost that
-      // chunk only, never the candidates already collected.
+    // Every section is read, in parallel waves. The invoke is inside the
+    // try: a rate-limit or timeout on one section must cost that section
+    // only, never the candidates from the others.
+    const systemPrompt = buildDecisionSystemPrompt();
+    const parsedChunks = await mapWithConcurrency(chunks, TRANSCRIPT_CONCURRENCY, async (chunk, i) => {
       try {
         const response = await model.invoke([
-          new SystemMessage(buildDecisionSystemPrompt()),
+          new SystemMessage(systemPrompt),
           new HumanMessage(buildDecisionChunkPrompt(chunk.text, { existingStatements, existingQuestions, openDecisions })),
         ]);
         const rawContent = typeof response.content === "string" ? response.content : "";
-        parsed = transcriptExtractionSchema.parse(parseJsonFromModelOutput(rawContent));
+        const parsed = transcriptExtractionSchema.parse(parseJsonFromModelOutput(rawContent));
         console.log(
           `[DecisionExtraction] Chunk ${i + 1}/${chunks.length}: ${parsed.decisions.length} candidate(s), ${parsed.actionItems.length} action item(s)`,
         );
+        return parsed;
       } catch (chunkErr) {
-        chunksFailed += 1;
         console.log(
           `[DecisionExtraction] Chunk ${i + 1}/${chunks.length} failed: ${chunkErr instanceof Error ? chunkErr.message : String(chunkErr)}`,
         );
+        return null;
+      }
+    });
+
+    // Folded in transcript order, so which of two restatements survives does
+    // not depend on which call came back first. Decisions and action items
+    // have separate budgets, each spread over the whole meeting below.
+    const decisionsPerChunk: DecisionCandidate[][] = [];
+    const actionsPerChunk: ActionCandidate[][] = [];
+    const actionDedupe = new Set<string>();
+
+    for (let i = 0; i < chunks.length; i++) {
+      const chunk = chunks[i]!;
+      const parsed = parsedChunks[i];
+      const chunkDecisions: DecisionCandidate[] = [];
+      const chunkActions: ActionCandidate[] = [];
+      decisionsPerChunk.push(chunkDecisions);
+      actionsPerChunk.push(chunkActions);
+      if (!parsed) {
+        chunksFailed += 1;
         continue;
       }
 
       for (const item of parsed.actionItems) {
-        if (actionItems.length >= maxActionItems) break;
         const text = item.text.replace(/\s+/g, " ").trim();
         const key = normalizeDecisionStatement(text);
         if (!key || actionDedupe.has(key)) continue;
@@ -809,7 +877,7 @@ export class DecisionExtractionService {
           continue;
         }
         actionDedupe.add(key);
-        actionItems.push({
+        chunkActions.push({
           text,
           assigneeName: optionalText(item.assigneeName),
           dueDateText: optionalText(item.dueDateText),
@@ -818,7 +886,6 @@ export class DecisionExtractionService {
       }
 
       for (const candidate of parsed.decisions) {
-        if (results.length >= maxDecisions) break;
         const statement = candidate.statement.replace(/\s+/g, " ").trim();
         const isOpenQuestion = candidate.isOpenQuestion === true;
         const key = candidateKey(statement, isOpenQuestion);
@@ -846,7 +913,7 @@ export class DecisionExtractionService {
         }
 
         dedupe.add(key);
-        results.push({
+        chunkDecisions.push({
           statement,
           isOpenQuestion,
           context: cleanBullets(candidate.context),
@@ -859,6 +926,9 @@ export class DecisionExtractionService {
         });
       }
     }
+
+    const results = spreadAcrossChunks(decisionsPerChunk, maxDecisions);
+    const actionItems = spreadAcrossChunks(actionsPerChunk, maxActionItems);
 
     console.log(
       `[DecisionExtraction] Transcript extraction found ${results.length} candidate(s), ${actionItems.length} action item(s)`,

@@ -26,6 +26,8 @@ import {
   extractNotesDecisionItems,
   MAX_PASSAGE_CHARS,
   MAX_TRANSCRIPT_CHUNKS,
+  spreadAcrossChunks,
+  TRANSCRIPT_CONCURRENCY,
   toPassages,
   filterNearDuplicateCandidates,
   filterNearDuplicateDecisions,
@@ -193,21 +195,21 @@ describe("DecisionExtractionService.extractFromTranscript", () => {
 
   it("survives a failed chunk and keeps candidates from the others", async () => {
     // Long turns so the default budget splits the transcript into several chunks.
-    const many = Array.from({ length: 40 }, (_, i) => turn("Speaker", `Turn number ${i}. ${"filler ".repeat(60)}`));
+    const many = Array.from({ length: 200 }, (_, i) => turn("Speaker", `Turn number ${i}. ${"filler ".repeat(60)}`));
     const chunkCount = chunkTurns(many).length;
     expect(chunkCount).toBeGreaterThan(1);
     invokeMock.mockResolvedValueOnce({ content: "not json at all" });
     invokeMock.mockResolvedValue({
-      content: JSON.stringify({ decisions: [{ statement: "From a later chunk", evidenceTurnIndices: [39] }] }),
+      content: JSON.stringify({ decisions: [{ statement: "From a later chunk", evidenceTurnIndices: [199] }] }),
     });
 
     const { candidates: result } = await DecisionExtractionService.extractFromTranscript(many);
 
     expect(invokeMock).toHaveBeenCalledTimes(chunkCount);
     // Chunk 1 failed and contributed nothing; the last chunk's candidate (whose
-    // index 39 is in range for that chunk only) survived.
+    // index 199 is in range for that chunk only) survived.
     expect(result.map((c) => c.statement)).toEqual(["From a later chunk"]);
-    expect(result[0]!.evidence[0]!.turnIndex).toBe(39);
+    expect(result[0]!.evidence[0]!.turnIndex).toBe(199);
   });
 
   it("returns nothing without an API key and never calls the model", async () => {
@@ -219,7 +221,7 @@ describe("DecisionExtractionService.extractFromTranscript", () => {
 
   it("caps the number of model calls and says how much of the transcript it skipped", async () => {
     // Long enough to produce more chunks than the cap allows.
-    const many = Array.from({ length: 400 }, (_, i) => turn("Speaker", `Turn number ${i}. ${"filler ".repeat(60)}`));
+    const many = Array.from({ length: 2000 }, (_, i) => turn("Speaker", `Turn number ${i}. ${"filler ".repeat(60)}`));
     const total = chunkTurns(many).length;
     expect(total).toBeGreaterThan(MAX_TRANSCRIPT_CHUNKS);
     invokeMock.mockResolvedValue({ content: JSON.stringify({ decisions: [] }) });
@@ -236,8 +238,8 @@ describe("DecisionExtractionService.extractFromTranscript", () => {
   it("reads all of a transcript that parsed as one turn, and quotes the passage, not the meeting", async () => {
     // What the raw fallback returns for a transcript the parser cannot split:
     // the whole meeting in turn 0. The decision sits far past the first chunk.
-    const sentences = Array.from({ length: 300 }, (_, i) => `Sentence ${i} is ordinary filler about the weather.`);
-    sentences[250] = "Decision: the importer ships on Friday.";
+    const sentences = Array.from({ length: 3000 }, (_, i) => `Sentence ${i} is ordinary filler about the weather.`);
+    sentences[2500] = "Decision: the importer ships on Friday.";
     const whole = [rawTurn(sentences.join(" "))];
     const passages = toPassages(whole);
     const cited = passages.findIndex((p) => p.text.includes("the importer ships on Friday"));
@@ -260,7 +262,7 @@ describe("DecisionExtractionService.extractFromTranscript", () => {
     expect(invokeMock).toHaveBeenCalledTimes(chunks.length);
     const sent = invokeMock.mock.calls.map((call) => String((call[0] as Array<{ content: string }>)[1]!.content)).join("\n");
     expect(sent).toContain("Sentence 0 is");
-    expect(sent).toContain("Sentence 299 is");
+    expect(sent).toContain("Sentence 2999 is");
 
     expect(run.candidates).toHaveLength(1);
     const [evidence] = run.candidates[0]!.evidence;
@@ -270,7 +272,7 @@ describe("DecisionExtractionService.extractFromTranscript", () => {
   });
 
   it("counts the unread part of a one-turn transcript that is longer than the cap", async () => {
-    const whole = [rawTurn("Filler sentence about nothing in particular. ".repeat(2000))];
+    const whole = [rawTurn("Filler sentence about nothing in particular. ".repeat(20000))];
     const total = chunkTurns(whole).length;
     expect(total).toBeGreaterThan(MAX_TRANSCRIPT_CHUNKS);
     invokeMock.mockResolvedValue({ content: JSON.stringify({ decisions: [] }) });
@@ -279,6 +281,62 @@ describe("DecisionExtractionService.extractFromTranscript", () => {
 
     expect(invokeMock).toHaveBeenCalledTimes(MAX_TRANSCRIPT_CHUNKS);
     expect(run.chunksSkipped).toBe(total - MAX_TRANSCRIPT_CHUNKS);
+  });
+
+  it("reads the end of a long meeting, not only its first sections", async () => {
+    // Several hours of talk: far past what the old six-section cap covered.
+    const many = Array.from({ length: 900 }, (_, i) => turn("Speaker", `Turn number ${i}. ${"filler ".repeat(60)}`, i * 30));
+    const chunks = chunkTurns(many);
+    expect(chunks.length).toBeGreaterThan(6);
+    expect(chunks.length).toBeLessThanOrEqual(MAX_TRANSCRIPT_CHUNKS);
+    invokeMock.mockResolvedValue({
+      content: JSON.stringify({ decisions: [{ statement: "Settled in the last minutes", evidenceTurnIndices: [899] }] }),
+    });
+
+    const run = await DecisionExtractionService.extractFromTranscript(many);
+
+    expect(invokeMock).toHaveBeenCalledTimes(chunks.length);
+    expect(run.chunksSkipped).toBe(0);
+    expect(run.candidates.map((c) => c.statement)).toEqual(["Settled in the last minutes"]);
+    expect(run.candidates[0]!.evidence[0]!.turnIndex).toBe(899);
+  });
+
+  it("never has more than the concurrency limit of sections in flight", async () => {
+    const many = Array.from({ length: 900 }, (_, i) => turn("Speaker", `Turn number ${i}. ${"filler ".repeat(60)}`));
+    expect(chunkTurns(many).length).toBeGreaterThan(TRANSCRIPT_CONCURRENCY);
+    let inFlight = 0;
+    let peak = 0;
+    invokeMock.mockImplementation(async () => {
+      inFlight += 1;
+      peak = Math.max(peak, inFlight);
+      await new Promise((resolve) => setTimeout(resolve, 1));
+      inFlight -= 1;
+      return { content: JSON.stringify({ decisions: [] }) };
+    });
+
+    await DecisionExtractionService.extractFromTranscript(many);
+
+    expect(peak).toBe(TRANSCRIPT_CONCURRENCY);
+  });
+
+  it("spends the decision budget across the whole meeting, in transcript order", async () => {
+    const many = Array.from({ length: 300 }, (_, i) => turn("Speaker", `Turn number ${i}. ${"filler ".repeat(60)}`));
+    const chunks = chunkTurns(many);
+    expect(chunks.length).toBeGreaterThan(2);
+    // Every section offers three decisions, each citing a turn of its own.
+    for (const [c, chunk] of chunks.entries()) {
+      const first = Math.min(...chunk.indices);
+      invokeMock.mockResolvedValueOnce({
+        content: JSON.stringify({
+          decisions: [0, 1, 2].map((n) => ({ statement: `Section ${c} decision ${n}`, evidenceTurnIndices: [first + n] })),
+        }),
+      });
+    }
+
+    const run = await DecisionExtractionService.extractFromTranscript(many, { maxDecisions: chunks.length });
+
+    // One from each section, rather than the first sections' three each.
+    expect(run.candidates.map((c) => c.statement)).toEqual(chunks.map((_, c) => `Section ${c} decision 0`));
   });
 
   it("returns action items apart from decisions, each backed by a real turn", async () => {
@@ -448,12 +506,12 @@ describe("toPassages", () => {
 
 describe("chunkTurns", () => {
   it("spreads a turn longer than a chunk over several chunks instead of truncating it", () => {
-    const text = Array.from({ length: 2000 }, (_, i) => `word${i}`).join(" ");
+    const text = Array.from({ length: 20000 }, (_, i) => `word${i}`).join(" ");
     const chunks = chunkTurns([turn("S", text)]);
     expect(chunks.length).toBeGreaterThan(1);
     const sent = chunks.map((c) => c.text).join("\n");
     expect(sent).toContain("word0 ");
-    expect(sent).toContain("word1999");
+    expect(sent).toContain("word19999");
   });
 
   it("never splits inside a turn and keeps absolute indices per chunk", () => {
@@ -637,5 +695,19 @@ describe("filterNearDuplicateDecisions / normalizeDecisionStatement", () => {
 
   it("normalises whitespace, case and trailing punctuation", () => {
     expect(normalizeDecisionStatement("  Ship   It!. ")).toBe("ship it");
+  });
+});
+
+describe("spreadAcrossChunks", () => {
+  it("returns everything when it fits the budget", () => {
+    expect(spreadAcrossChunks([["a", "b"], [], ["c"]], 5)).toEqual(["a", "b", "c"]);
+  });
+
+  it("takes one from each section in turn and keeps transcript order", () => {
+    expect(spreadAcrossChunks([["a1", "a2", "a3"], ["b1"], ["c1", "c2"]], 4)).toEqual(["a1", "a2", "b1", "c1"]);
+  });
+
+  it("returns nothing for a spent budget", () => {
+    expect(spreadAcrossChunks([["a"], ["b"]], 0)).toEqual([]);
   });
 });
