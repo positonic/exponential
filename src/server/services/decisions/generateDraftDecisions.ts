@@ -75,6 +75,12 @@ export interface DraftDecisionsResult {
   draftsCreated: number;
   /** Unreviewed drafts a re-extract removed to make way for the new ones. */
   draftsReplaced: number;
+  /**
+   * A transcript section could not be read on this run (a failed model call,
+   * or the whole pass throwing). What came back is from part of the meeting,
+   * so a re-extract does not let it replace drafts from a fuller reading.
+   */
+  transcriptIncomplete: boolean;
   /** Candidates dropped because no transcript turn supported them. */
   discardedWithoutEvidence: number;
   errors: string[];
@@ -178,6 +184,7 @@ export async function generateDraftDecisions(
     alreadyPublished: false,
     alreadyDrafted: false,
     draftsReplaced: 0,
+    transcriptIncomplete: false,
     draftCount: 0,
     draftsCreated: 0,
     discardedWithoutEvidence: 0,
@@ -401,6 +408,7 @@ export async function generateDraftDecisions(
         if (run.chunksSkipped === 0 && run.chunksFailed < run.chunksTotal) {
           result.actionItems = run.actionItems;
         }
+        if (run.chunksFailed > 0) result.transcriptIncomplete = true;
         if (run.chunksSkipped > 0) {
           result.warnings.push(
             `The transcript was longer than one extraction pass covers, so the last ${run.chunksSkipped} of its ${run.chunksTotal} sections were not read. Decisions made only in those sections will be missing.`,
@@ -432,6 +440,7 @@ export async function generateDraftDecisions(
           });
         }
       } catch (error) {
+        result.transcriptIncomplete = true;
         console.error("[generateDraftDecisions] transcript extraction failed, continuing with notes:", error);
         result.errors.push(error instanceof Error ? error.message : "Transcript extraction failed");
         reportHandledErrorServer(error, {
@@ -463,9 +472,14 @@ export async function generateDraftDecisions(
     // loop left a partial set that every retry reported as complete — with no
     // way back short of rejecting them all.
     const replacingDrafts = options.replaceDrafts === true && existingDraftCount > 0;
-    if (replacingDrafts && result.errors.length > 0) {
-      // Part of the reading failed. The drafts already there came from a
-      // reading that did not, so they stay rather than be replaced by less.
+    if (replacingDrafts && (result.errors.length > 0 || result.transcriptIncomplete)) {
+      // Part of the reading failed, even if the rest returned something. The
+      // drafts already there came from a reading that did not, so they stay
+      // rather than be replaced by less.
+      result.warnings.push(
+        "Part of the transcript could not be read this time, so the existing drafts were kept. Try again in a moment.",
+      );
+      result.success = result.errors.length === 0;
       result.alreadyDrafted = true;
       result.draftCount = existingDraftCount;
       return result;

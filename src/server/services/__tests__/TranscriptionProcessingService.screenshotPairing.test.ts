@@ -291,20 +291,75 @@ describe("generateDraftActions with action items from the combined decision pass
       db.action.findMany.mockResolvedValue([] as never);
     });
 
-    it("replaces the unreviewed draft actions with the new ones", async () => {
+    /** First read: actions already created. Second: the unreviewed drafts. */
+    const withOldDrafts = (...ids: string[]) =>
+      db.action.findMany.mockResolvedValueOnce([] as never).mockResolvedValueOnce(ids.map((id) => ({ id })) as never);
+
+    it("replaces the unreviewed draft actions, removing them only once the new ones exist", async () => {
       // No created actions, three drafts waiting.
       db.action.count.mockResolvedValueOnce(0).mockResolvedValueOnce(3);
+      withOldDrafts("old-1", "old-2", "old-3");
 
       const result = await TranscriptionProcessingService.generateDraftActions(TRANSCRIPTION_ID, USER_ID, {
         transcriptActionItems: combinedItems,
         replaceDrafts: true,
       });
 
+      expect(db.action.deleteMany).toHaveBeenCalledTimes(1);
       expect(db.action.deleteMany).toHaveBeenCalledWith({
-        where: { transcriptionSessionId: TRANSCRIPTION_ID, status: "DRAFT" },
+        where: { id: { in: ["old-1", "old-2", "old-3"] }, transcriptionSessionId: TRANSCRIPTION_ID, status: "DRAFT" },
       });
-      expect(db.action.deleteMany.mock.invocationCallOrder[0]!).toBeLessThan(db.action.create.mock.invocationCallOrder[0]!);
+      expect(db.action.create.mock.invocationCallOrder[0]!).toBeLessThan(db.action.deleteMany.mock.invocationCallOrder[0]!);
       expect(result).toMatchObject({ success: true, draftsReplaced: 3, draftCount: 1, alreadyPublished: false });
+    });
+
+    it("keeps the old drafts, and takes back the new ones, when a new draft cannot be written", async () => {
+      db.action.count.mockResolvedValueOnce(0).mockResolvedValueOnce(2);
+      withOldDrafts("old-1", "old-2");
+      const twoItems = [...combinedItems, { ...combinedItems[0]!, text: "Book the venue" }];
+      mockActionCreateFailingOn(db, "Book the venue");
+
+      const result = await TranscriptionProcessingService.generateDraftActions(TRANSCRIPTION_ID, USER_ID, {
+        transcriptActionItems: twoItems,
+        replaceDrafts: true,
+      });
+
+      // Every draft that is not one of the old ones goes, including one the
+      // processor wrote but reported as failed; the old ids are never touched.
+      expect(db.action.deleteMany).toHaveBeenCalledTimes(1);
+      expect(db.action.deleteMany).toHaveBeenCalledWith({
+        where: { transcriptionSessionId: TRANSCRIPTION_ID, status: "DRAFT", id: { notIn: ["old-1", "old-2"] } },
+      });
+      expect(result.success).toBe(false);
+      expect(result.draftCount).toBe(2);
+      expect(result.errors.length).toBeGreaterThan(0);
+    });
+
+    it("keeps the old drafts when the combined pass read only part of the transcript", async () => {
+      db.action.count.mockResolvedValueOnce(0).mockResolvedValueOnce(2);
+
+      const result = await TranscriptionProcessingService.generateDraftActions(TRANSCRIPTION_ID, USER_ID, {
+        transcriptActionItems: combinedItems,
+        replaceDrafts: true,
+        transcriptIncomplete: true,
+      });
+
+      expect(result).toMatchObject({ success: true, draftCount: 2, draftsKept: true });
+      expect(db.action.deleteMany).not.toHaveBeenCalled();
+      expect(db.action.create).not.toHaveBeenCalled();
+    });
+
+    it("removes the old drafts when a complete reading finds no actions", async () => {
+      db.action.count.mockResolvedValueOnce(0).mockResolvedValueOnce(1);
+      withOldDrafts("old-1");
+
+      const result = await TranscriptionProcessingService.generateDraftActions(TRANSCRIPTION_ID, USER_ID, {
+        transcriptActionItems: [],
+        replaceDrafts: true,
+      });
+
+      expect(db.action.deleteMany).toHaveBeenCalledTimes(1);
+      expect(result).toMatchObject({ success: true, draftCount: 0 });
     });
 
     it("runs for a meeting whose actions were already created, without drafting those again", async () => {

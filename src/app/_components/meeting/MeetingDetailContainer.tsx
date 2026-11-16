@@ -193,6 +193,16 @@ export function MeetingDetailContainer({ id }: { id: string }) {
         autoClose: 10_000,
       });
     }
+    // The decision half says so itself when it kept its drafts. A meeting
+    // with only action drafts gets no such warning, so say it here.
+    if (actions.draftsKept && (decisions.warnings ?? []).length === 0) {
+      notifications.show({
+        title: "Existing drafts were kept",
+        message: "Part of the transcript could not be read this time, so the draft actions were left as they were. Try again in a moment.",
+        color: "yellow",
+        autoClose: 10_000,
+      });
+    }
     // One half can fail while the other succeeds (a meeting outside a
     // workspace has no decision log, but can still get actions).
     for (const [label, half] of [

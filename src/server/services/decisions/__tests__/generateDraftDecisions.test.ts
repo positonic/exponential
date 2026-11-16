@@ -364,6 +364,26 @@ describe("generateDraftDecisions", () => {
       expect(result.errors.length).toBeGreaterThan(0);
     });
 
+    it("keeps the old drafts when one transcript section failed, even though another returned decisions", async () => {
+      db.decision.findMany.mockResolvedValueOnce(rows(["DRAFT", "An old draft"], ["DRAFT", "Another old draft"]) as never).mockResolvedValue([] as never);
+      extractFromTranscript.mockResolvedValue(transcriptRun([candidate()], { chunksFailed: 1, chunksTotal: 3 }));
+
+      const result = await generateDraftDecisions(db, "m1", "u-dev", { replaceDrafts: true });
+
+      expect(db.decision.deleteMany).not.toHaveBeenCalled();
+      expect(db.decision.create).not.toHaveBeenCalled();
+      expect(result).toMatchObject({ success: true, transcriptIncomplete: true, alreadyDrafted: true, draftCount: 2, draftsCreated: 0 });
+      expect(result.warnings.join(" ")).toMatch(/existing drafts were kept/);
+    });
+
+    it("on a first extraction, still drafts what the sections that worked returned", async () => {
+      extractFromTranscript.mockResolvedValue(transcriptRun([candidate()], { chunksFailed: 1, chunksTotal: 3 }));
+
+      const result = await generateDraftDecisions(db, "m1", "u-dev");
+
+      expect(result).toMatchObject({ success: true, transcriptIncomplete: true, draftsCreated: 1 });
+    });
+
     it("reads a meeting that already has confirmed decisions, and does not propose them or the rejected ones again", async () => {
       db.decision.findMany
         .mockResolvedValueOnce(rows(["CONFIRMED", "The API stays REST"], ["REJECTED", "Share the onboarding video"], ["CONFIRMED", "Which vendor hosts staging?", "OPEN"]) as never)
