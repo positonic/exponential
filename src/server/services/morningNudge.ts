@@ -43,10 +43,13 @@ export function buildMorningNudge(args: {
 
   // Only reframe when the bulk-written share is the majority. Below that the
   // overdue count really is mostly real commitments, and softening it would lie.
+  // No call to action: the push opens /today, which no longer has a one-click
+  // way to clear a cohort (removed in #1137), so "worth two minutes to clear
+  // out" promised something the page could not do.
   if (cohortCount > overdueCount / 2) {
     return {
       title,
-      body: `${todayPart}, and ${overdueCount} overdue — but ${cohortCount} of those were created in one batch and were probably never really due. Worth two minutes to clear out.`,
+      body: `${todayPart}, and ${overdueCount} overdue — but ${cohortCount} of those were created in one batch and were probably never really due.`,
     };
   }
 

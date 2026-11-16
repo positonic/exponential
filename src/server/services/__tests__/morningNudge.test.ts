@@ -40,8 +40,19 @@ describe("buildMorningNudge", () => {
       overdueCount: 43,
       cohortCount: 22,
     });
-    expect(body).toContain("43 overdue");
-    expect(body).toContain("22 of those were created in one batch");
+    expect(body).toBe(
+      "6 actions scheduled today, and 43 overdue — but 22 of those were created in one batch and were probably never really due.",
+    );
+  });
+
+  it("does not promise a clear-out the /today page no longer offers", () => {
+    const { body } = buildMorningNudge({
+      firstName: "James",
+      todayCount: 6,
+      overdueCount: 43,
+      cohortCount: 22,
+    });
+    expect(body).not.toMatch(/clear out/i);
   });
 
   it("does NOT soften the number when the overdue pile is mostly real debt", () => {
