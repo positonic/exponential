@@ -498,7 +498,9 @@ async function handleTranscriptionCompleted(meetingId: string, clientReferenceId
             actorUserId: user.id,
             subject: { sessionId: transcriptionSession.id },
           }),
-          { meetingId: transcriptionSession.id },
+          // sessionId is our TranscriptionSession row (as at the transcription.ts
+          // sites); firefliesMeetingId is Fireflies' own id for the same meeting.
+          { sessionId: transcriptionSession.id, firefliesMeetingId: meetingId },
         );
       }
     }

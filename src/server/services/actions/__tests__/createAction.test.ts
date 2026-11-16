@@ -390,22 +390,26 @@ describe("createAction", () => {
       stubAttachableWorkspace();
       reportMock.mockClear();
       vi.mocked(emitNotification).mockResolvedValueOnce(null);
-      vi.spyOn(console, "error").mockImplementation(() => undefined);
+      const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
 
-      await createAction(deps(db), {
-        source: "ui",
-        name: "Ship it",
-        workspaceId: WORKSPACE,
-        assigneeIds: [ACTOR, COLLEAGUE],
-      });
-      // No request scope here, so the emit ran detached and the reporter
-      // loads lazily; wait for it to land.
-      await vi.waitFor(() =>
-        expect(reportMock).toHaveBeenCalledWith(expect.any(Error), {
-          area: "createAction.assignmentNotification",
-          context: { actionId: "a1" },
-        }),
-      );
+      try {
+        await createAction(deps(db), {
+          source: "ui",
+          name: "Ship it",
+          workspaceId: WORKSPACE,
+          assigneeIds: [ACTOR, COLLEAGUE],
+        });
+        // No request scope here, so the emit ran detached and the reporter
+        // loads lazily; wait for it to land.
+        await vi.waitFor(() =>
+          expect(reportMock).toHaveBeenCalledWith(expect.any(Error), {
+            area: "createAction.assignmentNotification",
+            context: { actionId: "a1" },
+          }),
+        );
+      } finally {
+        consoleError.mockRestore();
+      }
     });
 
     it("emits nothing when the actor is the only assignee", async () => {
