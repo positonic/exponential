@@ -56,12 +56,18 @@ export function DecisionDetail({
   workspaceSlug,
   decisionId,
   preview,
+  onReviewed,
 }: {
   workspaceId: string;
   workspaceSlug: string;
   decisionId: string;
   /** The Decision Log row's header, painted while the detail loads. */
   preview?: PeekPreview;
+  /**
+   * Called once a draft is confirmed or rejected. The inbox peek moves on to
+   * the next draft; without it, a reject returns to the Decision Log.
+   */
+  onReviewed?: () => void;
 }) {
   const {
     data: decision,
@@ -96,13 +102,15 @@ export function DecisionDetail({
         utils.decision.list.invalidate(),
         utils.inbox.invalidate(),
       ]);
+      onReviewed?.();
     },
     onError: onReviewError,
   });
   const rejectDraft = api.decision.rejectDraft.useMutation({
     onSuccess: async () => {
       await utils.inbox.invalidate();
-      router.push(`/w/${workspaceSlug}/decisions`);
+      if (onReviewed) onReviewed();
+      else router.push(`/w/${workspaceSlug}/decisions`);
     },
     onError: onReviewError,
   });

@@ -58,9 +58,16 @@ export function inboxPeekLinkProps(href: string) {
  * decision or meeting), over the list, on the shared PeekDrawer shell.
  * Inbox rows span every workspace, so each item renders inside its own
  * workspace's context rather than the default one. `hrefs` are the tab's
- * rows in on-screen order, for prev/next.
+ * rows in on-screen order, for prev/next. `draftHrefs` are the draft
+ * decisions among them: confirming or rejecting one moves on to the next.
  */
-export function InboxPeekDrawer({ hrefs }: { hrefs: string[] }) {
+export function InboxPeekDrawer({
+  hrefs,
+  draftHrefs = [],
+}: {
+  hrefs: string[];
+  draftHrefs?: string[];
+}) {
   const utils = api.useUtils();
   const searchParams = useSearchParams();
   const href = searchParams.get(PEEK_PARAM);
@@ -90,6 +97,12 @@ export function InboxPeekDrawer({ hrefs }: { hrefs: string[] }) {
 
   const prev = index > 0 ? rows[index - 1] : undefined;
   const next = index !== -1 ? rows[index + 1] : undefined;
+  // The next draft still waiting for review, after this one in row order.
+  // draftHrefs is live, so drafts already reviewed this session are skipped.
+  const pendingDrafts = new Set(draftHrefs);
+  pendingDrafts.delete(href ?? '');
+  const nextDraft =
+    rows.slice(index + 1).find((h) => pendingDrafts.has(h)) ?? [...pendingDrafts][0];
 
   return (
     <PeekDrawer
@@ -100,12 +113,24 @@ export function InboxPeekDrawer({ hrefs }: { hrefs: string[] }) {
       onPrev={prev ? () => setPeek(prev) : undefined}
       onNext={next ? () => setPeek(next) : undefined}
     >
-      {target && href && <PeekContent key={href} target={target} />}
+      {target && href && (
+        <PeekContent
+          key={href}
+          target={target}
+          onReviewed={() => setPeek(nextDraft ?? null)}
+        />
+      )}
     </PeekDrawer>
   );
 }
 
-function PeekContent({ target }: { target: InboxPeekTarget }) {
+function PeekContent({
+  target,
+  onReviewed,
+}: {
+  target: InboxPeekTarget;
+  onReviewed: () => void;
+}) {
   if (target.kind === 'meeting') return <MeetingInWorkspace id={target.id} />;
   return (
     <WorkspaceProvider initialWorkspaceSlug={target.workspaceSlug}>
@@ -122,7 +147,11 @@ function PeekContent({ target }: { target: InboxPeekTarget }) {
           identifier={target.ref}
         />
       ) : (
-        <DecisionInWorkspace workspaceSlug={target.workspaceSlug} decisionId={target.id} />
+        <DecisionInWorkspace
+          workspaceSlug={target.workspaceSlug}
+          decisionId={target.id}
+          onReviewed={onReviewed}
+        />
       )}
     </WorkspaceProvider>
   );
@@ -193,9 +222,11 @@ function TicketByRef({
 function DecisionInWorkspace({
   workspaceSlug,
   decisionId,
+  onReviewed,
 }: {
   workspaceSlug: string;
   decisionId: string;
+  onReviewed: () => void;
 }) {
   const { workspaceId, isLoading } = useWorkspace();
   if (!workspaceId) return isLoading ? <LoadingBody /> : <NotFound what="Decision" />;
@@ -204,6 +235,7 @@ function DecisionInWorkspace({
       workspaceId={workspaceId}
       workspaceSlug={workspaceSlug}
       decisionId={decisionId}
+      onReviewed={onReviewed}
     />
   );
 }
