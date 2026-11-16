@@ -5,6 +5,10 @@
 import "./src/env.js";
 import { withSentryConfig } from "@sentry/nextjs";
 import { readFileSync } from "node:fs";
+import {
+  contentSecurityPolicyReportOnly,
+  sentryCspReportUri,
+} from "./src/lib/csp/contentSecurityPolicy.js";
 
 /**
  * Docs pages that moved (Docs v2, Phase 1). Old URLs are in links, emails and
@@ -38,43 +42,13 @@ const docsRedirects = JSON.parse(
  */
 const isDev = process.env.NODE_ENV !== "production";
 
-/**
- * Sentry ingests CSP violation reports on its `security` endpoint, derived
- * from the public DSN (https://<key>@<host>/<projectId>).
- */
-function sentryCspReportUri() {
-  const dsn = process.env.NEXT_PUBLIC_SENTRY_DSN;
-  if (!dsn) return null;
-  try {
-    const url = new URL(dsn);
-    const projectId = url.pathname.replace(/^\//, "");
-    if (!url.username || !projectId) return null;
-    return `https://${url.host}/api/${projectId}/security/?sentry_key=${url.username}`;
-  } catch {
-    return null;
-  }
-}
-
-function contentSecurityPolicyReportOnly() {
-  const reportUri = sentryCspReportUri();
-  const directives = [
-    "default-src 'self'",
-    `script-src 'self' 'unsafe-inline'${isDev ? " 'unsafe-eval'" : ""} https://www.googletagmanager.com https://*.i.posthog.com`,
-    "style-src 'self' 'unsafe-inline'",
-    // Published pages and CRM avatars embed images from arbitrary origins.
-    "img-src 'self' blob: data: https:",
-    "font-src 'self' data:",
-    "connect-src 'self' https://api.openai.com wss://api.openai.com https://*.google-analytics.com https://*.analytics.google.com https://www.googletagmanager.com https://*.i.posthog.com",
-    "media-src 'self' blob: data: https:",
-    "frame-src 'self' https://www.loom.com https://www.youtube.com https://www.youtube-nocookie.com",
-    "worker-src 'self' blob:",
-    "object-src 'none'",
-    "base-uri 'self'",
-    "form-action 'self'",
-  ];
-  if (reportUri) directives.push(`report-uri ${reportUri}`);
-  return directives.join("; ");
-}
+// The policy itself lives in src/lib/csp/contentSecurityPolicy.js (unit-tested).
+// The Vercel toolbar's origins are allowed on preview deploys only.
+const CSP_REPORT_ONLY = contentSecurityPolicyReportOnly({
+  isDev,
+  vercelEnv: process.env.VERCEL_ENV,
+  reportUri: sentryCspReportUri(process.env.NEXT_PUBLIC_SENTRY_DSN),
+});
 
 // Enforced from day one: nothing in the app can trip these, and
 // frame-ancestors deliberately agrees with X-Frame-Options: SAMEORIGIN.
@@ -152,7 +126,7 @@ const config = {
           { key: 'Content-Security-Policy', value: CSP_ENFORCED },
           {
             key: 'Content-Security-Policy-Report-Only',
-            value: contentSecurityPolicyReportOnly(),
+            value: CSP_REPORT_ONLY,
           },
           { key: 'X-Frame-Options', value: 'SAMEORIGIN' },
           { key: 'X-Content-Type-Options', value: 'nosniff' },

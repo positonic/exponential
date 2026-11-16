@@ -2,6 +2,7 @@
 
 import * as Sentry from "@sentry/nextjs";
 import { useEffect } from "react";
+import { recoverFromStaleChunk } from "~/lib/sentry/staleChunkReload";
 
 interface SegmentErrorFallbackProps {
   error: Error & { digest?: string };
@@ -18,6 +19,9 @@ export function SegmentErrorFallback({
   reset,
 }: SegmentErrorFallbackProps) {
   useEffect(() => {
+    // A tab left open across a deploy: reload onto the new build (once per
+    // build) instead of showing the fallback over the old runtime.
+    if (recoverFromStaleChunk(error)) return;
     Sentry.captureException(error);
   }, [error]);
 

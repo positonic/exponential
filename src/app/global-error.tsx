@@ -4,6 +4,7 @@ import "~/styles/globals.css";
 
 import * as Sentry from "@sentry/nextjs";
 import { useEffect } from "react";
+import { recoverFromStaleChunk } from "~/lib/sentry/staleChunkReload";
 
 /**
  * Last-resort boundary: catches errors thrown by the route-group root
@@ -16,6 +17,9 @@ export default function GlobalError({
   error: Error & { digest?: string };
 }) {
   useEffect(() => {
+    // A tab left open across a deploy: reload onto the new build (once per
+    // build) instead of showing the fallback over the old runtime.
+    if (recoverFromStaleChunk(error)) return;
     Sentry.captureException(error);
   }, [error]);
 
