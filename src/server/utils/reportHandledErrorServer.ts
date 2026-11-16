@@ -2,6 +2,7 @@ import * as Sentry from "@sentry/nextjs";
 
 import { db } from "~/server/db";
 import { ingestSentryBug } from "~/server/services/sentry/SentryBugService";
+import { runAfterResponse } from "~/server/utils/runAfterResponse";
 import {
   buildClientErrorBody,
   buildClientErrorBug,
@@ -82,14 +83,18 @@ export function reportHandledErrorServer(
     context,
   };
 
-  // Fire-and-forget, like the client helper's fetch. Dedup on the error
-  // fingerprint happens inside ingestSentryBug.
-  void ingestSentryBug(db, buildClientErrorBug(report), {
-    body: buildClientErrorBody(report),
-    labels: clientErrorLabels(area),
-    heading: "New app error",
-    ...(renotifyAfterMs !== undefined ? { renotifyAfterMs } : {}),
-  }).catch((ingestError: unknown) => {
-    console.error(`[reportHandledErrorServer] could not file a bug (${area}):`, ingestError);
-  });
+  // Filed after the response, with the platform keeping the function alive
+  // until it settles: a bare un-awaited promise can be frozen with the Vercel
+  // instance and the ticket silently lost. Callers stay synchronous. Dedup on
+  // the error fingerprint happens inside ingestSentryBug.
+  runAfterResponse(() =>
+    ingestSentryBug(db, buildClientErrorBug(report), {
+      body: buildClientErrorBody(report),
+      labels: clientErrorLabels(area),
+      heading: "New app error",
+      ...(renotifyAfterMs !== undefined ? { renotifyAfterMs } : {}),
+    }).catch((ingestError: unknown) => {
+      console.error(`[reportHandledErrorServer] could not file a bug (${area}):`, ingestError);
+    }),
+  );
 }
