@@ -13,6 +13,7 @@ import { onUserCreated } from "~/server/auth/onUserCreated";
 import { deliverSignInCode } from "~/server/auth/deliverSignInCode";
 import { authorizeSetupClaim } from "~/server/auth/setupClaim";
 import { mayCreateAccount } from "~/server/auth/signUpPolicy";
+import { resolveAuthRedirect } from "~/server/auth/resolveAuthRedirect";
 import { EMAIL_SIGN_IN_UNAVAILABLE_ERROR, SIGN_UP_CLOSED_ERROR } from "~/lib/signInErrors";
 import { resolveSignInMethods, signInMethodWarnings } from "~/server/auth/signInMethods";
 import { generateSignInCode, SIGN_IN_CODE_TTL_SECONDS } from "~/lib/signInCode";
@@ -349,22 +350,7 @@ export const authConfig = {
      * @param baseUrl - The base URL of the application.
      * @returns The URL to redirect to.
      */
-    redirect: async ({ url, baseUrl }) => {
-      // For non-sign-in URLs, allow normal navigation
-      if (url.startsWith("/")) return `${baseUrl}${url}`;
-      if (new URL(url).origin === baseUrl) return url;
-      
-      // For sign-in redirects, check if user needs onboarding
-      try {
-        // Get user from the most recent session/token
-        // Since this runs after authentication, we need to get user by email from the sign-in context
-        // We'll rely on the session callback to handle this more reliably
-        return "/home"; // Default redirect - onboarding check happens in page components
-      } catch (error) {
-        console.error("Error in redirect callback:", error);
-        return "/home"; // Fallback to home
-      }
-    },
+    redirect: ({ url, baseUrl }) => resolveAuthRedirect(url, baseUrl),
   },
   events: {
     // A new user's one-time setup (Personal workspace, invitations, Welcome

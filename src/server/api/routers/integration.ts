@@ -22,6 +22,7 @@ import {
   withFirefliesMeetingWorkspaceId,
 } from "~/server/services/meetings/firefliesDefaultWorkspace";
 import { getPublicBaseUrlFromEnv } from "~/lib/urls";
+import { repositoryFullNamesFromMetadata } from "~/server/utils/githubMetadata";
 
 /**
  * Admin procedure - extends protectedProcedure with isAdmin check
@@ -749,19 +750,12 @@ export const integrationRouter = createTRPCRouter({
           },
         });
 
-      const githubMetadataKeys = integrationCredentials.filter((i) => {
-        if (i.keyType == "github_metadata") {
-          return i;
-        }
-      });
-
-      // Extracting metadata from stringified JSON keys
-      const githubMetadatas = githubMetadataKeys.map((i) => JSON.parse(i.key));
-
       return {
-        repositories: [
-          ...new Set(githubMetadatas.map((i) => i.repository.fullName)),
-        ],
+        repositories: repositoryFullNamesFromMetadata(
+          integrationCredentials
+            .filter((i) => i.keyType === "github_metadata")
+            .map((i) => i.key),
+        ),
       };
     }),
 
