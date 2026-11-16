@@ -26,6 +26,7 @@ import {
   extractNotesDecisionItems,
   MAX_PASSAGE_CHARS,
   MAX_TRANSCRIPT_CHUNKS,
+  type DecisionCandidate,
   spreadAcrossChunks,
   TRANSCRIPT_CONCURRENCY,
   toPassages,
@@ -709,5 +710,85 @@ describe("spreadAcrossChunks", () => {
 
   it("returns nothing for a spent budget", () => {
     expect(spreadAcrossChunks([["a"], ["b"]], 0)).toEqual([]);
+  });
+});
+
+describe("DecisionExtractionService.reviewCuratedCandidates", () => {
+  const curated = (statement: string, over: Partial<DecisionCandidate> = {}): DecisionCandidate => ({
+    statement,
+    deciderNames: [],
+    evidence: [{ turnIndex: 3, speaker: "Pat Reviewer", startTime: 44, text: "Let's park it for the prioritisation ceremony." }],
+    origin: "notes",
+    ...over,
+  });
+
+  beforeEach(() => {
+    invokeMock.mockReset();
+    process.env.OPENAI_API_KEY = "test-key";
+  });
+
+  it("drops what the model rejects, with its reason, and keeps the rest in order", async () => {
+    const candidates = [curated("Prioritisation debates are parked"), curated("Share the onboarding video"), curated("The API stays REST")];
+    modelReturns({ verdicts: [{ index: 0, keep: true, reason: "settled" }, { index: 1, keep: false, reason: "task" }, { index: 2, keep: true, reason: "settled" }] });
+
+    const review = await DecisionExtractionService.reviewCuratedCandidates(candidates);
+
+    expect(review.reviewed).toBe(true);
+    expect(review.kept).toEqual([candidates[0], candidates[2]]);
+    expect(review.dropped).toEqual([{ candidate: candidates[1], reason: "task" }]);
+    // The model is shown each statement with the passage that backs it.
+    const sent = String((invokeMock.mock.calls[0]![0] as Array<{ content: string }>)[1]!.content);
+    expect(sent).toContain("[1] decision: Share the onboarding video");
+    expect(sent).toContain("Pat Reviewer: Let's park it");
+  });
+
+  it("turns an unagreed proposal into the open question it is", async () => {
+    const proposal = curated("Biweekly check-in proposed", { consequences: ["Standards keep evolving"] });
+    modelReturns({ verdicts: [{ index: 0, keep: true, reason: "proposal", question: "Should the team hold a biweekly check-in" }] });
+
+    const { kept } = await DecisionExtractionService.reviewCuratedCandidates([proposal]);
+
+    expect(kept).toHaveLength(1);
+    expect(kept[0]).toMatchObject({ statement: "Should the team hold a biweekly check-in?", isOpenQuestion: true, evidence: proposal.evidence });
+    expect(kept[0]!.consequences).toBeUndefined();
+  });
+
+  it("does not add a proposal's question when that question is already a candidate", async () => {
+    const question = curated("Should the team hold a biweekly check-in?", { isOpenQuestion: true });
+    const proposal = curated("Biweekly check-in proposed");
+    modelReturns({
+      verdicts: [
+        { index: 0, keep: true, reason: "open" },
+        { index: 1, keep: true, reason: "proposal", question: "Should the team hold a biweekly check-in?" },
+      ],
+    });
+
+    const review = await DecisionExtractionService.reviewCuratedCandidates([question, proposal]);
+
+    expect(review.kept).toEqual([question]);
+    expect(review.dropped).toEqual([{ candidate: proposal, reason: "proposal" }]);
+  });
+
+  it("keeps a candidate the model gave no verdict for, and ignores verdicts for indices it was not given", async () => {
+    const candidates = [curated("The API stays REST"), curated("Launch in Germany first")];
+    modelReturns({ verdicts: [{ index: 0, keep: false, reason: "status" }, { index: 7, keep: false, reason: "task" }] });
+
+    const review = await DecisionExtractionService.reviewCuratedCandidates(candidates);
+
+    expect(review.kept).toEqual([candidates[1]]);
+  });
+
+  it("keeps everything when the call fails, when the answer is not JSON, and without a key", async () => {
+    const candidates = [curated("The API stays REST")];
+    invokeMock.mockRejectedValueOnce(new Error("429 rate limited"));
+    expect(await DecisionExtractionService.reviewCuratedCandidates(candidates)).toEqual({ kept: candidates, dropped: [], reviewed: false });
+
+    invokeMock.mockResolvedValueOnce({ content: "sorry, no" });
+    expect((await DecisionExtractionService.reviewCuratedCandidates(candidates)).kept).toEqual(candidates);
+
+    delete process.env.OPENAI_API_KEY;
+    invokeMock.mockClear();
+    expect((await DecisionExtractionService.reviewCuratedCandidates(candidates)).reviewed).toBe(false);
+    expect(invokeMock).not.toHaveBeenCalled();
   });
 });

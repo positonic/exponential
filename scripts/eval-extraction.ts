@@ -26,6 +26,9 @@
  *   --save <file>       save the scored run as JSON, to use as a baseline later
  *   --baseline <file>   show the change from a saved run
  *   --report <file>     write the summary and the per-meeting detail as Markdown
+ *   --overrides <file>  corrections to exported labels, as a JSON array of
+ *                       { id, verdict?, kind? }: for labels made under an older
+ *                       standard than the one the run should be held to
  *
  * The run mirrors `generateDraftDecisions`: notes and summary first, each
  * backed by a transcript turn, then the transcript pass told what those
@@ -45,6 +48,7 @@ import { parseTranscript, type TranscriptTurn } from "../src/lib/transcript";
 import {
   DEFAULT_MAX_DECISIONS,
   DecisionExtractionService,
+  TRANSCRIPT_DECISION_RESERVE,
   chunkTurns,
   extractNotesDecisionItems,
   filterNearDuplicateCandidates,
@@ -78,6 +82,13 @@ interface MeetingFixture {
   labels: EvalLabel[];
 }
 
+/** A correction to one exported label; fields left out keep the exported value. */
+interface LabelOverride {
+  id: string;
+  verdict?: EvalLabel["verdict"];
+  kind?: EvalLabel["kind"];
+}
+
 interface Args {
   export: boolean;
   dataDir: string;
@@ -87,6 +98,7 @@ interface Args {
   saveFile?: string;
   baselineFile?: string;
   reportFile?: string;
+  overridesFile?: string;
 }
 
 function parseArgs(argv: string[]): Args {
@@ -111,6 +123,7 @@ function parseArgs(argv: string[]): Args {
     saveFile: value("--save"),
     baselineFile: value("--baseline"),
     reportFile: value("--report"),
+    overridesFile: value("--overrides"),
   };
 }
 
@@ -208,6 +221,17 @@ function loadFixtures(args: Args): MeetingFixture[] {
     .filter((file) => file.endsWith(".json"))
     .sort()
     .map((file) => JSON.parse(readFileSync(path.join(args.dataDir, file), "utf8")) as MeetingFixture);
+  if (args.overridesFile) {
+    const overrides = new Map(
+      (JSON.parse(readFileSync(args.overridesFile, "utf8")) as LabelOverride[]).map((o) => [o.id, o] as const),
+    );
+    for (const fixture of fixtures) {
+      fixture.labels = fixture.labels.map((label) => {
+        const override = overrides.get(label.id);
+        return override ? { ...label, verdict: override.verdict ?? label.verdict, kind: override.kind ?? label.kind } : label;
+      });
+    }
+  }
   return args.meetings.length > 0 ? fixtures.filter((f) => args.meetings.includes(f.id)) : fixtures;
 }
 
@@ -256,6 +280,13 @@ async function extractCandidates(
   }
   const summaryText = summaryDecisionText(fixture.summary);
   if (summaryText) backWithEvidence(extractNotesDecisionItems(summaryText));
+  let notesOverflow: DecisionCandidate[] = [];
+  if (turns.length > 0 && notesCandidates.length > 0) {
+    const review = await DecisionExtractionService.reviewCuratedCandidates(notesCandidates, { modelName });
+    const curatedShare = DEFAULT_MAX_DECISIONS - TRANSCRIPT_DECISION_RESERVE;
+    notesCandidates.splice(0, notesCandidates.length, ...review.kept.slice(0, curatedShare));
+    notesOverflow = review.kept.slice(curatedShare);
+  }
 
   let transcriptCandidates: DecisionCandidate[] = [];
   let sectionsTotal = 0;
@@ -279,8 +310,15 @@ async function extractCandidates(
     sectionsUnread = sectionsTotal;
   }
 
+  // Notes beyond their share take the slots the transcript pass left unused.
+  const spareSlots = Math.max(0, DEFAULT_MAX_DECISIONS - notesCandidates.length - transcriptCandidates.length);
+  const notesTopUp = filterNearDuplicateCandidates(notesOverflow, {
+    decisions: transcriptCandidates.filter((c) => !c.isOpenQuestion).map((c) => c.statement),
+    questions: transcriptCandidates.filter((c) => c.isOpenQuestion).map((c) => c.statement),
+  }).slice(0, spareSlots);
+
   return {
-    candidates: [...notesCandidates, ...transcriptCandidates].map(toEvalCandidate),
+    candidates: [...notesCandidates, ...notesTopUp, ...transcriptCandidates].map(toEvalCandidate),
     sectionsTotal,
     sectionsUnread,
   };

@@ -19,6 +19,7 @@ import { recordActivity } from "~/server/services/activity/recordActivity";
 import {
   DEFAULT_MAX_DECISIONS,
   DecisionExtractionService,
+  TRANSCRIPT_DECISION_RESERVE,
   extractNotesDecisionItems,
   filterNearDuplicateCandidates,
   findSupportingTurns,
@@ -332,6 +333,33 @@ export async function generateDraftDecisions(
       backWithEvidence(extractNotesDecisionItems(summaryText), "Summary");
     }
 
+    // Notes and summaries label loosely (most are model-written), and the
+    // passes above copy them near-verbatim. Hold each to the transcript
+    // pass's definition before it can become a draft: follow-up tasks,
+    // status updates and general intentions go, an unagreed proposal becomes
+    // the open question it is. Only with a transcript: without one there is
+    // nothing to check the notes against, and they are the only source.
+    let notesOverflow: DecisionCandidate[] = [];
+    if (turns.length > 0 && notesCandidates.length > 0) {
+      const review = await DecisionExtractionService.reviewCuratedCandidates(notesCandidates);
+      for (const { candidate, reason } of review.dropped) {
+        console.log(`[generateDraftDecisions] Notes candidate dropped on review (${reason}): "${candidate.statement}"`);
+      }
+      // A proposal the review reworded as a question was only ever checked
+      // against the log as a decision: check it again as what it now is, so
+      // it cannot restate a question already captured or already rejected.
+      const kept = filterNearDuplicateCandidates(review.kept, {
+        decisions: existingStatements,
+        questions: existingQuestions,
+      });
+      // The transcript is always read: it keeps a share of the budget. What
+      // the notes hold beyond their share waits, and takes any slot the
+      // transcript pass leaves unused (it found little, or could not run).
+      const curatedShare = DEFAULT_MAX_DECISIONS - TRANSCRIPT_DECISION_RESERVE;
+      notesCandidates.splice(0, notesCandidates.length, ...kept.slice(0, curatedShare));
+      notesOverflow = kept.slice(curatedShare);
+    }
+
     // Transcript second: told what notes and the log already hold.
     let transcriptCandidates: DecisionCandidate[] = [];
     // One budget across both passes: the notes pass and the transcript pass
@@ -383,7 +411,12 @@ export async function generateDraftDecisions(
     // Notes win on exact restatement; the extractor already dropped the rest.
     const seen = new Set<string>();
     const candidates: DecisionCandidate[] = [];
-    for (const candidate of [...notesCandidates, ...transcriptCandidates]) {
+    const spareSlots = Math.max(0, DEFAULT_MAX_DECISIONS - notesCandidates.length - transcriptCandidates.length);
+    const notesTopUp = filterNearDuplicateCandidates(notesOverflow, {
+      decisions: transcriptCandidates.filter((c) => !c.isOpenQuestion).map((c) => c.statement),
+      questions: transcriptCandidates.filter((c) => c.isOpenQuestion).map((c) => c.statement),
+    }).slice(0, spareSlots);
+    for (const candidate of [...notesCandidates, ...notesTopUp, ...transcriptCandidates]) {
       const normalized = normalizeDecisionStatement(candidate.statement);
       if (!normalized) continue;
       const key = `${candidate.isOpenQuestion ? "q" : "d"}:${normalized}`;
