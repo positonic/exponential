@@ -223,6 +223,12 @@ function validateEvidenceAgainstTranscript(
   const kept: DecisionEvidenceTurn[] = [];
   let dropped = 0;
   const seen = new Set<number>();
+  // Normalised once per call, and only if some quote needs re-anchoring:
+  // each re-anchor scans every turn, so per-quote normalisation would be
+  // O(quotes x transcript) regex passes on a long meeting.
+  let normalizedTurns: string[] | undefined;
+  const getNormalizedTurns = () =>
+    (normalizedTurns ??= turns.map((t) => normalizeQuoteText(t.text)));
   for (const turn of evidence) {
     // The words must be the transcript's, not the model's recollection of
     // them. Compared loosely (case, punctuation and whitespace) so a quote
@@ -231,7 +237,7 @@ function validateEvidenceAgainstTranscript(
     const turnIndex =
       claimed && quoteMatchesTurn(turn.text, claimed.text)
         ? turn.turnIndex
-        : findTurnContainingQuote(turn.text, turns, turn.turnIndex);
+        : findTurnContainingQuote(turn.text, getNormalizedTurns, turn.turnIndex);
     const actual = turnIndex === undefined ? undefined : turns[turnIndex];
     if (turnIndex === undefined || !actual || seen.has(turnIndex)) {
       dropped += 1;
@@ -259,14 +265,15 @@ const MIN_REANCHOR_QUOTE_CHARS = 12;
  */
 function findTurnContainingQuote(
   quote: string,
-  turns: TranscriptTurn[],
+  getNormalizedTurns: () => string[],
   claimedIndex: number,
 ): number | undefined {
   const q = normalizeQuoteText(quote);
   if (q.length < MIN_REANCHOR_QUOTE_CHARS) return undefined;
+  const normalized = getNormalizedTurns();
   let best: number | undefined;
-  for (let i = 0; i < turns.length; i++) {
-    if (!normalizeQuoteText(turns[i]!.text).includes(q)) continue;
+  for (let i = 0; i < normalized.length; i++) {
+    if (!normalized[i]!.includes(q)) continue;
     if (best === undefined || Math.abs(i - claimedIndex) < Math.abs(best - claimedIndex)) {
       best = i;
     }
