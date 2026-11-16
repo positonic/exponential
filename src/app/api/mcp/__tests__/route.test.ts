@@ -210,6 +210,12 @@ describe("POST /api/mcp credentials", () => {
     expect(handleTRPCRequest).not.toHaveBeenCalled();
   });
 
+  it("accepts the Bearer scheme in any case", async () => {
+    const res = await POST(mcpRequest(rpc("tools/list"), { authorization: `bearer ${AGENT_KEY}` }));
+
+    expect(res.status).toBe(200);
+  });
+
   it("never authenticates with a session cookie", async () => {
     const res = await POST(mcpRequest(rpc("tools/list"), { cookie: "authjs.session-token=valid-session" }));
 

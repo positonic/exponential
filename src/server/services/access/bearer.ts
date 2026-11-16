@@ -31,12 +31,15 @@ export interface BearerResolution {
   agentRunId: string | undefined;
 }
 
-/** The token from an `Authorization: Bearer <token>` header, or null. */
+/**
+ * The token from an `Authorization: Bearer <token>` header, or null. The scheme
+ * name is case-insensitive (RFC 9110 §11.1), so `bearer` and `BEARER` work too:
+ * third-party MCP clients send all three.
+ */
 export function bearerTokenFrom(headers: Headers): string | null {
-  const authHeader = headers.get("authorization");
-  if (!authHeader?.startsWith("Bearer ")) return null;
-  const token = authHeader.substring(7);
-  return token.length > 0 ? token : null;
+  const match = /^Bearer\s+(.+)$/i.exec(headers.get("authorization") ?? "");
+  const token = match?.[1]?.trim();
+  return token ? token : null;
 }
 
 /** Resolve a bearer token to the session it acts as, or null when it does not authenticate. */
