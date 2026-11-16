@@ -37,6 +37,11 @@ const STRING_LIST_FIELDS = [
   "topics_discussed",
 ] as const;
 
+/** Drop a leading "-", "*", "\u2022", "1." or "2)" marker and trim. */
+function stripListMarker(item: string): string {
+  return item.replace(/^\s*(?:[-*\u2022]|\d+[.)])\s+/, "").trim();
+}
+
 /**
  * Coerce a stored list field to `string[]`. Fireflies' API returns `bullet_gist`
  * and `shorthand_bullet` as one newline-separated string, and AI-generated
@@ -51,13 +56,13 @@ export function toStringList(value: unknown): string[] | undefined {
       .filter((item): item is string | number =>
         typeof item === "string" || typeof item === "number",
       )
-      .map((item) => String(item).trim())
+      .map((item) => stripListMarker(String(item)))
       .filter((item) => item.length > 0);
   }
   if (typeof value === "string") {
     return value
       .split(/\r?\n/)
-      .map((line) => line.replace(/^\s*(?:[-*\u2022]|\d+[.)])\s+/, "").trim())
+      .map(stripListMarker)
       .filter((line) => line.length > 0);
   }
   return undefined;

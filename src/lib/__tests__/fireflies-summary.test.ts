@@ -58,6 +58,12 @@ describe("toStringList", () => {
     expect(toStringList({})).toBeUndefined();
   });
 
+  it("strips list markers from array items too", () => {
+    expect(
+      toStringList(["- Launch moved", "2) Budget approved", "\u2022 Hiring", "plain"]),
+    ).toEqual(["Launch moved", "Budget approved", "Hiring", "plain"]);
+  });
+
   it("strips numbered list markers", () => {
     expect(toStringList("1. one\n2) two")).toEqual(["one", "two"]);
   });
