@@ -59,6 +59,7 @@ import {
 } from "~/server/services/actions/myActionsWhere";
 import { groupOverdueCohorts, daysOverdue } from "~/lib/actions/triage";
 import { emitAfterResponse } from "~/server/services/notifications/emit/emitAfterResponse";
+import { runAfterResponseReported } from "~/server/utils/runAfterResponse";
 
 /**
  * `quickCreate` keeps its free-form `source` input (the iOS shortcut has sent
@@ -590,7 +591,7 @@ export const actionRouter = createTRPCRouter({
       );
 
       // Project activity audit log: explicit status + dueDate diffs
-      // (fire-and-forget). A kanban-driven status change is already logged
+      // (after the response). A kanban-driven status change is already logged
       // by the module as the column move; logging the coarse diff too would
       // record one drag twice. Logged against the project the action ends up
       // in, so a change made while moving it lands in the new project's feed.
@@ -606,32 +607,31 @@ export const actionRouter = createTRPCRouter({
             : undefined;
 
         if (statusDiff || dueDateDiff) {
-          void logActionDiffActivities(ctx.db, {
-            projectId: activityProjectId,
-            actionId: id,
-            changedById: ctx.session.user.id,
-            diff: { status: statusDiff, dueDate: dueDateDiff },
-          }).catch((err: unknown) => {
-            console.error("[projectActivity] action.update diff:", err);
-          });
+          runAfterResponseReported("action.update.activityLog", () =>
+            logActionDiffActivities(ctx.db, {
+              projectId: activityProjectId,
+              actionId: id,
+              changedById: ctx.session.user.id,
+              diff: { status: statusDiff, dueDate: dueDateDiff },
+            }),
+          );
         }
       }
 
-      // Recalculate score if completion status changed and action is linked to daily plan
-      // Run async without blocking the response for faster UI
+      // Recalculate score if completion status changed and action is linked to daily plan.
+      // Runs after the response (kept alive by the platform) for a faster UI.
       if (transitions.completing || transitions.uncompleting) {
         if (updatedAction.dailyPlanActions.length > 0) {
-          // Fire and forget - don't await scoring calculation
-          void Promise.all(
-            updatedAction.dailyPlanActions.map((dpa) =>
-              ScoringService.calculateDailyScore(
-                ctx,
-                dpa.dailyPlan.date,
-                dpa.dailyPlan.workspaceId ?? undefined
-              ).catch((err) => {
-                console.error("[action.update] Failed to recalculate score:", err);
-              })
-            )
+          runAfterResponseReported("action.update.dailyScore", () =>
+            Promise.all(
+              updatedAction.dailyPlanActions.map((dpa) =>
+                ScoringService.calculateDailyScore(
+                  ctx,
+                  dpa.dailyPlan.date,
+                  dpa.dailyPlan.workspaceId ?? undefined
+                )
+              )
+            ),
           );
         }
       }
@@ -678,14 +678,14 @@ export const actionRouter = createTRPCRouter({
             });
           }
 
-          // Fire and forget - recalculate today's score since overdue count changed
-          void ScoringService.calculateDailyScore(
-            ctx,
-            today,
-            updatedAction.workspaceId ?? undefined
-          ).catch((err) => {
-            console.error("[action.update] Failed to recalculate score after overdue change:", err);
-          });
+          // Recalculate today's score after the response, since the overdue count changed
+          runAfterResponseReported("action.update.dailyScoreAfterOverdue", () =>
+            ScoringService.calculateDailyScore(
+              ctx,
+              today,
+              updatedAction.workspaceId ?? undefined
+            ),
+          );
         }
       }
 
@@ -1256,19 +1256,19 @@ export const actionRouter = createTRPCRouter({
 
       const projectScoped = toDelete.filter((a) => a.projectId !== null);
       if (projectScoped.length > 0) {
-        void Promise.all(
-          projectScoped.map((a) =>
-            logProjectActivity(ctx.db, {
-              projectId: a.projectId!,
-              actionId: null,
-              type: PROJECT_ACTIVITY_TYPES.ACTION_DELETED,
-              fromValue: a.name,
-              changedById: ctx.session.user.id,
-            }),
+        runAfterResponseReported("action.bulkDelete.activityLog", () =>
+          Promise.all(
+            projectScoped.map((a) =>
+              logProjectActivity(ctx.db, {
+                projectId: a.projectId!,
+                actionId: null,
+                type: PROJECT_ACTIVITY_TYPES.ACTION_DELETED,
+                fromValue: a.name,
+                changedById: ctx.session.user.id,
+              }),
+            ),
           ),
-        ).catch((err: unknown) => {
-          console.error("[projectActivity] bulkDelete:", err);
-        });
+        );
       }
 
       return {
@@ -1393,20 +1393,20 @@ export const actionRouter = createTRPCRouter({
 
       const projectScoped = toDefer.filter((a) => a.projectId !== null);
       if (projectScoped.length > 0) {
-        void Promise.all(
-          projectScoped.map((a) =>
-            logProjectActivity(ctx.db, {
-              projectId: a.projectId!,
-              actionId: a.id,
-              type: PROJECT_ACTIVITY_TYPES.DUE_DATE_CHANGED,
-              fromValue: (a.dueDate ?? a.scheduledStart)?.toISOString() ?? null,
-              toValue: null,
-              changedById: ctx.session.user.id,
-            }),
+        runAfterResponseReported("action.bulkDefer.activityLog", () =>
+          Promise.all(
+            projectScoped.map((a) =>
+              logProjectActivity(ctx.db, {
+                projectId: a.projectId!,
+                actionId: a.id,
+                type: PROJECT_ACTIVITY_TYPES.DUE_DATE_CHANGED,
+                fromValue: (a.dueDate ?? a.scheduledStart)?.toISOString() ?? null,
+                toValue: null,
+                changedById: ctx.session.user.id,
+              }),
+            ),
           ),
-        ).catch((err: unknown) => {
-          console.error("[projectActivity] bulkDefer:", err);
-        });
+        );
       }
 
       return {
@@ -1534,15 +1534,16 @@ export const actionRouter = createTRPCRouter({
         skipDuplicates: true,
       });
 
-      if (action.projectId && nextIds.length !== priorIds.length) {
-        void logActionDiffActivities(ctx.db, {
-          projectId: action.projectId,
-          actionId: input.actionId,
-          changedById: ctx.session.user.id,
-          diff: { assigneeIds: { from: priorIds, to: nextIds } },
-        }).catch((err: unknown) => {
-          console.error("[projectActivity] assign:", err);
-        });
+      const activityProjectId = action.projectId;
+      if (activityProjectId && nextIds.length !== priorIds.length) {
+        runAfterResponseReported("action.assign.activityLog", () =>
+          logActionDiffActivities(ctx.db, {
+            projectId: activityProjectId,
+            actionId: input.actionId,
+            changedById: ctx.session.user.id,
+            diff: { assigneeIds: { from: priorIds, to: nextIds } },
+          }),
+        );
       }
 
       // Assigning an Assistant starts an Agent run (ADR-0067). One queued row
@@ -1654,15 +1655,16 @@ export const actionRouter = createTRPCRouter({
         userIds: input.userIds,
       });
 
-      if (action.projectId && nextIds.length !== priorIds.length) {
-        void logActionDiffActivities(ctx.db, {
-          projectId: action.projectId,
-          actionId: input.actionId,
-          changedById: ctx.session.user.id,
-          diff: { assigneeIds: { from: priorIds, to: nextIds } },
-        }).catch((err: unknown) => {
-          console.error("[projectActivity] unassign:", err);
-        });
+      const activityProjectId = action.projectId;
+      if (activityProjectId && nextIds.length !== priorIds.length) {
+        runAfterResponseReported("action.unassign.activityLog", () =>
+          logActionDiffActivities(ctx.db, {
+            projectId: activityProjectId,
+            actionId: input.actionId,
+            changedById: ctx.session.user.id,
+            diff: { assigneeIds: { from: priorIds, to: nextIds } },
+          }),
+        );
       }
 
       // Return updated action with assignees

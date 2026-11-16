@@ -11,6 +11,7 @@ import { getDecryptedKey } from '~/server/utils/credentialHelper';
 import { safeSignatureEquals } from '~/server/utils/webhookSignature';
 import { PRODUCT_NAME } from '~/lib/brand';
 import { getPublicBaseUrlFromEnv } from '~/lib/urls';
+import { runAfterResponseReported } from "~/server/utils/runAfterResponse";
 
 // Slack API client
 const SLACK_API_BASE = 'https://slack.com/api';
@@ -46,8 +47,10 @@ async function markEventProcessed(eventKey: string): Promise<void> {
       }
     });
     
-    // Trigger cleanup of old events (fire and forget)
-    void cleanupOldEvents();
+    // Clean up old events after the response
+    runAfterResponseReported("slack.cleanupOldEvents", () =>
+      cleanupOldEvents(),
+    );
   } catch (error) {
     // Ignore duplicate key errors (race condition)
     if (!(error as Error).message?.includes('Unique constraint')) {
@@ -742,10 +745,12 @@ async function handleSlashCommand(payload: SlackSlashCommandPayload, integration
       case '/z':
         // Primary AI companion
         if (text.trim()) {
-          void handleDeferredZoeResponse(text, authenticatedUser, response_url, {
-            channelId: channel_id,
-            integrationData,
-          });
+          runAfterResponseReported("slack.deferredZoeResponse", () =>
+            handleDeferredZoeResponse(text, authenticatedUser, response_url, {
+              channelId: channel_id,
+              integrationData,
+            }),
+          );
           return {
             response_type: 'ephemeral',
             text: '🔮 Zoe is thinking...'
@@ -761,10 +766,12 @@ async function handleSlashCommand(payload: SlackSlashCommandPayload, integration
       case '/p':
         // Legacy support - redirects to Zoe
         if (text.trim()) {
-          void handleDeferredZoeResponse(text, authenticatedUser, response_url, {
-            channelId: channel_id,
-            integrationData,
-          });
+          runAfterResponseReported("slack.deferredZoeResponse", () =>
+            handleDeferredZoeResponse(text, authenticatedUser, response_url, {
+              channelId: channel_id,
+              integrationData,
+            }),
+          );
           return {
             response_type: 'ephemeral',
             text: '🔮 Zoe is thinking...'
@@ -1266,29 +1273,13 @@ async function handleBotMention(event: SlackEvent, user: any, integrationData: a
     return { success: true, message: 'No authenticated user' };
   }
 
-  // Log message history for analytics (fire and forget)
+  // Log message history for analytics, after the response
   const channelType = isDM ? 'DM' : (event.channel?.startsWith('G') ? 'group' : 'channel');
   const categorization = categorizeMessage(cleanText);
   const startTime = Date.now();
   
-  void logMessageHistory({
-    slackEventId: event.event_id,
-    channelId: event.channel || 'unknown',
-    channelType,
-    timestamp: event.ts || Date.now().toString(),
-    slackUserId: event.user || 'unknown',
-    systemUserId: user.id,
-    userName: user.name,
-    rawMessage: text,
-    cleanMessage: cleanText,
-    messageType: categorization.messageType,
-    category: categorization.category,
-    intent: categorization.intent,
-  });
-  
-  const logMessageCompletion = (agentUsed?: string, hadError = false, errorMessage?: string) => {
-    const responseTime = Date.now() - startTime;
-    void logMessageHistory({
+  runAfterResponseReported("slack.logMessageHistory", () =>
+    logMessageHistory({
       slackEventId: event.event_id,
       channelId: event.channel || 'unknown',
       channelType,
@@ -1301,11 +1292,31 @@ async function handleBotMention(event: SlackEvent, user: any, integrationData: a
       messageType: categorization.messageType,
       category: categorization.category,
       intent: categorization.intent,
-      agentUsed,
-      responseTime,
-      hadError,
-      errorMessage,
-    });
+    }),
+  );
+  
+  const logMessageCompletion = (agentUsed?: string, hadError = false, errorMessage?: string) => {
+    const responseTime = Date.now() - startTime;
+    runAfterResponseReported("slack.logMessageHistory", () =>
+      logMessageHistory({
+        slackEventId: event.event_id,
+        channelId: event.channel || 'unknown',
+        channelType,
+        timestamp: event.ts || Date.now().toString(),
+        slackUserId: event.user || 'unknown',
+        systemUserId: user.id,
+        userName: user.name,
+        rawMessage: text,
+        cleanMessage: cleanText,
+        messageType: categorization.messageType,
+        category: categorization.category,
+        intent: categorization.intent,
+        agentUsed,
+        responseTime,
+        hadError,
+        errorMessage,
+      }),
+    );
   };
 
   // For DMs, if no text or just greeting, send welcome message
@@ -1407,10 +1418,12 @@ async function handleExpoCommand(text: string, user: any, responseUrl: string, c
       const chatMessage = args.slice(1).join(' ');
       if (chatMessage) {
         // Immediately return acknowledgment and process in background
-        void handleDeferredZoeResponse(chatMessage, user, responseUrl, {
-          channelId,
-          integrationData,
-        });
+        runAfterResponseReported("slack.deferredZoeResponse", () =>
+          handleDeferredZoeResponse(chatMessage, user, responseUrl, {
+            channelId,
+            integrationData,
+          }),
+        );
         return {
           response_type: 'ephemeral',
           text: '🔮 Zoe is thinking...'

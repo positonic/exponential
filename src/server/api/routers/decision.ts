@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { after } from "next/server";
+import { runAfterResponse } from "~/server/utils/runAfterResponse";
 import { TRPCError } from "@trpc/server";
 import type { PrismaClient } from "@prisma/client";
 import {
@@ -353,21 +353,16 @@ async function settleDraftReviewAfter(
 
 /**
  * Deliver whatever the service just enqueued for a decision (ADR-0075), once the
- * response is on its way. `after()` needs a request scope and throws outside one
- * (the `action.assign` precedent); the fallback runs the kick fire-and-forget so a
- * caller without a request scope still delivers. Delivery records its own outcome
- * on each row, so nothing here can fail the mutation.
+ * response is on its way (`runAfterResponse` falls back to a detached run outside
+ * a request scope). Delivery records its own outcome on each row, so nothing here
+ * can fail the mutation.
  */
 function kickDecisionPosts(db: PrismaClient, decisionId: string): void {
-  const run = () =>
+  runAfterResponse(() =>
     kickOutboundPostsForSubject(db, { kind: "decision", subjectId: decisionId }).catch(
       () => undefined,
-    );
-  try {
-    after(run);
-  } catch {
-    void run();
-  }
+    ),
+  );
 }
 
 export const decisionRouter = createTRPCRouter({

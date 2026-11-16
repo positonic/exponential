@@ -1,5 +1,5 @@
 import type { PrismaClient } from "@prisma/client";
-import { after } from "next/server";
+import { runAfterResponse } from "~/server/utils/runAfterResponse";
 import { getKnowledgeService } from "../KnowledgeService";
 import { isAiConfigured } from "../ai/requireAi";
 import { TranscriptionSource } from "./sources/TranscriptionSource";
@@ -20,21 +20,6 @@ const STALE_PAGE_LOOKBACK_MS = 24 * 60 * 60 * 1000;
 /** Pages saved more recently than this are still settling — the save's own trigger owns them. */
 const STALE_PAGE_MIN_AGE_MS = 2 * 60 * 1000;
 const STALE_PAGE_BATCH = 20;
-
-/**
- * Run `task` after the response is sent, with the platform keeping the function
- * alive until it settles (`after()` is Vercel `waitUntil` under the hood). A bare
- * un-awaited promise or setTimeout can be frozen with the instance and silently
- * dropped. Outside a request scope (scripts, tests) `after()` throws, so the
- * task just runs detached there.
- */
-function runAfterResponse(task: () => Promise<void>): void {
-  try {
-    after(task);
-  } catch {
-    void task();
-  }
-}
 
 export interface StalePageSweepResult {
   checked: number;
@@ -245,6 +230,10 @@ export class EmbeddingTriggerService {
           `[EmbeddingTriggerService] Background embedding failed for ${transcriptionId}:`,
           error
         );
+        reportHandledErrorServer(error, {
+          area: "embedding.transcription",
+          context: { transcriptionId },
+        });
       }
     });
   }

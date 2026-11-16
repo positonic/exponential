@@ -24,7 +24,10 @@ vi.hoisted(() => {
   process.env.GOOGLE_CLIENT_SECRET ??= "test";
 });
 
-import { createGoal, createGoalComment, createGoalUpdate, setGoalParent } from "../goalService";
+const { reportMock } = vi.hoisted(() => ({ reportMock: vi.fn() }));
+vi.mock("~/server/utils/reportHandledErrorServer", () => ({ reportHandledErrorServer: reportMock }));
+
+import { computeGoalHealth, createGoal, createGoalComment, createGoalUpdate, setGoalParent } from "../goalService";
 import type { Context } from "~/server/auth/types";
 
 const USER_ID = "user-1";
@@ -323,5 +326,54 @@ describe("goalService.createGoal — parent access (IDOR guard)", () => {
     expect(db.goal.create).toHaveBeenCalledTimes(1);
     const createArg = db.goal.create.mock.calls[0]![0]!;
     expect(createArg.data.parentGoalId).toBe(19);
+  });
+});
+
+describe("computeGoalHealth — parent recompute", () => {
+  const goalRow = (id: number, parentGoalId: number | null) => ({
+    id,
+    parentGoalId,
+    keyResults: [{ currentValue: 50, targetValue: 100, status: "on-track", updatedAt: new Date() }],
+    projects: [],
+    childGoals: [],
+  });
+
+  beforeEach(() => {
+    mockReset(db);
+    reportMock.mockReset();
+  });
+
+  it("does not resolve until the parent goal's health has been written", async () => {
+    db.goal.findUnique.mockImplementation(((args: { where: { id: number } }) =>
+      Promise.resolve(args.where.id === 1 ? goalRow(1, 2) : goalRow(2, null))) as never);
+    let releaseParent: () => void = () => undefined;
+    db.goal.update.mockImplementation(((args: { where: { id: number } }) =>
+      args.where.id === 2
+        ? new Promise((resolve) => { releaseParent = () => resolve({} as never); })
+        : Promise.resolve({})) as never);
+
+    let done = false;
+    const running = computeGoalHealth({ ctx: makeCtx(), goalId: 1 }).then(() => { done = true; });
+    for (let i = 0; i < 5; i += 1) await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(db.goal.update).toHaveBeenCalledWith(expect.objectContaining({ where: { id: 2 } }));
+    expect(done).toBe(false);
+
+    releaseParent();
+    await running;
+    expect(done).toBe(true);
+  });
+
+  it("reports a failed parent recompute and still returns the child's health", async () => {
+    db.goal.findUnique.mockImplementation(((args: { where: { id: number } }) =>
+      args.where.id === 1 ? Promise.resolve(goalRow(1, 2)) : Promise.reject(new Error("db down"))) as never);
+    db.goal.update.mockResolvedValue({} as never);
+
+    const health = await computeGoalHealth({ ctx: makeCtx(), goalId: 1 });
+
+    expect(typeof health).toBe("string");
+    expect(reportMock).toHaveBeenCalledWith(expect.any(Error), {
+      area: "goalHealth.parentRecompute",
+      context: { goalId: "2" },
+    });
   });
 });

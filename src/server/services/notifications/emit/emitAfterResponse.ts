@@ -1,22 +1,13 @@
-import { runAfterResponse } from "~/server/utils/runAfterResponse";
+import {
+  reportBackgroundFailure,
+  runAfterResponseReported,
+} from "~/server/utils/runAfterResponse";
 
 /**
- * Loaded on the failure path only: the reporter imports the Prisma singleton,
- * and the routers and services that emit notifications are imported by unit
- * tests that run without one.
+ * Report a notification failure via `reportHandledErrorServer` (lazily
+ * loaded). Never throws. The mention adapters use it for their own failures.
  */
-export async function reportEmitFailure(
-  error: unknown,
-  area: string,
-  context?: Record<string, string>,
-): Promise<void> {
-  try {
-    const { reportHandledErrorServer } = await import("~/server/utils/reportHandledErrorServer");
-    reportHandledErrorServer(error, { area, context });
-  } catch {
-    // Reporting an error must never raise one.
-  }
-}
+export const reportEmitFailure = reportBackgroundFailure;
 
 /**
  * Run a notification emit once the response has been sent, with the platform
@@ -34,14 +25,11 @@ export function emitAfterResponse(
   emit: () => Promise<unknown>,
   context?: Record<string, string>,
 ): void {
-  runAfterResponse(async () => {
-    try {
-      const result = await emit();
-      if (result === null) {
-        await reportEmitFailure(new Error(`${area}: notification emit failed`), area, context);
-      }
-    } catch (error) {
-      await reportEmitFailure(error, area, context);
-    }
-  });
+  runAfterResponseReported(
+    area,
+    async () => {
+      if ((await emit()) === null) throw new Error(`${area}: notification emit failed`);
+    },
+    context,
+  );
 }

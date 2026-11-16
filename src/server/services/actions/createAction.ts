@@ -33,6 +33,7 @@ import {
 } from "./dependencies";
 import type { ActionWriteDeps } from "./types";
 import { emitAfterResponse } from "~/server/services/notifications/emit/emitAfterResponse";
+import { runAfterResponseReported } from "~/server/utils/runAfterResponse";
 
 /**
  * The row every create path returns. Callers that expose a narrower shape
@@ -263,16 +264,17 @@ export async function createAction(
     });
   }
 
-  if (created.projectId) {
-    void logProjectActivity(db, {
-      projectId: created.projectId,
-      actionId: created.id,
-      type: PROJECT_ACTIVITY_TYPES.ACTION_CREATED,
-      toValue: created.name,
-      changedById: actor.userId,
-    }).catch((err: unknown) => {
-      console.error("[projectActivity] ACTION_CREATED:", err);
-    });
+  const createdProjectId = created.projectId;
+  if (createdProjectId) {
+    runAfterResponseReported("createAction.activityLog", () =>
+      logProjectActivity(db, {
+        projectId: createdProjectId,
+        actionId: created.id,
+        type: PROJECT_ACTIVITY_TYPES.ACTION_CREATED,
+        toValue: created.name,
+        changedById: actor.userId,
+      }),
+    );
   }
 
   // Unified notification pipeline (ADR-0045): one Assignment emit for every

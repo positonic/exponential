@@ -8,6 +8,7 @@ import { findUnstartedAssistantMentions } from "~/server/services/agentRuns/unst
 import { triggerDispatch } from "~/server/services/agentRuns/dispatch";
 import { after } from "next/server";
 import { deleteFromBlob } from "~/lib/blob";
+import { runAfterResponseReported } from "~/server/utils/runAfterResponse";
 
 export const actionCommentRouter = createTRPCRouter({
   getComments: protectedProcedure
@@ -190,10 +191,10 @@ export const actionCommentRouter = createTRPCRouter({
         });
       }
 
-      // Fire-and-forget blob deletion
-      void deleteFromBlob(input.imageUrl).catch(() => {
-        // Blob deletion is best-effort
-      });
+      // Best-effort blob deletion, after the response
+      runAfterResponseReported("actionComment.deleteImageBlob", () =>
+        deleteFromBlob(input.imageUrl),
+      );
 
       return { deleted: newContent.length === 0 };
     }),

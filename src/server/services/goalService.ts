@@ -8,6 +8,7 @@ import {
 import { assertCanEditGoal } from "~/server/services/access/resolvers/goalResolver";
 import { resolveGoalProgress, isManualProgress } from "~/server/services/goalProgress";
 import { recordActivity } from "~/server/services/activity/recordActivity";
+import { reportBackgroundFailure } from "~/server/utils/runAfterResponse";
 
 /**
  * Verifies the current user can SEE the given goal: its owner, its DRI, or any
@@ -722,9 +723,16 @@ export async function computeGoalHealth({ ctx, goalId }: { ctx: Context, goalId:
   });
 
   // If this goal has a parent, recompute parent health too
+  // Awaited rather than void'd: a bare promise can be frozen with the
+  // serverless function once the request returns, leaving the parent's cached
+  // health stale. Goal trees are shallow, so the extra latency is small. A
+  // parent failure is reported and never fails this goal's recompute.
   if (goal.parentGoalId) {
-    // Fire-and-forget to avoid deep recursion blocking
-    void computeGoalHealth({ ctx, goalId: goal.parentGoalId });
+    try {
+      await computeGoalHealth({ ctx, goalId: goal.parentGoalId });
+    } catch (error) {
+      await reportBackgroundFailure(error, "goalHealth.parentRecompute", { goalId: String(goal.parentGoalId) });
+    }
   }
 
   return health;

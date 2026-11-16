@@ -15,6 +15,7 @@ import type { PrismaClient } from "@prisma/client";
 import { priceTokenBreakdown, toCostMicros, turnTokenBreakdown } from "~/server/services/ai/cost";
 import { findPersonalWorkspaceId } from "~/server/services/assistant/personalWorkspace";
 import { isMeteringOn, resolveBillingMode, type BillingEnv } from "./config";
+import { reportBackgroundFailure, runAfterResponse } from "~/server/utils/runAfterResponse";
 
 export const USAGE_SOURCES = ["CHAT", "AGENT_RUN", "VOICE", "DIRECT"] as const;
 
@@ -157,14 +158,13 @@ export async function recordTurnUsage(
 function reportUnpricedModel(turn: TurnUsage): void {
   const modelId = turn.modelId ?? "unknown";
   console.error(`[billing] No price for model "${modelId}"; the ${turn.source} turn was not metered`);
-  void import("~/server/utils/reportHandledErrorServer")
-    .then(({ reportHandledErrorServer }) =>
-      reportHandledErrorServer(new Error(`Usage metering has no price for model "${modelId}"`), {
-        area: "billing-metering",
-        context: { modelId, source: turn.source },
-      }),
-    )
-    .catch(() => undefined);
+  // After the response, so the lazy import + report can't be frozen mid-way.
+  runAfterResponse(() =>
+    reportBackgroundFailure(new Error(`Usage metering has no price for model "${modelId}"`), "billing-metering", {
+      modelId,
+      source: turn.source,
+    }),
+  );
 }
 
 /**

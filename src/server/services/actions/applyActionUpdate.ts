@@ -21,6 +21,7 @@ import {
 import { actionUpdatePatchSchema, type ActionUpdatePatch } from "./schema";
 import { deriveActionPatch, type ActionPatchTransitions } from "./deriveActionPatch";
 import type { ActionWriteDeps } from "./types";
+import { runAfterResponseReported } from "~/server/utils/runAfterResponse";
 
 /** The stored row as it was before the write: what the lockstep, the diff and callers' side effects read. */
 const snapshotSelect = {
@@ -333,16 +334,16 @@ export async function applyActionUpdate<
 
     const projectId = updated.projectId ?? previous.projectId;
     if (projectId) {
-      void logProjectActivity(db, {
-        projectId,
-        actionId,
-        type: PROJECT_ACTIVITY_TYPES.STATUS_CHANGED,
-        fromValue: previous.kanbanStatus,
-        toValue: kanbanStatus,
-        changedById: actor.userId,
-      }).catch((err: unknown) => {
-        console.error("[projectActivity] applyActionUpdate:", err);
-      });
+      runAfterResponseReported("applyActionUpdate.activityLog", () =>
+        logProjectActivity(db, {
+          projectId,
+          actionId,
+          type: PROJECT_ACTIVITY_TYPES.STATUS_CHANGED,
+          fromValue: previous.kanbanStatus,
+          toValue: kanbanStatus,
+          changedById: actor.userId,
+        }),
+      );
     }
   }
 

@@ -19,6 +19,7 @@ import {
   mergeObjectiveActivity,
   type ObjectiveActivityItem,
 } from "../objectiveActivity";
+import { runAfterResponseReported } from "~/server/utils/runAfterResponse";
 
 // "Done" for the delivery signal = the Delivery metrics page's completion
 // definition (ADR-0047, SprintAnalyticsService): DONE or DEPLOYED —
@@ -708,9 +709,9 @@ export const keyResultRouter = createTRPCRouter({
         }),
       ]);
 
-      // Recompute parent goal health after check-in (fire-and-forget)
-      void computeGoalHealth({ ctx, goalId: keyResult.goalId }).catch(
-        (err: unknown) => { console.error("[goal-health] recompute after KR check-in:", err); },
+      // Recompute parent goal health after check-in, after the response
+      runAfterResponseReported("keyResult.checkIn.goalHealth", () =>
+        computeGoalHealth({ ctx, goalId: keyResult.goalId }),
       );
 
       // Surface the check-in in the workspace activity feed. Only the human

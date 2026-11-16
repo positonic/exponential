@@ -1,6 +1,7 @@
 import type { PrismaClient } from "@prisma/client";
 import { runInboundTicketSync, type TicketSyncRemoteAdapter } from "./engine";
 import { createNotionTicketSyncAdapter } from "./notionAdapter";
+import { runAfterResponseReported } from "~/server/utils/runAfterResponse";
 
 /**
  * ticketSync/webhookTrigger — turn a verified Notion webhook event into an
@@ -13,10 +14,11 @@ import { createNotionTicketSyncAdapter } from "./notionAdapter";
  * a burst of Notion edits collapses into at most one run per config per
  * {@link WEBHOOK_DEBOUNCE_MS} window, and never overlaps an in-flight run.
  *
- * The engine run is fire-and-forget: this returns as soon as every matched
- * config has either been skipped (guarded) or had its run kicked off, so the
- * route can answer 200 fast. Errors are logged; the engine records its own
- * errored run record.
+ * The engine run happens after the response (`runAfterResponseReported`, so
+ * the platform keeps the function alive for it): this returns as soon as every
+ * matched config has either been skipped (guarded) or had its run kicked off,
+ * so the route can answer 200 fast. Errors are reported; the engine records its
+ * own errored run record.
  */
 
 /**
@@ -90,8 +92,8 @@ export function extractDatabaseCandidateIds(body: unknown): string[] {
 
 /**
  * Resolve the enabled configs a webhook event touches and kick off an inbound
- * run for each, guarded by the debounce/overlap window. Fire-and-forget: the
- * returned promise settles once runs are dispatched, not once they finish.
+ * run for each, guarded by the debounce/overlap window. The returned promise
+ * settles once runs are dispatched, not once they finish.
  */
 export async function triggerWebhookInboundSync(
   db: PrismaClient,
@@ -167,17 +169,14 @@ export async function triggerWebhookInboundSync(
         continue;
       }
 
-      // Fire-and-forget: the engine owns its own run record + error handling,
-      // so a failed run never blocks the 200. Never await the run here.
-      void runSync(db, adapterResult.adapter, {
-        configId: config.id,
-        trigger: "webhook",
-      }).catch((error: unknown) => {
-        console.error(
-          `[NotionWebhook] inbound run failed for config ${config.id}:`,
-          error,
-        );
-      });
+      // After the response: the engine owns its own run record + error
+      // handling, so a failed run never blocks the 200. Never await it here.
+      runAfterResponseReported("ticketSync.webhook.inboundRun", () =>
+        runSync(db, adapterResult.adapter, {
+          configId: config.id,
+          trigger: "webhook",
+        }),
+      );
 
       items.push({
         configId: config.id,

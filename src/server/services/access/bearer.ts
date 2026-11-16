@@ -22,6 +22,7 @@ import type { Session } from "next-auth";
 import { db } from "~/server/db";
 import { hashExternalAgentKey, isExternalAgentKey } from "~/server/utils/external-agent-keys";
 import { CURRENT_SECURITY_VERSION, SECURITY_FIX_TIMESTAMP } from "~/server/utils/jwt";
+import { runAfterResponseReported } from "~/server/utils/runAfterResponse";
 
 export interface BearerResolution {
   session: Session;
@@ -56,10 +57,11 @@ async function resolveAgentKey(token: string): Promise<BearerResolution | null> 
 
     if (!key || (key.expiresAt && key.expiresAt <= new Date())) return null;
 
-    // Fire-and-forget: lastUsedAt is observability, not auth.
-    void db.externalAgentKey
-      .update({ where: { id: key.id }, data: { lastUsedAt: new Date() } })
-      .catch((error) => console.error("[external-agent] lastUsedAt update failed:", error));
+    // After the response: lastUsedAt is observability, not auth.
+    runAfterResponseReported("externalAgent.lastUsedAt", () =>
+      db.externalAgentKey
+        .update({ where: { id: key.id }, data: { lastUsedAt: new Date() } }),
+    );
 
     const shadowUser = key.agent.shadowUser;
     return {

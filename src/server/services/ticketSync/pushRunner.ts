@@ -11,6 +11,7 @@ import {
 import { createNotionTicketSyncAdapter } from "./notionAdapter";
 import { hasNotionProvenance } from "./mapping";
 import { COMPLETED_TICKET_STATUSES } from "~/lib/ticket-statuses";
+import { runAfterResponseReported } from "~/server/utils/runAfterResponse";
 
 /**
  * ticketSync/pushRunner — the durable outbound-push queue drain (ADR-0046).
@@ -102,9 +103,9 @@ export async function enqueueTicketPush(
 }
 
 /**
- * Fire-and-forget push dispatch for a ticket mutation. Enqueues the durable
- * job, then kicks a best-effort immediate drain scoped to the config (Vercel
- * may freeze the detached drain — the cron + durable row is the safety net).
+ * Push dispatch for a ticket mutation. Enqueues the durable job, then kicks a
+ * best-effort immediate drain scoped to the config after the response (the
+ * cron + durable row remain the safety net if it hits the function's limit).
  * Never throws: a push must never break a ticket edit.
  *
  * `changedFields` (the router's `fieldsChanged`) short-circuits the enqueue
@@ -123,19 +124,19 @@ export async function dispatchTicketPush(
     const result = await enqueueTicketPush(db, { ticketId: params.ticketId });
     if (!result.enqueued || !result.configId) return;
     // Best-effort low-latency kick; the cron drains anything it misses.
-    void runOutboundPushSweep(db, new Date(), {
-      configId: result.configId,
-      trigger: "manual",
-    }).catch((err) => {
-      console.error("[ticketSync push] immediate drain failed", err);
-    });
+    runAfterResponseReported("ticketSync.push.immediateDrain", () =>
+      runOutboundPushSweep(db, new Date(), {
+        configId: result.configId,
+        trigger: "manual",
+      }),
+    );
   } catch (err) {
     console.error("[ticketSync push] dispatch failed", err);
   }
 }
 
 /**
- * Fire-and-forget outbound CREATE dispatch for a ticket born in Exponential
+ * Outbound CREATE dispatch for a ticket born in Exponential
  * (the `ticket.create` path — human or agent). Writes a sentinel `TicketSync`
  * (`externalId: "pending:<ticketId>"`) so the durable queue can turn it into a
  * real Notion page on drain, then kicks the drain. Never throws.
@@ -153,10 +154,8 @@ export async function dispatchTicketCreate(
   try {
     const configId = await ensureCreateSentinel(db, params.ticketId);
     if (!configId) return;
-    void runOutboundPushSweep(db, new Date(), { configId, trigger: "manual" }).catch(
-      (err) => {
-        console.error("[ticketSync push] immediate create drain failed", err);
-      },
+    runAfterResponseReported("ticketSync.push.createDrain", () =>
+      runOutboundPushSweep(db, new Date(), { configId, trigger: "manual" }),
     );
   } catch (err) {
     console.error("[ticketSync push] create dispatch failed", err);
@@ -380,12 +379,12 @@ export async function enqueueBackfill(
   }
   // Kick an immediate drain so the first rows appear without waiting for cron.
   if (enqueued > 0) {
-    void runOutboundPushSweep(db, new Date(), {
-      configId: config.id,
-      trigger: "manual",
-    }).catch((err) => {
-      console.error("[ticketSync push] backfill drain failed", err);
-    });
+    runAfterResponseReported("ticketSync.push.backfillDrain", () =>
+      runOutboundPushSweep(db, new Date(), {
+        configId: config.id,
+        trigger: "manual",
+      }),
+    );
   }
   return { enqueued };
 }
