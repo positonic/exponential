@@ -173,14 +173,13 @@ export async function summarizeMeetingRow(
   // (ADR-0045). Fires on the same idempotent null → value transition as the
   // activity event, so a re-summarize/overwrite never re-notifies. The meeting
   // owner is the actor and is dropped downstream — they don't need telling their
-  // own notes are ready. Fire-and-forget: never blocks summarization.
+  // own notes are ready. Awaited, not void'd: a bare promise can be frozen
+  // with the serverless function once the cron/mutation returns, silently
+  // dropping the notification. `emitNotification` never throws and resolves
+  // `null` when it failed, so a failure is reported, never surfaced to the
+  // summary.
   if (meeting.workspaceId) {
-    void emitNotification({
-      db,
-      category: NOTIFICATION_CATEGORIES.MEETING_READY,
-      actorUserId: meeting.userId ?? null,
-      subject: { sessionId: meeting.id },
-    });
+    await notifyMeetingReady(db, meeting);
   }
 
   // A summarised recording means its ceremony occurrence was captured
@@ -214,4 +213,38 @@ export async function summarizeMeetingRow(
   }
 
   return { status: "created", summary: summaryJson, eventEmitted };
+}
+
+/**
+ * Loaded on the failure path only: the reporter imports the Prisma singleton,
+ * and this module is imported by routers and meeting services whose unit
+ * tests run without one.
+ */
+async function reportNotifyError(error: unknown, context: Record<string, string>): Promise<void> {
+  const { reportHandledErrorServer } = await import("~/server/utils/reportHandledErrorServer");
+  reportHandledErrorServer(error, { area: "meetings.summary.notifyMeetingReady", context });
+}
+
+/**
+ * Emit the meeting-ready notification and report (rather than drop) a
+ * failure. Never throws: a notification problem must not fail the summary.
+ */
+async function notifyMeetingReady(
+  db: PrismaClient,
+  meeting: SummarizableMeetingRow,
+): Promise<void> {
+  const context = { meetingId: meeting.id, workspaceId: meeting.workspaceId ?? "" };
+  try {
+    const notified = await emitNotification({
+      db,
+      category: NOTIFICATION_CATEGORIES.MEETING_READY,
+      actorUserId: meeting.userId ?? null,
+      subject: { sessionId: meeting.id },
+    });
+    if (notified === null) {
+      await reportNotifyError(new Error("meeting-ready notification failed to resolve recipients"), context);
+    }
+  } catch (error) {
+    await reportNotifyError(error, context).catch(() => undefined);
+  }
 }

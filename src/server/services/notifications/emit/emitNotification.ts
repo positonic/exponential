@@ -18,7 +18,9 @@ export type { EmitNotificationInput } from "./types";
  * delivery — recording the per-channel outcome. Failures stay for the
  * `/api/cron/process-notifications` worker to retry.
  *
- * Fire-and-forget: callers `void` this; it never throws. Resolves to the
+ * Never throws. On serverless request/cron paths, await it (or hand it to
+ * `runAfterResponse`): a `void`ed call can be frozen with the function once
+ * the response is sent and the notification silently dropped. Resolves to the
  * recipients it notified (after the actor and access filters), so a caller
  * can record who an event reached, or to `null` when resolving them failed:
  * an empty list means nobody was due the notification, never an error.
