@@ -60,6 +60,13 @@ export const PUBLIC_PREFIXES = [
   '/product-timeline',
   '/features/', // marketing feature pages — bare /features is the app's
   /**
+   * RFC 8615 well-known URIs: the OAuth discovery documents MCP clients read
+   * before they have a session (hosted MCP Agent PRD, D9). The matcher does
+   * not skip them the way it skips /api. `/oauth/authorize` is deliberately
+   * NOT public: a signed-out visitor must go through sign-in first.
+   */
+  '/.well-known/',
+  /**
    * Product documentation. Bare, because `/docs` is itself a public index
    * (it is the URL listed in sitemap.ts). The docs route lives in the
    * (sidemenu) group but is built as public documentation — robots.ts allows

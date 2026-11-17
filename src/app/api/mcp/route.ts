@@ -16,6 +16,7 @@ import { flushAnalytics } from "~/server/analytics/posthog";
 import { db } from "~/server/db";
 import { bearerTokenFrom, resolveBearerToken } from "~/server/services/access/bearer";
 import { createInProcessClient } from "~/server/mcp/inProcessClient";
+import { isMcpOAuthEnabled, mcpResource } from "~/server/mcp/oauth/metadata";
 import { checkOrigin, corsHeaders, PREFLIGHT_HEADERS, withHeaders } from "~/server/mcp/origin";
 import { forbiddenOrigin, methodNotAllowed, tooManyRequests, unauthorized } from "~/server/mcp/responses";
 import { serveMcpRequest } from "~/server/mcp/serve";
@@ -26,7 +27,8 @@ export const maxDuration = 60;
 
 /**
  * The credentials this endpoint accepts (Agent PRD D5): an External agent key,
- * or a person's own API token, which acts as that person. Every other JWT type
+ * an OAuth access token issued for this endpoint (which resolves as its
+ * agent's key), or a person's own API token, which acts as that person. Every other JWT type
  * (chat gateways, agent-context, device, extension, voice) is refused, and a
  * session cookie never authenticates: `auth()` is never called here.
  */
@@ -45,7 +47,9 @@ export async function POST(req: Request): Promise<Response> {
   const cors = corsHeaders(origin.corsOrigin);
 
   const token = bearerTokenFrom(req.headers);
-  const resolved = token ? await resolveBearerToken(token) : null;
+  // With OAuth on, an access token issued for this endpoint is accepted too.
+  const audience = isMcpOAuthEnabled() ? mcpResource() : undefined;
+  const resolved = token ? await resolveBearerToken(token, { audience }) : null;
   if (!resolved?.tokenType || !ACCEPTED_TOKEN_TYPES.has(resolved.tokenType)) {
     return withHeaders(unauthorized(token !== null), cors);
   }

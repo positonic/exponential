@@ -6,6 +6,8 @@
 
 import { tooManyRequestsInit, type RateLimitResult } from "~/server/utils/rateLimit";
 
+import { isMcpOAuthEnabled, MCP_SCOPE, protectedResourceMetadataUrl } from "./oauth/metadata";
+
 function jsonRpcError(status: number, message: string, headers: Record<string, string>): Response {
   return new Response(JSON.stringify({ jsonrpc: "2.0", error: { code: -32000, message }, id: null }), {
     status,
@@ -14,15 +16,27 @@ function jsonRpcError(status: number, message: string, headers: Record<string, s
 }
 
 /**
- * 401 with a Bearer challenge (RFC 6750 §3): no error code when the request
- * carried no credential, `invalid_token` when it carried one that did not
- * authenticate (unknown, expired, revoked, or a token type this endpoint
- * refuses).
+ * The Bearer challenge (RFC 6750 §3): no error code when the request carried
+ * no credential, `invalid_token` when it carried one that did not authenticate
+ * (unknown, expired, revoked, or a token type this endpoint refuses). With
+ * OAuth on, it also points at the protected-resource metadata (RFC 9728 §5.1),
+ * which is how an MCP client discovers where to sign in.
  */
+export function bearerChallenge(hadCredential: boolean): string {
+  const params: string[] = [];
+  if (hadCredential) params.push('error="invalid_token"');
+  if (isMcpOAuthEnabled()) {
+    params.push(`resource_metadata="${protectedResourceMetadataUrl()}"`, `scope="${MCP_SCOPE}"`);
+  }
+  return params.length > 0 ? `Bearer ${params.join(", ")}` : "Bearer";
+}
+
+/** 401 with a Bearer challenge. */
 export function unauthorized(hadCredential: boolean): Response {
-  return jsonRpcError(401, "Unauthorized: send an External agent key or a personal API token as a Bearer token.", {
-    "WWW-Authenticate": hadCredential ? 'Bearer error="invalid_token"' : "Bearer",
-  });
+  const how = isMcpOAuthEnabled()
+    ? "sign in with OAuth, or send an External agent key or a personal API token as a Bearer token"
+    : "send an External agent key or a personal API token as a Bearer token";
+  return jsonRpcError(401, `Unauthorized: ${how}.`, { "WWW-Authenticate": bearerChallenge(hadCredential) });
 }
 
 /** 403 for a browser origin that is neither the app's nor listed in `MCP_ALLOWED_ORIGINS`. */

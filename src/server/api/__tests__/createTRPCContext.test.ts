@@ -17,6 +17,7 @@ const { auth, db } = vi.hoisted(() => ({
   auth: vi.fn(),
   db: {
     externalAgentKey: { findUnique: vi.fn(), update: vi.fn() },
+    oAuthToken: { findUnique: vi.fn() },
     user: { findUnique: vi.fn() },
   },
 }));
@@ -119,6 +120,15 @@ describe("createTRPCContext", () => {
     const ctx = await createTRPCContext({ headers: headersWith(token) });
 
     expect(ctx.session).toBeNull();
+  });
+
+  it("refuses an OAuth access token: its audience is the MCP endpoint, not /api/trpc", async () => {
+    const ctx = await createTRPCContext({ headers: headersWith("exp_oat_issued-for-api-mcp") });
+
+    expect(ctx.session).toBeNull();
+    // Never looked up, and never tried as a JWT.
+    expect(db.oAuthToken.findUnique).not.toHaveBeenCalled();
+    expect(db.user.findUnique).not.toHaveBeenCalled();
   });
 
   it("has no session without a cookie or a bearer token", async () => {

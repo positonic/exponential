@@ -53,6 +53,7 @@ import { habitRouter } from "./routers/habit";
 import { workspaceRouter } from "./routers/workspace";
 import { personRouter } from "./routers/person";
 import { externalAgentRouter } from "./routers/externalAgent";
+import { oauthConnectionRouter } from "./routers/oauthConnection";
 import { positionRouter } from "./routers/position";
 import { resourceRouter } from "./routers/resource";
 import { knowledgeChunkRouter } from "./routers/knowledgeChunk";
@@ -148,6 +149,7 @@ export const appRouter = createTRPCRouter({
   matrixServer: matrixServerRouter,
   matrixRoom: matrixRoomRouter,
   externalAgent: externalAgentRouter,
+  oauthConnection: oauthConnectionRouter,
   position: positionRouter,
   notification: notificationRouter,
   inbox: inboxRouter,

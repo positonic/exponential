@@ -6,6 +6,7 @@ import { createTRPCRouter, humanOnlyProcedure } from "~/server/api/trpc";
 import { generateExternalAgentKey } from "~/server/utils/external-agent-keys";
 import { deleteFromBlob, uploadToBlob } from "~/lib/blob";
 import { deleteExternalAgentPrincipal } from "~/server/services/assistant/principal";
+import { createExternalAgent } from "~/server/services/externalAgentCreate";
 import {
   memberGrant,
   requireDelegableWorkspaces,
@@ -141,33 +142,12 @@ export const externalAgentRouter = createTRPCRouter({
       const generated = keyName ? generateExternalAgentKey() : null;
 
       const agent = await ctx.db.$transaction(async (tx) => {
-        const shadowUser = await tx.user.create({
-          data: {
-            name: input.name,
-            isAgent: true,
-          },
+        const created = await createExternalAgent(tx, {
+          ownerId: ctx.session.user.id,
+          name: input.name,
+          description: blankToNull(input.description),
+          workspaceIds,
         });
-        const created = await tx.externalAgent.create({
-          data: {
-            name: input.name,
-            description: blankToNull(input.description),
-            ownerId: ctx.session.user.id,
-            shadowUserId: shadowUser.id,
-          },
-        });
-        // One statement, not a loop of upserts: a "Select all" across many
-        // workspaces must not run the interactive transaction into its timeout.
-        // The shadow user is brand new, so there is nothing to upsert over.
-        if (workspaceIds.length > 0) {
-          await tx.workspaceUser.createMany({
-            data: workspaceIds.map((workspaceId) => ({
-              userId: shadowUser.id,
-              workspaceId,
-              // Agents only ever hold `member` (ADR-0049).
-              role: "member",
-            })),
-          });
-        }
         if (keyName && generated) {
           await tx.externalAgentKey.create({
             data: {

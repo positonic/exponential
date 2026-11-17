@@ -17,8 +17,11 @@ vi.hoisted(() => {
   process.env.NEXT_PUBLIC_APP_URL = "https://app.example.test";
 });
 
-/** `env` as the route reads it, with MCP_ALLOWED_ORIGINS settable per test. */
-const envOverrides = vi.hoisted(() => ({ MCP_ALLOWED_ORIGINS: undefined as string | undefined }));
+/** `env` as the route reads it, with MCP_ALLOWED_ORIGINS and MCP_OAUTH_MODE settable per test. */
+const envOverrides = vi.hoisted(() => ({
+  MCP_ALLOWED_ORIGINS: undefined as string | undefined,
+  MCP_OAUTH_MODE: undefined as "off" | "admin" | "on" | undefined,
+}));
 vi.mock("~/env", async (importOriginal) => {
   const actual = await importOriginal<typeof import("~/env")>();
   return {
@@ -31,6 +34,8 @@ vi.mock("~/env", async (importOriginal) => {
 const { db, auth, handleTRPCRequest, checkRateLimit } = vi.hoisted(() => ({
   db: {
     externalAgentKey: { findUnique: vi.fn(), update: vi.fn() },
+    oAuthToken: { findUnique: vi.fn() },
+    oAuthConnection: { update: vi.fn() },
     user: { findUnique: vi.fn() },
   },
   auth: vi.fn(),
@@ -54,11 +59,26 @@ vi.mock("~/server/utils/rateLimit", async (importOriginal) => ({
 import { DELETE, GET, OPTIONS, POST } from "../route";
 import { generateJWT, type JWTTokenType } from "~/server/utils/jwt";
 import { generateExternalAgentKey, hashExternalAgentKey } from "~/server/utils/external-agent-keys";
+import { ACCESS_TOKEN_PREFIX, generateOAuthSecret, hashOAuthSecret } from "~/server/mcp/oauth/tokens";
 
 const AGENT_KEY = generateExternalAgentKey().secret;
 const SHADOW = { id: "user-shadow", email: null, name: "Claude", image: null };
 const PERSON = { id: "user-person", email: "person@example.test", name: "Person", image: null, isAdmin: false };
 const RUN_TOOLS = ["report_progress", "ask_owner", "finish_run"];
+const OAUTH_TOKEN = generateOAuthSecret(ACCESS_TOKEN_PREFIX).secret;
+
+/** The stored row behind OAUTH_TOKEN; tests adjust it per case. */
+let oauthTokenRow: {
+  accessExpiresAt: Date;
+  connection: { id: string; resource: string; disconnectedAt: Date | null; agent: { shadowUser: typeof SHADOW } };
+};
+function resetOAuthTokenRow() {
+  oauthTokenRow = {
+    accessExpiresAt: new Date(Date.now() + 60 * 60 * 1000),
+    connection: { id: "conn-1", resource: "https://app.example.test/api/mcp", disconnectedAt: null, agent: { shadowUser: SHADOW } },
+  };
+}
+resetOAuthTokenRow();
 
 let rpcId = 0;
 function rpc(method: string, params: Record<string, unknown> = {}) {
@@ -107,10 +127,16 @@ const globalFetch = vi.fn();
 beforeEach(() => {
   vi.clearAllMocks();
   envOverrides.MCP_ALLOWED_ORIGINS = undefined;
+  envOverrides.MCP_OAUTH_MODE = undefined;
+  resetOAuthTokenRow();
   checkRateLimit.mockResolvedValue({ success: true, retryAfterSeconds: 0 });
   vi.stubGlobal("fetch", globalFetch);
   auth.mockResolvedValue({ user: { id: PERSON.id }, expires: "2099-01-01T00:00:00.000Z" });
   db.externalAgentKey.update.mockResolvedValue({});
+  db.oAuthConnection.update.mockResolvedValue({});
+  db.oAuthToken.findUnique.mockImplementation(({ where }: { where: { accessTokenHash: string } }) =>
+    Promise.resolve(where.accessTokenHash === hashOAuthSecret(OAUTH_TOKEN) ? oauthTokenRow : null),
+  );
   db.externalAgentKey.findUnique.mockImplementation(({ where }: { where: { keyHash: string } }) =>
     Promise.resolve(
       where.keyHash === hashExternalAgentKey(AGENT_KEY)
@@ -289,6 +315,91 @@ describe("POST /api/mcp protocol edges", () => {
     expect(list.headers.get("mcp-session-id")).toBeNull();
     const { result } = (await list.json()) as { result: { tools: unknown[] } };
     expect(result.tools).toHaveLength(listTools().length);
+  });
+});
+
+describe("POST /api/mcp 401 challenge with OAuth on", () => {
+  const RESOURCE_METADATA = 'resource_metadata="https://app.example.test/.well-known/oauth-protected-resource/api/mcp"';
+
+  it.each(["admin", "on"] as const)("points a client with no credential at the metadata (MCP_OAUTH_MODE=%s)", async (mode) => {
+    envOverrides.MCP_OAUTH_MODE = mode;
+
+    const res = await POST(mcpRequest(rpc("tools/list"), {}));
+
+    expect(res.status).toBe(401);
+    expect(res.headers.get("www-authenticate")).toBe(`Bearer ${RESOURCE_METADATA}, scope="mcp"`);
+    const body = (await res.json()) as { error: { message: string } };
+    expect(body.error.message).toMatch(/sign in with OAuth/);
+  });
+
+  it("keeps invalid_token alongside the pointer for a credential that does not authenticate", async () => {
+    envOverrides.MCP_OAUTH_MODE = "admin";
+
+    const res = await POST(mcpRequest(rpc("tools/list"), bearer("not-a-token")));
+
+    expect(res.headers.get("www-authenticate")).toBe(`Bearer error="invalid_token", ${RESOURCE_METADATA}, scope="mcp"`);
+  });
+
+  it("is unchanged from V1 with MCP_OAUTH_MODE=off", async () => {
+    envOverrides.MCP_OAUTH_MODE = "off";
+
+    const res = await POST(mcpRequest(rpc("tools/list"), {}));
+
+    expect(res.headers.get("www-authenticate")).toBe("Bearer");
+  });
+});
+
+describe("POST /api/mcp with an OAuth access token", () => {
+  beforeEach(() => {
+    envOverrides.MCP_OAUTH_MODE = "admin";
+  });
+
+  it("runs as the connection's agent, exactly as its key would", async () => {
+    handleTRPCRequest.mockResolvedValue(trpcBatchResponse([]));
+
+    const res = await POST(mcpRequest(rpc("tools/call", { name: "get_workspaces", arguments: {} }), bearer(OAUTH_TOKEN)));
+
+    expect(res.status).toBe(200);
+    const [, createContext] = handleTRPCRequest.mock.calls[0] as [Request, () => unknown];
+    expect(createContext()).toMatchObject({
+      session: { user: { id: SHADOW.id, isAdmin: false } },
+      tokenType: "agent-key",
+      agentRunId: undefined,
+    });
+    expect(db.oAuthConnection.update).toHaveBeenCalledWith({
+      where: { id: "conn-1" },
+      data: { lastUsedAt: expect.any(Date) as unknown },
+    });
+  });
+
+  it.each([
+    ["an expired token", () => (oauthTokenRow.accessExpiresAt = new Date(Date.now() - 1))],
+    ["a token issued for another resource", () => (oauthTokenRow.connection.resource = "https://other.example/api/mcp")],
+    ["a disconnected connection", () => (oauthTokenRow.connection.disconnectedAt = new Date())],
+  ])("401s for %s and runs no tool", async (_label, arrange) => {
+    arrange();
+
+    const res = await POST(mcpRequest(rpc("tools/list"), bearer(OAUTH_TOKEN)));
+
+    expect(res.status).toBe(401);
+    expect(res.headers.get("www-authenticate")).toContain('error="invalid_token"');
+    expect(handleTRPCRequest).not.toHaveBeenCalled();
+  });
+
+  it("401s for an access token it never issued", async () => {
+    const res = await POST(mcpRequest(rpc("tools/list"), bearer(generateOAuthSecret(ACCESS_TOKEN_PREFIX).secret)));
+
+    expect(res.status).toBe(401);
+    expect(handleTRPCRequest).not.toHaveBeenCalled();
+  });
+
+  it("is not accepted at all while MCP_OAUTH_MODE is off", async () => {
+    envOverrides.MCP_OAUTH_MODE = undefined;
+
+    const res = await POST(mcpRequest(rpc("tools/list"), bearer(OAUTH_TOKEN)));
+
+    expect(res.status).toBe(401);
+    expect(db.oAuthToken.findUnique).not.toHaveBeenCalled();
   });
 });
 

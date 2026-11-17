@@ -12,14 +12,21 @@
  * - a JWT signed with `AUTH_SECRET`, resolved to the user it names, with its
  *   verified `tokenType` (and `runId` for agent-context JWTs).
  *
- * Callers decide which token types they accept: the tRPC context takes all of
- * them, the MCP endpoint only agent keys and `api-token` JWTs.
+ * - an OAuth access token (`exp_oat_…`, hosted MCP V2), resolved by hash to
+ *   its connection's agent, exactly as that agent's key would be. It is honoured
+ *   only by a caller that names the audience it serves: the MCP endpoint does,
+ *   `/api/trpc` does not, so a token issued for `/api/mcp` is refused there.
+ *
+ * Callers decide which token types they accept: the tRPC context takes all but
+ * OAuth access tokens, the MCP endpoint only agent keys (an OAuth access token
+ * resolves as one) and `api-token` JWTs.
  */
 
 import jwt from "jsonwebtoken";
 import type { Session } from "next-auth";
 
 import { db } from "~/server/db";
+import { hashOAuthSecret, isOAuthAccessToken } from "~/server/mcp/oauth/tokens";
 import { hashExternalAgentKey, isExternalAgentKey } from "~/server/utils/external-agent-keys";
 import { CURRENT_SECURITY_VERSION, SECURITY_FIX_TIMESTAMP } from "~/server/utils/jwt";
 import { runAfterResponseReported } from "~/server/utils/runAfterResponse";
@@ -43,9 +50,71 @@ export function bearerTokenFrom(headers: Headers): string | null {
   return token ? token : null;
 }
 
+export interface BearerOptions {
+  /**
+   * The resource this request is for. An OAuth access token is accepted only
+   * when its connection's resource equals it (RFC 8707 audience). Only
+   * `/api/mcp` passes one, and only while OAuth is on.
+   */
+  audience?: string;
+}
+
 /** Resolve a bearer token to the session it acts as, or null when it does not authenticate. */
-export async function resolveBearerToken(token: string): Promise<BearerResolution | null> {
+export async function resolveBearerToken(token: string, options: BearerOptions = {}): Promise<BearerResolution | null> {
+  // An OAuth access token is never a key or a JWT: without an audience it does not authenticate.
+  if (isOAuthAccessToken(token)) return options.audience ? resolveOAuthAccessToken(token, options.audience) : null;
   return isExternalAgentKey(token) ? resolveAgentKey(token) : resolveJwt(token);
+}
+
+/**
+ * An OAuth access token resolves to exactly the context its connection's
+ * agent key would (Agent PRD, D5): the shadow user, never an admin, with token
+ * type `agent-key`, so every place that recognises an agent recognises it.
+ */
+async function resolveOAuthAccessToken(token: string, audience: string): Promise<BearerResolution | null> {
+  try {
+    const row = await db.oAuthToken.findUnique({
+      where: { accessTokenHash: hashOAuthSecret(token) },
+      select: {
+        accessExpiresAt: true,
+        connection: {
+          select: {
+            id: true,
+            resource: true,
+            disconnectedAt: true,
+            agent: { select: { shadowUser: { select: { id: true, email: true, name: true, image: true } } } },
+          },
+        },
+      },
+    });
+    if (!row || row.accessExpiresAt <= new Date()) return null;
+    const { connection } = row;
+    if (connection.disconnectedAt || connection.resource !== audience) return null;
+
+    // Fire-and-forget, as for an agent key: lastUsedAt is observability, not auth.
+    void db.oAuthConnection
+      .update({ where: { id: connection.id }, data: { lastUsedAt: new Date() } })
+      .catch((error) => console.error("[mcp-oauth] lastUsedAt update failed:", error));
+
+    const shadowUser = connection.agent.shadowUser;
+    return {
+      session: {
+        user: {
+          id: shadowUser.id,
+          email: shadowUser.email,
+          name: shadowUser.name,
+          image: shadowUser.image,
+          isAdmin: false,
+        },
+        expires: row.accessExpiresAt.toISOString(),
+      },
+      tokenType: "agent-key",
+      agentRunId: undefined,
+    };
+  } catch (error) {
+    console.error("[mcp-oauth] access token resolution failed:", error);
+    return null;
+  }
 }
 
 async function resolveAgentKey(token: string): Promise<BearerResolution | null> {

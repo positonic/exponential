@@ -26,6 +26,8 @@
 #   SMTP_*, EMAIL_FROM, AUTH_POSTMARK_KEY, GOOGLE_*, AUTH_DISCORD_*: other ways in
 #   MCP_ALLOWED_ORIGINS      optional: browser origins, besides this install's,
 #                            that may call the MCP endpoint (/api/mcp)
+#   MCP_OAUTH_MODE           optional: off (default), admin or on. Lets MCP
+#                            clients connect by signing in instead of a key
 #   POSTGRES_PASSWORD        default "exponential"; letters and digits only
 #                            (it goes into a URL). Postgres is not published
 #                            on the host. Set it before the first start: the
@@ -107,6 +109,7 @@ services:
       AUTH_DISCORD_ID:
       AUTH_DISCORD_SECRET:
       MCP_ALLOWED_ORIGINS:
+      MCP_OAUTH_MODE:
     volumes:
       - ./docker/compose:/selfhost:ro
       - secrets:/selfhost-secrets:ro

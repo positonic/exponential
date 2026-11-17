@@ -317,6 +317,8 @@ model User {
   isAgent                     Boolean                           @default(false)
   ownedExternalAgents         ExternalAgent[]                   @relation("ExternalAgentOwner")
   externalAgentShadow         ExternalAgent?                    @relation("ExternalAgentShadowUser")
+  /// OAuth connections this person approved for MCP clients (hosted MCP, D7).
+  oauthConnections            OAuthConnection[]
   agentRunsRequested          AgentRun[]                        @relation("AgentRunRequestedBy")
   agentRunsReviewed           AgentRun[]                        @relation("AgentRunReviewedBy")
   // Ceremonies (ADR-0059)
@@ -376,6 +378,8 @@ model ExternalAgent {
   assistant   Assistant?
   /// Agent runs this principal performed (ADR-0067).
   agentRuns   AgentRun[]
+  /// OAuth connections that act as this agent (hosted MCP, D7).
+  oauthConnections OAuthConnection[]
 
   @@index([ownerId])
 }
@@ -481,6 +485,90 @@ model ExternalAgentKey {
   agent ExternalAgent @relation(fields: [agentId], references: [id], onDelete: Cascade)
 
   @@index([agentId])
+}
+
+// ============================================
+// OAuth for MCP clients (hosted MCP Agent PRD, D7)
+// ============================================
+// The app is its own OAuth authorization server for /api/mcp. A connection is
+// one person's grant to one client and acts as one External agent, so every
+// access path and the delegation invariant (ADR-0049) apply to it unchanged.
+// Every secret (code, access token, refresh token) is stored only as a hash.
+
+/// An MCP client known to this install.
+model OAuthClient {
+  /// The client_id for registered clients.
+  id           String    @id @default(cuid())
+  /// "registered" (RFC 7591) or "metadata" (client ID metadata document).
+  kind         String
+  /// For "metadata" clients: the document URL, which is the client_id.
+  metadataUrl  String?   @unique
+  name         String
+  redirectUris String[]
+  /// When the metadata document was last fetched; refetched after 24 hours.
+  fetchedAt    DateTime?
+  createdAt    DateTime  @default(now())
+
+  connections OAuthConnection[]
+}
+
+/// One person's grant to one client. Owns the tokens; points at the agent.
+model OAuthConnection {
+  id             String    @id @default(cuid())
+  ownerId        String
+  clientId       String
+  /// Stable identity of the client for this owner (D10). Reconnects match on it.
+  clientKey      String
+  clientName     String
+  agentId        String
+  /// The resource (audience) this connection's tokens are bound to.
+  resource       String
+  lastUsedAt     DateTime?
+  disconnectedAt DateTime?
+  createdAt      DateTime  @default(now())
+
+  owner  User                     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  client OAuthClient              @relation(fields: [clientId], references: [id])
+  agent  ExternalAgent            @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  codes  OAuthAuthorizationCode[]
+  tokens OAuthToken[]
+
+  @@unique([ownerId, clientKey])
+  @@index([clientId])
+  @@index([agentId])
+}
+
+/// A one-time authorization code, valid for five minutes.
+model OAuthAuthorizationCode {
+  id            String    @id @default(cuid())
+  connectionId  String
+  codeHash      String    @unique
+  /// The PKCE challenge; S256 only.
+  codeChallenge String
+  redirectUri   String
+  expiresAt     DateTime
+  usedAt        DateTime?
+
+  connection OAuthConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+
+  @@index([connectionId])
+}
+
+/// One access/refresh pair. A redeemed row is kept until its refresh expiry
+/// so a replayed refresh token can be recognised.
+model OAuthToken {
+  id               String    @id @default(cuid())
+  connectionId     String
+  accessTokenHash  String    @unique
+  refreshTokenHash String    @unique
+  accessExpiresAt  DateTime
+  refreshExpiresAt DateTime
+  rotatedAt        DateTime?
+  createdAt        DateTime  @default(now())
+
+  connection OAuthConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+
+  @@index([connectionId])
 }
 
 // ============================================

@@ -93,7 +93,10 @@ const config = {
     "src/**/*.test.ts",
     "src/**/*.test.tsx",
     "**/__tests__/**",
-    "public/sw.js"
+    "public/sw.js",
+    // ESLint skips dot-directories by default; the OAuth discovery routes live
+    // in one (src/app/.well-known) and must be linted like any other route.
+    "!src/app/.well-known"
   ]
 }
 module.exports = config;

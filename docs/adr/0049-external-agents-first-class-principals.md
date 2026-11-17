@@ -45,6 +45,15 @@ role the `adr` router demands of a person: its shadow user needs a write role in
 workspace. The `adr` router itself stays human-only, so the ADR text is read only by people.
 Zoe and the gateways (`agent_for_human`) get the same metadata when the person has a write role.
 
+Amended 2026-11-16 by [ADR-0083](0083-app-is-its-own-oauth-server-for-mcp-clients.md) (ticket
+bold.heron): point 5 still holds, and static keys remain the credential for software that can
+keep one. An **OAuth connection** is a second credential for the same principal: a person
+approves an MCP client on the consent screen, the connection is bound to one of their External
+agents, and its access token resolves exactly as that agent's key does (the shadow user, token
+type `agent-key`). The tokens stay opaque and hashed (`exp_oat_` access, `exp_ort_` refresh,
+never JWTs), so disconnecting revokes them on the next request, and they are honoured only at
+`/api/mcp`, the audience they are issued for.
+
 ## Context
 
 A user wants to point third-party autonomous agent software — the trigger was Nous
