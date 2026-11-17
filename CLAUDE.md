@@ -441,6 +441,7 @@ The AI agents for this application live in a separate repository:
 - When adding a new tool, check if a corresponding tRPC endpoint exists here
 - Agent tools often mirror the services layer in `src/server/services/`
 - JWT tokens generated here (see `src/server/api/routers/mastra.ts`) are verified by agents
+- When you change the input of a procedure an agent tool calls, run `npm run contracts:generate` and commit `contracts/agent-procedures.json`. A unit test fails until you do. See [`contracts/README.md`](contracts/README.md)
 
 ## Development Notes
 

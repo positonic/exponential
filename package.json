@@ -52,6 +52,7 @@
     "dev:seed-fixture": "tsx scripts/seed-dev-fixture.ts",
     "dev:seed-perf": "tsx scripts/seed-perf-fixture.ts",
     "docs:check": "tsx scripts/check-docs.ts",
+    "contracts:generate": "UPDATE_AGENT_CONTRACT=1 vitest run --project unit src/server/agentContract/__tests__/agentProcedureContract.test.ts",
     "tokens:check": "tsx scripts/check-design-tokens.ts",
     "scheduler:selfhost": "tsx scripts/selfhost/scheduler.ts",
     "start:selfhost": "tsx scripts/selfhost/start.ts",
@@ -211,7 +212,8 @@
     "typescript": "^5.5.3",
     "vitest": "^4.0.16",
     "vitest-mock-extended": "^4.0.0",
-    "wait-on": "^7.2.0"
+    "wait-on": "^7.2.0",
+    "zod-to-json-schema": "^3.25.2"
   },
   "ct3aMetadata": {
     "initVersion": "7.38.1"
