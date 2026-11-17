@@ -1064,6 +1064,24 @@ describe("decision router", () => {
       expect(db.decision.delete).toHaveBeenCalledWith({ where: { id: "dec-1", workspaceId: WORKSPACE_ID } });
     });
 
+    it("rejectDraft stores the reviewer's reason when one is given, and leaves it alone when not", async () => {
+      withWorkspaceRole(db, "member");
+      withRow("DRAFT");
+      db.decision.update.mockResolvedValue({ id: "dec-1", reviewState: "REJECTED" } as never);
+
+      await caller(db).decision.rejectDraft({ workspaceId: WORKSPACE_ID, decisionId: "dec-1", reason: "task" });
+      expect(db.decision.update).toHaveBeenLastCalledWith(
+        expect.objectContaining({ data: { reviewState: "REJECTED", rejectionReason: "task" } }),
+      );
+
+      await caller(db).decision.rejectDraft({ workspaceId: WORKSPACE_ID, decisionId: "dec-1" });
+      expect(db.decision.update).toHaveBeenLastCalledWith(expect.objectContaining({ data: { reviewState: "REJECTED" } }));
+
+      await expect(
+        caller(db).decision.rejectDraft({ workspaceId: WORKSPACE_ID, decisionId: "dec-1", reason: "because" as never }),
+      ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    });
+
     it("rejectDraft refuses a confirmed decision", async () => {
       withWorkspaceRole(db, "member");
       withRow("CONFIRMED");

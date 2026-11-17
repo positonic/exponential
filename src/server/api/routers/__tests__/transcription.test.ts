@@ -1097,6 +1097,61 @@ describe("transcription router (mocked) — discardDraftActions", () => {
     dbMock = getDbMock();
     mockReset(dbMock);
     dbMock.action.deleteMany.mockResolvedValue({ count: 2 });
+    // The drafts the scope matches: logged, then deleted, in one transaction.
+    dbMock.action.findMany.mockResolvedValue([
+      { id: "a1", name: "Share the onboarding video", description: "Pat: I'll share it." },
+      { id: "a2", name: "Book the venue", description: null },
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    ] as any);
+    dbMock.discardedActionDraft.createMany.mockResolvedValue({ count: 2 });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    dbMock.$transaction.mockImplementation(async (fn: any) => fn(dbMock));
+  });
+
+  it("keeps what was discarded, with the reviewer and the reason, before deleting the drafts", async () => {
+    meeting(callerId);
+    dbMock.action.count.mockResolvedValue(0);
+    const caller = createMockCaller({ userId: callerId, db: dbMock });
+
+    await caller.transcription.discardDraftActions({ transcriptionId: "m1", actionIds: ["a1", "a2"], reason: "not_a_task" });
+
+    expect(dbMock.discardedActionDraft.createMany).toHaveBeenCalledWith({
+      data: [
+        { transcriptionSessionId: "m1", name: "Share the onboarding video", description: "Pat: I'll share it.", reason: "not_a_task", discardedById: callerId },
+        { transcriptionSessionId: "m1", name: "Book the venue", description: null, reason: "not_a_task", discardedById: callerId },
+      ],
+    });
+    expect(dbMock.discardedActionDraft.createMany.mock.invocationCallOrder[0]!).toBeLessThan(
+      dbMock.action.deleteMany.mock.invocationCallOrder[0]!,
+    );
+  });
+
+  it("records no reason when none is given, and nothing at all when there is nothing to discard", async () => {
+    meeting(callerId);
+    dbMock.action.count.mockResolvedValue(0);
+    const caller = createMockCaller({ userId: callerId, db: dbMock });
+
+    await caller.transcription.discardDraftActions({ transcriptionId: "m1" });
+    const logged = dbMock.discardedActionDraft.createMany.mock.calls[0]![0] as { data: Array<{ reason: string | null }> };
+    expect(logged.data.every((row) => row.reason === null)).toBe(true);
+
+    dbMock.discardedActionDraft.createMany.mockClear();
+    dbMock.action.deleteMany.mockClear();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    dbMock.action.findMany.mockResolvedValue([] as any);
+    const result = await caller.transcription.discardDraftActions({ transcriptionId: "m1" });
+    expect(result.discardedCount).toBe(0);
+    expect(dbMock.discardedActionDraft.createMany).not.toHaveBeenCalled();
+    expect(dbMock.action.deleteMany).not.toHaveBeenCalled();
+  });
+
+  it("refuses a reason it does not know", async () => {
+    meeting(callerId);
+    const caller = createMockCaller({ userId: callerId, db: dbMock });
+    await expect(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      caller.transcription.discardDraftActions({ transcriptionId: "m1", reason: "because" as any }),
+    ).rejects.toMatchObject({ code: "BAD_REQUEST" });
   });
 
   it("deletes only the chosen ids, scoped to this meeting's own drafts", async () => {
@@ -1109,8 +1164,11 @@ describe("transcription router (mocked) — discardDraftActions", () => {
       actionIds: ["a1", "a2"],
     });
 
+    expect(dbMock.action.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: { in: ["a1", "a2"] }, ...draftScope } }),
+    );
     expect(dbMock.action.deleteMany).toHaveBeenCalledWith({
-      where: { id: { in: ["a1", "a2"] }, ...draftScope },
+      where: { ...draftScope, id: { in: ["a1", "a2"] } },
     });
     expect(result).toEqual({ discardedCount: 2, remainingDrafts: 1 });
     // Drafts remain, so the meeting is not yet processed.
@@ -1124,8 +1182,9 @@ describe("transcription router (mocked) — discardDraftActions", () => {
 
     await caller.transcription.discardDraftActions({ transcriptionId: "m1" });
 
+    expect(dbMock.action.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: draftScope }));
     expect(dbMock.action.deleteMany).toHaveBeenCalledWith({
-      where: draftScope,
+      where: { ...draftScope, id: { in: ["a1", "a2"] } },
     });
     expect(dbMock.transcriptionSession.update).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -1155,9 +1214,9 @@ describe("transcription router (mocked) — discardDraftActions", () => {
     });
 
     expect(result.discardedCount).toBe(2);
-    expect(dbMock.action.deleteMany).toHaveBeenCalledWith({
-      where: { id: { in: ["a1"] }, ...draftScope },
-    });
+    expect(dbMock.action.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: { in: ["a1"] }, ...draftScope } }),
+    );
   });
 
   it("refuses a workspace viewer (read-only role)", async () => {

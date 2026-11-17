@@ -1904,6 +1904,7 @@ model TranscriptionSession {
   matrixPosts       MatrixPostLog[]
   occurrence        CeremonyOccurrence?               @relation(fields: [occurrenceId], references: [id], onDelete: SetNull)
   decisions         Decision[]
+  discardedActionDrafts DiscardedActionDraft[]
 
   @@index([sessionId])
   @@index([workspaceId])
@@ -6036,6 +6037,26 @@ model TranscriptionSessionParticipant {
   @@index([email])
 }
 
+/// A draft action the extractor proposed and a reviewer discarded. The Action
+/// row itself is deleted (a draft was never a real action); this is what is
+/// kept, so the same task is not drafted again from the meeting and the
+/// extraction eval has the reviewer's "no" to learn from.
+model DiscardedActionDraft {
+  id                     String   @id @default(cuid())
+  transcriptionSessionId String
+  name                   String
+  description            String?  @db.Text
+  /// A code from `~/lib/draft-reject-reasons`, or null when none was given.
+  reason                 String?
+  /// The reviewer. Not a relation: this is a log, and outlives the account.
+  discardedById          String
+  createdAt              DateTime @default(now())
+
+  transcriptionSession TranscriptionSession @relation(fields: [transcriptionSessionId], references: [id], onDelete: Cascade)
+
+  @@index([transcriptionSessionId])
+}
+
 model PreMeetingBrief {
   id              String    @id @default(cuid())
   workspaceId     String
@@ -6459,6 +6480,9 @@ model Decision {
   status                 DecisionStatus      @default(PROPOSED)
   /// Drafts are invisible everywhere except the source meeting's draft views.
   reviewState            DecisionReviewState @default(CONFIRMED)
+  /// Why a reviewer rejected the draft, as a code from `~/lib/draft-reject-reasons`.
+  /// Null when no reason was given, and on every row that is not REJECTED.
+  rejectionReason        String?
   source                 DecisionSource      @default(MANUAL)
   decidedAt              DateTime?
   ownerId                String?

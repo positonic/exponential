@@ -29,6 +29,8 @@ export interface EvalLabel {
   statement: string;
   /** Transcript turns the label quotes. Empty for a hand-written decision. */
   evidenceTurns: number[];
+  /** Why the reviewer rejected it (a code from `~/lib/draft-reject-reasons`), when they said. */
+  reason?: string;
 }
 
 /** What one run of the extractor proposed for a meeting. */

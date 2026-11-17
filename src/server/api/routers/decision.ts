@@ -1,3 +1,4 @@
+import { DECISION_REJECT_REASON_CODES } from "~/lib/draft-reject-reasons";
 import { z } from "zod";
 import { runAfterResponse } from "~/server/utils/runAfterResponse";
 import { TRPCError } from "@trpc/server";
@@ -960,12 +961,24 @@ export const decisionRouter = createTRPCRouter({
 
   /** Reject a draft. Confirmed decisions are deprecated, never rejected. */
   rejectDraft: protectedProcedure
-    .input(z.object({ workspaceId: z.string(), decisionId: z.string() }))
+    .input(
+      z.object({
+        workspaceId: z.string(),
+        decisionId: z.string(),
+        /** Why, when the reviewer says (optional). */
+        reason: z.enum(DECISION_REJECT_REASON_CODES).optional(),
+      }),
+    )
     .use(requireWorkspaceMembership("edit"))
     .mutation(async ({ ctx, input }) => {
       const subject = await loadDecisionSubject(ctx.db, input.workspaceId, input.decisionId);
       await ensureDecisionAccess(ctx.db, ctx.session.user.id, subject, "edit");
-      const result = await rejectDraft(ctx.db, { decisionId: subject.id, workspaceId: input.workspaceId, userId: ctx.session.user.id });
+      const result = await rejectDraft(ctx.db, {
+        decisionId: subject.id,
+        workspaceId: input.workspaceId,
+        userId: ctx.session.user.id,
+        reason: input.reason,
+      });
       await settleDraftReviewAfter(ctx.db, subject);
       return result;
     }),

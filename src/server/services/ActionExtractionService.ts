@@ -102,6 +102,41 @@ function significantTokens(text: string): Set<string> {
 }
 
 /**
+ * Drop candidates a reviewer already discarded from this meeting.
+ *
+ * Stricter than {@link filterNearDuplicateActions}, because the cost of a
+ * wrong match is different: there it merges two wordings of one task, here it
+ * hides a task for good on the strength of a "no" given to another. So a
+ * discard only suppresses a candidate that is the same text once normalised,
+ * or shares at least two significant words covering most of the longer of
+ * the two. "Review PR" does not suppress "Review security proposal"; and a
+ * name with no Latin tokens at all still suppresses itself.
+ */
+export function filterDiscardedActions(candidates: ParsedActionItem[], discardedNames: string[]): ParsedActionItem[] {
+  const discarded = discardedNames.map((name) => ({
+    normalized: normalizeActionText(name),
+    tokens: significantTokens(name),
+  }));
+  if (discarded.length === 0) return candidates;
+
+  return candidates.filter((candidate) => {
+    const normalized = normalizeActionText(candidate.text);
+    const tokens = significantTokens(candidate.text);
+    return !discarded.some((other) => {
+      if (normalized.length > 0 && normalized === other.normalized) return true;
+      let shared = 0;
+      for (const token of tokens) {
+        if (other.tokens.has(token)) shared++;
+      }
+      return shared >= 2 && shared / Math.max(tokens.size, other.tokens.size) >= DISCARDED_MATCH_THRESHOLD;
+    });
+  });
+}
+
+/** Share of the longer item's significant words a discarded draft must cover. */
+const DISCARDED_MATCH_THRESHOLD = 0.75;
+
+/**
  * Drop candidates that are near-duplicate rewordings of an existing item
  * ("Zineb will send the baseline doc" vs "Zineb to send baseline document to
  * James"). Token-overlap against the smaller significant-token set, so a

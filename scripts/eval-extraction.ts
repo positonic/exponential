@@ -80,6 +80,11 @@ interface MeetingFixture {
   summary: string | null;
   participants: Array<{ name: string | null; speakerLabel: string | null }>;
   labels: EvalLabel[];
+  /**
+   * Draft actions a reviewer discarded, with the reason when given. Exported
+   * for reading and for a later action score; a run does not score them yet.
+   */
+  discardedActions: Array<{ name: string; reason: string | null }>;
 }
 
 /** A correction to one exported label; fields left out keep the exported value. */
@@ -169,8 +174,18 @@ async function exportMeetings(dataDir: string): Promise<void> {
         decisions: {
           where: { reviewState: { in: ["CONFIRMED", "REJECTED"] } },
           orderBy: { number: "asc" },
-          select: { id: true, number: true, statement: true, status: true, reviewState: true, source: true, evidence: true },
+          select: {
+            id: true,
+            number: true,
+            statement: true,
+            status: true,
+            reviewState: true,
+            source: true,
+            evidence: true,
+            rejectionReason: true,
+          },
         },
+        discardedActionDrafts: { orderBy: { createdAt: "asc" }, select: { name: true, reason: true } },
       },
     });
 
@@ -201,7 +216,9 @@ async function exportMeetings(dataDir: string): Promise<void> {
           source: d.source,
           statement: d.statement,
           evidenceTurns: evidenceTurnsOf(d.evidence),
+          ...(d.reviewState === "REJECTED" && d.rejectionReason ? { reason: d.rejectionReason } : {}),
         })),
+        discardedActions: meeting.discardedActionDrafts,
       };
       labels += fixture.labels.length;
       writeFileSync(path.join(dataDir, `${meeting.id}.json`), JSON.stringify(fixture, null, 2));

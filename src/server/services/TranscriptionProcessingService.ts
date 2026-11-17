@@ -1,6 +1,6 @@
 import { db } from '~/server/db';
 import { FirefliesService, type FirefliesSummary } from './FirefliesService';
-import { ActionExtractionService, filterNearDuplicateActions, mergeActionItems, numberScreenshotMarkers } from './ActionExtractionService';
+import { ActionExtractionService, filterDiscardedActions, filterNearDuplicateActions, mergeActionItems, numberScreenshotMarkers } from './ActionExtractionService';
 import { InternalActionProcessor } from './processors/InternalActionProcessor';
 import { type ParsedActionItem } from './processors/ActionProcessor';
 import { NotificationServiceFactory } from './notifications/NotificationServiceFactory';
@@ -308,6 +308,15 @@ export class TranscriptionProcessingService {
       }
 
       let mergedItems = mergeActionItems(notesItems, transcriptItems);
+      // A draft a reviewer discarded from this meeting is not drafted again.
+      const discarded = await db.discardedActionDraft.findMany({
+        where: { transcriptionSessionId: transcriptionId },
+        select: { name: true },
+      });
+      mergedItems = filterDiscardedActions(
+        mergedItems,
+        discarded.map((draft) => draft.name),
+      );
       let draftIdsToReplace: string[] = [];
       const removeReplacedDrafts = async () => {
         if (draftIdsToReplace.length === 0) return;

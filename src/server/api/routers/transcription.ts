@@ -1,3 +1,4 @@
+import { ACTION_DISCARD_REASON_CODES } from "~/lib/draft-reject-reasons";
 import { z } from "zod";
 import { AiNotConfiguredError, requireAi } from "~/server/services/ai/requireAi";
 import type { Prisma, PrismaClient } from "@prisma/client";
@@ -2258,6 +2259,8 @@ export const transcriptionRouter = createTRPCRouter({
       z.object({
         transcriptionId: z.string(),
         actionIds: z.array(z.string()).min(1).optional(),
+        /** Why, when the reviewer says (optional). Applies to every draft in the call. */
+        reason: z.enum(ACTION_DISCARD_REASON_CODES).optional(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
@@ -2279,13 +2282,31 @@ export const transcriptionRouter = createTRPCRouter({
         "edit",
       );
 
-      const result = await ctx.db.action.deleteMany({
-        where: {
-          ...(input.actionIds ? { id: { in: input.actionIds } } : {}),
-          transcriptionSessionId: input.transcriptionId,
-          status: "DRAFT",
-          createdById: ctx.session.user.id,
-        },
+      const draftsWhere = {
+        ...(input.actionIds ? { id: { in: input.actionIds } } : {}),
+        transcriptionSessionId: input.transcriptionId,
+        status: "DRAFT",
+        createdById: ctx.session.user.id,
+      };
+      // The draft rows go, but what was discarded is kept: it is not drafted
+      // again from this meeting, and it is the extractor's feedback. Logged
+      // and deleted together, so the log never names a draft that survived.
+      const result = await ctx.db.$transaction(async (tx) => {
+        const drafts = await tx.action.findMany({
+          where: draftsWhere,
+          select: { id: true, name: true, description: true },
+        });
+        if (drafts.length === 0) return { count: 0 };
+        await tx.discardedActionDraft.createMany({
+          data: drafts.map((draft) => ({
+            transcriptionSessionId: input.transcriptionId,
+            name: draft.name,
+            description: draft.description,
+            reason: input.reason ?? null,
+            discardedById: ctx.session.user.id,
+          })),
+        });
+        return tx.action.deleteMany({ where: { ...draftsWhere, id: { in: drafts.map((draft) => draft.id) } } });
       });
 
       // Same bookkeeping as publishSelectedDraftActions: once the review is

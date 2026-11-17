@@ -12,6 +12,7 @@
  * swallows).
  */
 
+import type { DecisionRejectReason } from "~/lib/draft-reject-reasons";
 import type {
   DecisionSource,
   DecisionStatus,
@@ -1365,7 +1366,7 @@ async function confirmDraftAttempt(
 /** Reject a draft. A confirmed decision is never rejected — deprecate it. */
 export async function rejectDraft(
   db: PrismaClient,
-  input: { decisionId: string; workspaceId: string; userId: string },
+  input: { decisionId: string; workspaceId: string; userId: string; reason?: DecisionRejectReason },
 ) {
   const current = await db.decision.findFirst({
     where: { id: input.decisionId, workspaceId: input.workspaceId },
@@ -1382,7 +1383,9 @@ export async function rejectDraft(
   }
   return db.decision.update({
     where: { id: current.id },
-    data: { reviewState: "REJECTED" },
+    // The reason is optional, and a later reject without one does not erase
+    // a reason given earlier.
+    data: { reviewState: "REJECTED", ...(input.reason ? { rejectionReason: input.reason } : {}) },
     select: { id: true, reviewState: true },
   });
 }

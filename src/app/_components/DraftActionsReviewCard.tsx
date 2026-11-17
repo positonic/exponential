@@ -16,6 +16,8 @@ import { IconPencil, IconTrash } from "@tabler/icons-react";
 import { api } from "~/trpc/react";
 import type { RouterOutputs } from "~/trpc/react";
 import { EditActionModal } from "./EditActionModal";
+import { RejectReasonMenu } from "~/app/_components/meeting/RejectReasonMenu";
+import { ACTION_DISCARD_REASONS, type ActionDiscardReason } from "~/lib/draft-reject-reasons";
 import { toPlainText } from "~/lib/content/plainText";
 
 type DraftAction =
@@ -168,20 +170,22 @@ export function DraftActionsReviewCard({
     }
   };
 
-  const handleDelete = (actionId: string) => {
-    discardMutation.mutate({ transcriptionId, actionIds: [actionId] });
+  // The reason is optional everywhere: the plain buttons discard without one.
+  const handleDelete = (actionId: string, reason?: ActionDiscardReason) => {
+    discardMutation.mutate({ transcriptionId, actionIds: [actionId], reason });
   };
 
   // With a selection, discard just that; with none, discard every remaining
   // draft — the "I've created the ones I wanted, clear the rest" case.
-  const handleDiscard = () => {
+  const handleDiscard = (reason?: ActionDiscardReason) => {
     if (selectedIds.size > 0) {
       discardMutation.mutate({
         transcriptionId,
         actionIds: Array.from(selectedIds),
+        reason,
       });
     } else {
-      discardMutation.mutate({ transcriptionId });
+      discardMutation.mutate({ transcriptionId, reason });
     }
   };
 
@@ -274,6 +278,13 @@ export function DraftActionsReviewCard({
                   >
                     <IconTrash size={14} />
                   </ActionIcon>
+                  <RejectReasonMenu
+                    reasons={ACTION_DISCARD_REASONS}
+                    label="Discard because…"
+                    ariaLabel="Discard draft action with a reason"
+                    disabled={isBusy}
+                    onPick={(reason) => handleDelete(action.id, reason)}
+                  />
                 </Group>
               </Group>
             </Paper>
@@ -287,7 +298,7 @@ export function DraftActionsReviewCard({
                 size="xs"
                 variant="subtle"
                 color="red"
-                onClick={handleDiscard}
+                onClick={() => handleDiscard()}
                 loading={discardMutation.isPending}
                 disabled={isBusy}
               >
@@ -295,6 +306,13 @@ export function DraftActionsReviewCard({
                   ? `Discard (${selectedIds.size})`
                   : `Discard all (${draftActions.length})`}
               </Button>
+              <RejectReasonMenu
+                reasons={ACTION_DISCARD_REASONS}
+                label="Discard because…"
+                ariaLabel="Discard with a reason"
+                disabled={isBusy}
+                onPick={(reason) => handleDiscard(reason)}
+              />
               <Button
                 size="xs"
                 variant="light"

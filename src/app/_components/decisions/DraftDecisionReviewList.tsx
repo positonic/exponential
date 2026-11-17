@@ -10,6 +10,8 @@ import { MarkdownRenderer } from "~/app/_components/shared/MarkdownRenderer";
 import { evidenceHref, formatEvidenceTime } from "~/lib/decision-evidence";
 import type { MeetingDraftDecision } from "~/lib/meeting-view-model";
 import { EditDraftDecisionModal } from "./EditDraftDecisionModal";
+import { RejectReasonMenu } from "~/app/_components/meeting/RejectReasonMenu";
+import { DECISION_REJECT_REASONS } from "~/lib/draft-reject-reasons";
 
 /**
  * A draft's quoted transcript turns, folded away by default.
@@ -217,6 +219,13 @@ export function DraftDecisionReviewList({
               >
                 Reject
               </Button>
+              <RejectReasonMenu
+                reasons={DECISION_REJECT_REASONS}
+                label="Reject because…"
+                ariaLabel="Reject with a reason"
+                disabled={busy}
+                onPick={(reason) => rejectMutation.mutate({ workspaceId, decisionId: draft.id, reason })}
+              />
               <Button
                 size="xs"
                 leftSection={draft.resolves ? <IconGavel size={12} /> : <IconCheck size={12} />}

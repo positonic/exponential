@@ -22,6 +22,7 @@ import {
   extractNotesListItems,
   filterNearDuplicateActions,
   mergeActionItems,
+  filterDiscardedActions,
 } from "../ActionExtractionService";
 import { FirefliesService } from "../FirefliesService";
 
@@ -318,5 +319,38 @@ describe("ActionExtractionService.extractFromTranscript with excludeActions", ()
 
     expect(regexSpy).toHaveBeenCalledOnce();
     expect(items).toEqual(sentinel);
+  });
+});
+
+describe("filterDiscardedActions", () => {
+  const texts = (items: Array<{ text: string }>) => items.map((item) => item.text);
+
+  it("drops the same action, whatever its case, spacing or closing punctuation", () => {
+    expect(texts(filterDiscardedActions([{ text: "  share the Onboarding   video. " }], ["Share the onboarding video"]))).toEqual([]);
+  });
+
+  it("drops a close rewording", () => {
+    expect(
+      texts(filterDiscardedActions([{ text: "Share the contributor onboarding video in the channel" }], ["Share the onboarding video in the relevant channel"])),
+    ).toEqual([]);
+  });
+
+  it("does not let a discard that shares one generic verb hide another task", () => {
+    const kept = filterDiscardedActions([{ text: "Review security proposal" }, { text: "Send the roadmap to stakeholders" }], ["Review PR", "Send invoice"]);
+    expect(texts(kept)).toEqual(["Review security proposal", "Send the roadmap to stakeholders"]);
+  });
+
+  it("does not let a short discard hide a longer, different task that contains its words", () => {
+    expect(
+      texts(filterDiscardedActions([{ text: "Book the venue and send the catering budget to finance for approval" }], ["Book the venue"])),
+    ).toEqual(["Book the venue and send the catering budget to finance for approval"]);
+  });
+
+  it("matches text with no Latin words by exact equality", () => {
+    expect(texts(filterDiscardedActions([{ text: "发送报告" }, { text: "预订会议室" }], ["发送报告"]))).toEqual(["预订会议室"]);
+  });
+
+  it("returns everything when nothing was discarded", () => {
+    expect(texts(filterDiscardedActions([{ text: "Book the venue" }], []))).toEqual(["Book the venue"]);
   });
 });
