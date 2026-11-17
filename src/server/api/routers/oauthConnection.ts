@@ -19,6 +19,7 @@ import {
 } from "~/server/mcp/oauth/authorizeRequest";
 import { clientKeyFor } from "~/server/mcp/oauth/clients";
 import { mcpOAuthMode } from "~/server/mcp/oauth/metadata";
+import { lockConnection } from "~/server/mcp/oauth/tokenGrant";
 import { createExternalAgent } from "~/server/services/externalAgentCreate";
 import { requireDelegableWorkspaces } from "~/server/services/externalAgentAccess";
 import {
@@ -109,6 +110,8 @@ export const oauthConnectionRouter = createTRPCRouter({
 
         let connectionId: string;
         if (existing) {
+          // Under the connection lock, so a refresh can't add a pair mid-rebind.
+          await lockConnection(tx, existing.id);
           // Rebinding to another agent must not carry the old agent's tokens over.
           if (existing.agentId !== agent.id) {
             await tx.oAuthToken.deleteMany({ where: { connectionId: existing.id } });

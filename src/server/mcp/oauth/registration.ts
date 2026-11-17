@@ -74,7 +74,7 @@ export function registrationResponse(client: { id: string; name: string; redirec
     client_name: client.name,
     redirect_uris: client.redirectUris,
     token_endpoint_auth_method: "none",
-    grant_types: ["authorization_code"],
+    grant_types: ["authorization_code", "refresh_token"],
     response_types: ["code"],
   };
 }

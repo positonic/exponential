@@ -31,8 +31,10 @@ and must be able to offer the same sign-in.
    (`off` | `admin` | `on`) gates it all: off, the documents and OAuth routes 404; admin, only
    app admins can approve.
 2. **Every client is public.** Clients register themselves and get a `client_id`, never a
-   secret; PKCE with S256 is required on every authorization. Redirect URIs are https, loopback
-   http or a private-use scheme, and match exactly except a loopback URI on any port.
+   secret, or use the URL of a client ID metadata document they publish as their `client_id`
+   (fetched through the outbound SSRF guard, cached for 24 hours). PKCE with S256 is required on
+   every authorization. Redirect URIs are https, loopback http or a private-use scheme, and match
+   exactly except a loopback URI on any port.
 3. **A connection is a person's grant to one client, bound to one External agent.** Its access
    token resolves to exactly the context that agent's key does: the shadow user, never an admin,
    token type `agent-key`. Every access path, the denylist (`humanOnlyProcedure`) and the
@@ -74,9 +76,13 @@ and must be able to offer the same sign-in.
   migration.
 - Built in steps behind `MCP_OAUTH_MODE`: discovery, registration, consent and the code grant
   first, where the person picks one of their agents or sets up a new one on the consent screen
-  (created in the same transaction as the connection, with no key); refresh rotation, client ID
-  metadata documents and revocation next; one agent per client reused on reconnect, and the
-  Settings → Agents view of connections, after that.
+  (created in the same transaction as the connection, with no key); then refresh rotation with
+  replay revocation, client ID metadata documents and the revocation endpoint (ticket
+  `loud.viper`); one agent per client reused on reconnect, and the Settings → Agents view of
+  connections, after that.
+- A rotated token row is kept until its refresh token would have expired, so a replay is
+  recognised; every grant prunes the connection's expired rows and codes in its own transaction,
+  so there is no cleanup job.
 - On Vercel previews the issuer resolves to production, so OAuth is exercised locally or on an
   install with `NEXT_PUBLIC_APP_URL` set.
 - Secret scanners can tell the three token kinds apart by prefix, and from agent keys.

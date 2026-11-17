@@ -56,6 +56,15 @@ export function clientKeyFor(client: OAuthClientIdentity): string {
   return `${client.name.toLowerCase()}|${hosts.join(" ")}`;
 }
 
+/**
+ * Whether the `client_id` a client presents at the token endpoint is the
+ * client a grant was issued to: its registration id, or for a metadata client
+ * the document URL it uses as its `client_id`.
+ */
+export function isClientId(client: { id: string; metadataUrl: string | null }, presented: string): boolean {
+  return presented === client.id || (client.metadataUrl !== null && presented === client.metadataUrl);
+}
+
 /** Where a redirect URI sends the person, in words for the consent page. */
 export function describeRedirectTarget(uri: string): string {
   const kind = classifyRedirectUri(uri);

@@ -120,4 +120,46 @@ describe("validateAuthorizeRequest", () => {
       expect((await redirectedError({ response_type: "token", state: undefined })).state).toBeNull();
     });
   });
+
+  describe("a client identified by a metadata document", () => {
+    const URL_ID = "https://claude.ai/oauth/claude-code-client-metadata";
+    const document = { client_id: URL_ID, client_name: "Claude Code", redirect_uris: ["http://127.0.0.1/callback"] };
+    const upsert = vi.fn();
+    const metadataDb = { oAuthClient: { findUnique, upsert } } as unknown as Pick<PrismaClient, "oAuthClient">;
+    const deps = (body: unknown) => ({
+      getDocument: vi.fn().mockResolvedValue({ status: 200, body: JSON.stringify(body) }),
+      resolveHost: async () => ["160.79.104.10"],
+    });
+
+    beforeEach(() => {
+      upsert.mockReset();
+      upsert.mockImplementation((args: { create: Record<string, unknown> }) =>
+        Promise.resolve({ id: "cuid-1", ...args.create }),
+      );
+      findUnique.mockResolvedValue(null);
+    });
+
+    it("fetches the document and accepts a loopback redirect on any port", async () => {
+      const result = await validateAuthorizeRequest(
+        metadataDb,
+        params({ client_id: URL_ID, redirect_uri: "http://127.0.0.1:53682/callback" }),
+        deps(document),
+      );
+
+      expect(result).toMatchObject({
+        kind: "valid",
+        request: { client: { kind: "metadata", name: "Claude Code", metadataUrl: URL_ID } },
+      });
+    });
+
+    it("renders an error page, naming the reason, when the document fails a check", async () => {
+      const result = await validateAuthorizeRequest(
+        metadataDb,
+        params({ client_id: URL_ID, redirect_uri: "http://127.0.0.1/callback" }),
+        deps({ ...document, client_id: "https://evil.example/c.json" }),
+      );
+
+      expect(result).toEqual({ kind: "invalid-client", message: expect.stringMatching(/different client_id/) as unknown });
+    });
+  });
 });

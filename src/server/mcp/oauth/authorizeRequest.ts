@@ -18,6 +18,7 @@ import { z } from "zod";
 
 import { redirectUriMatches } from "./clients";
 import { mcpResource, oauthIssuer } from "./metadata";
+import { isMetadataDocumentClientId, type MetadataFetchDeps, resolveMetadataClient } from "./metadataClient";
 
 const param = z.string().max(4096).optional();
 
@@ -87,14 +88,26 @@ function isCanonicalResource(resource: string | undefined): boolean {
 export async function validateAuthorizeRequest(
   db: Pick<PrismaClient, "oAuthClient">,
   params: AuthorizeParams,
+  deps: MetadataFetchDeps = {},
 ): Promise<AuthorizeValidation> {
   const clientId = params.client_id;
-  const client = clientId
-    ? await db.oAuthClient.findUnique({
-        where: { id: clientId },
-        select: { id: true, kind: true, name: true, redirectUris: true, metadataUrl: true },
-      })
-    : null;
+  let client: ValidAuthorizeRequest["client"] | null = null;
+  if (clientId && isMetadataDocumentClientId(clientId)) {
+    // A client ID metadata document (D10): fetched, or reused for 24 hours.
+    const resolved = await resolveMetadataClient(db, clientId, deps);
+    if (!resolved.ok) {
+      return {
+        kind: "invalid-client",
+        message: `This app can't be connected: ${resolved.message}. Start again from the app.`,
+      };
+    }
+    client = resolved.client;
+  } else if (clientId) {
+    client = await db.oAuthClient.findUnique({
+      where: { id: clientId },
+      select: { id: true, kind: true, name: true, redirectUris: true, metadataUrl: true },
+    });
+  }
   if (!client) {
     return {
       kind: "invalid-client",

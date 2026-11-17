@@ -71,7 +71,7 @@ describe("registrationResponse", () => {
       client_name: "Claude",
       redirect_uris: ["https://claude.ai/api/mcp/auth_callback"],
       token_endpoint_auth_method: "none",
-      grant_types: ["authorization_code"],
+      grant_types: ["authorization_code", "refresh_token"],
       response_types: ["code"],
     });
     expect(response).not.toHaveProperty("client_secret");

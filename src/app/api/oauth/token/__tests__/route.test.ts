@@ -22,12 +22,13 @@ vi.mock("~/env", async (importOriginal) => {
   };
 });
 
-const { redeemAuthorizationCode, checkRateLimit } = vi.hoisted(() => ({
+const { redeemAuthorizationCode, redeemRefreshToken, checkRateLimit } = vi.hoisted(() => ({
   redeemAuthorizationCode: vi.fn(),
+  redeemRefreshToken: vi.fn(),
   checkRateLimit: vi.fn(),
 }));
 vi.mock("~/server/db", () => ({ db: {} }));
-vi.mock("~/server/mcp/oauth/tokenGrant", () => ({ redeemAuthorizationCode }));
+vi.mock("~/server/mcp/oauth/tokenGrant", () => ({ redeemAuthorizationCode, redeemRefreshToken }));
 vi.mock("~/server/utils/rateLimit", async (importOriginal) => ({
   ...(await importOriginal<typeof import("~/server/utils/rateLimit")>()),
   checkRateLimit,
@@ -66,7 +67,10 @@ beforeEach(() => {
   envOverrides.MCP_OAUTH_MODE = "admin";
   checkRateLimit.mockResolvedValue({ success: true, retryAfterSeconds: 0 });
   redeemAuthorizationCode.mockResolvedValue({ ok: true, tokens: TOKENS });
+  redeemRefreshToken.mockResolvedValue({ ok: true, tokens: TOKENS });
 });
+
+const REFRESH = { grant_type: "refresh_token", refresh_token: "exp_ort_old", client_id: "client-1" };
 
 describe("POST /api/oauth/token", () => {
   it("exchanges a code for tokens, uncacheable and readable from any origin", async () => {
@@ -100,12 +104,47 @@ describe("POST /api/oauth/token", () => {
     expect(await other.json()).toMatchObject({ error: "invalid_target" });
   });
 
-  it("does not support the refresh_token grant yet", async () => {
-    const res = await POST(tokenRequest(form({ grant_type: "refresh_token", refresh_token: "exp_ort_x", client_id: "client-1" })));
+  it("refreshes: a refresh token and client_id get a new pair, uncacheable", async () => {
+    const res = await POST(tokenRequest(form(REFRESH)));
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual(TOKENS);
+    expect(res.headers.get("pragma")).toBe("no-cache");
+    expect(redeemRefreshToken).toHaveBeenCalledWith({}, { refreshToken: "exp_ort_old", clientId: "client-1" });
+    expect(redeemAuthorizationCode).not.toHaveBeenCalled();
+  });
+
+  it("passes a refused refresh on as invalid_grant", async () => {
+    redeemRefreshToken.mockResolvedValue({ ok: false, error: "invalid_grant", description: "expired" });
+
+    const res = await POST(tokenRequest(form(REFRESH)));
+
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ error: "invalid_grant", error_description: "expired" });
+  });
+
+  it.each([
+    ["no refresh_token", form({ grant_type: "refresh_token", client_id: "client-1" }), "invalid_request"],
+    ["no client_id", form({ grant_type: "refresh_token", refresh_token: "exp_ort_old" }), "invalid_request"],
+    ["a wider scope", form({ ...REFRESH, scope: "mcp admin" }), "invalid_scope"],
+    ["another resource", form({ ...REFRESH, resource: "https://other.example/api/mcp" }), "invalid_target"],
+  ])("refuses a refresh with %s", async (_label, body, error) => {
+    const res = await POST(tokenRequest(body));
+
+    expect(res.status).toBe(400);
+    expect(await res.json()).toMatchObject({ error });
+    expect(redeemRefreshToken).not.toHaveBeenCalled();
+  });
+
+  it("accepts a refresh that names the one scope", async () => {
+    expect((await POST(tokenRequest(form({ ...REFRESH, scope: "mcp" })))).status).toBe(200);
+  });
+
+  it("refuses any other grant type", async () => {
+    const res = await POST(tokenRequest(form({ grant_type: "client_credentials", client_id: "client-1" })));
 
     expect(res.status).toBe(400);
     expect(await res.json()).toMatchObject({ error: "unsupported_grant_type" });
-    expect(redeemAuthorizationCode).not.toHaveBeenCalled();
   });
 
   it.each([
