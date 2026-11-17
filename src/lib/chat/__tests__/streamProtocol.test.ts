@@ -60,8 +60,34 @@ describe('parseChatStreamBuffer', () => {
         toolFrame({ phase: 'error', id: 't1', name: 'createAction', msg: 'boom' });
       const result = parseChatStreamBuffer(buffer);
       expect(result.toolCalls).toEqual([
-        { id: 't1', name: 'createAction', args: { name: 'x' }, status: 'error', errorMsg: 'boom' },
+        {
+          id: 't1',
+          name: 'createAction',
+          args: { name: 'x' },
+          status: 'error',
+          errorKind: 'unknown',
+          errorMsg: 'boom',
+        },
       ]);
+    });
+
+    it('takes the error kind from the frame, with no raw text for a non-admin', () => {
+      const buffer =
+        toolFrame({ phase: 'call', id: 't1', name: 'queryMeetingContextTool', args: { query: 'x' } }) +
+        toolFrame({ phase: 'error', id: 't1', name: 'queryMeetingContextTool', kind: 'contract' });
+      const [call] = parseChatStreamBuffer(buffer).toolCalls;
+      expect(call?.errorKind).toBe('contract');
+      expect(call?.errorMsg).toBeUndefined();
+    });
+
+    it('classifies from the text when an older frame carries no kind', () => {
+      const buffer = toolFrame({
+        phase: 'error',
+        id: 't1',
+        name: 'getProjects',
+        msg: 'Request failed: 400 Bad Request',
+      });
+      expect(parseChatStreamBuffer(buffer).toolCalls[0]?.errorKind).toBe('contract');
     });
 
     it('keeps first-seen order across multiple tool calls', () => {

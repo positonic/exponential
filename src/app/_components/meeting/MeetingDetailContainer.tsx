@@ -436,6 +436,11 @@ export function MeetingDetailContainer({ id }: { id: string }) {
         hasTranscription: session.hasTranscript,
         meetingDate: session.meetingDate ? String(session.meetingDate) : null,
         workspaceName: session.workspace?.name ?? null,
+        // /recording/<id> has no workspace in its URL, so without this the
+        // chat scopes to the person's default workspace and the agent's
+        // meeting tools look in the wrong place. Only for a member: the chat
+        // route rejects a workspace the person doesn't belong to.
+        workspaceId: session.isWorkspaceMember ? session.workspace?.id ?? null : null,
       },
     };
   }, [session, transcriptActions.length, id]);

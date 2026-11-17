@@ -31,6 +31,7 @@ import {
 } from "~/lib/localWiki";
 import { api } from "~/trpc/react";
 import { reportHandledError } from "~/lib/reportHandledError";
+import { resolveChatWorkspaceId } from "~/lib/chat/chatWorkspace";
 import classes from "./ZoeDrawer.module.css";
 import type ManyChatDefault from "../ManyChat";
 
@@ -87,7 +88,16 @@ function ZoeChatDrawer() {
   } = useAgentModal();
   const { workspace, workspaceId: urlWorkspaceId } = useWorkspace();
 
-  const effectiveWorkspaceId = overrideWorkspaceId ?? urlWorkspaceId;
+  // The person's own pick, then the workspace the page on screen belongs to,
+  // then the provider's (the URL's, or on a slug-less route like
+  // /recording/<id> only the default workspace). Resolved here, not just in
+  // ManyChat: this value is passed down as a prop, where it would outrank the
+  // page, and it also drives the switcher label and the project list.
+  const effectiveWorkspaceId = resolveChatWorkspaceId({
+    explicit: overrideWorkspaceId,
+    pageContext,
+    provider: urlWorkspaceId,
+  });
 
   const [defaultAgent, setDefaultAgent] = useState<{ id: string; name: string } | null>(null);
 

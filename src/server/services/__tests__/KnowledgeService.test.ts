@@ -533,6 +533,57 @@ describe("KnowledgeService — workspace scoping", () => {
       expect(bound).toContainEqual(["meeting-ok"]);
     });
 
+    it("lets exempt source types past the userId narrowing, since their viewer check governs them", async () => {
+      const { db, queryRawCalls, setQueryRawResult, setViewableMeetings } = buildFakeDb();
+      setQueryRawResult([]);
+      setViewableMeetings(["meeting-imported-by-an-agent"]);
+      const svc = new KnowledgeService(db);
+
+      await svc.search("foo", {
+        workspaceId: "ws-A",
+        userId: "u-7",
+        userIdExemptSourceTypes: ["transcription"],
+        transcriptionViewerId: "u-7",
+      });
+
+      const { fragments, bound } = nestedSql(queryRawCalls[0]!);
+      expect(fragments).toContain('(kc."userId" =  ??  OR kc."sourceType" = ANY(');
+      expect(bound).toContainEqual(["transcription"]);
+      // Exempt from "my chunks" is not exempt from access.
+      expect(fragments).toContain(`kc."sourceType" <> 'transcription' OR kc."sourceId" = ANY(`);
+      expect(bound).toContainEqual(["meeting-imported-by-an-agent"]);
+    });
+
+    it("narrows every source type by userId when none is exempt", async () => {
+      const { db, queryRawCalls, setQueryRawResult } = buildFakeDb();
+      setQueryRawResult([]);
+      const svc = new KnowledgeService(db);
+
+      await svc.search("foo", { workspaceId: "ws-A", userId: "u-7", userIdExemptSourceTypes: [] });
+
+      const { fragments } = nestedSql(queryRawCalls[0]!);
+      expect(fragments).toContain('AND kc."userId" = ');
+      expect(fragments).not.toContain('OR kc."sourceType" = ANY(');
+    });
+
+    it("filters one source's chunks in the query, not after the top-K cut", async () => {
+      const { db, queryRawCalls, setQueryRawResult, setViewableMeetings } = buildFakeDb();
+      setQueryRawResult([]);
+      setViewableMeetings(["meeting-1"]);
+      const svc = new KnowledgeService(db);
+
+      await svc.search("foo", {
+        workspaceId: "ws-A",
+        sourceTypes: ["transcription"],
+        sourceId: "meeting-1",
+        transcriptionViewerId: "u-7",
+      });
+
+      const { fragments, bound } = nestedSql(queryRawCalls[0]!);
+      expect(fragments).toContain('AND kc."sourceId" = ');
+      expect(bound).toContain("meeting-1");
+    });
+
     it("still filters transcription chunks when the viewer can see no meetings", async () => {
       const { db, queryRawCalls, setQueryRawResult } = buildFakeDb();
       setQueryRawResult([]);

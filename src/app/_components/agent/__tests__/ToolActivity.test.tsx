@@ -43,7 +43,7 @@ describe('ToolActivity', () => {
     expect(screen.queryByText(/cmx123abc/)).not.toBeInTheDocument();
   });
 
-  it('renders a failed call as one calm line with the raw error behind expand', () => {
+  it('renders a failed call as one calm line, with a plain sentence behind expand', () => {
     const rawError = '{"code":"METHOD_NOT_SUPPORTED","httpStatus":405}';
     render(
       <ToolActivity
@@ -64,10 +64,33 @@ describe('ToolActivity', () => {
     expect(row).not.toHaveTextContent('false');
 
     fireEvent.click(row);
+    // The raw text only exists on the call when the server sent it (admins).
     expect(screen.getByText(rawError)).toBeInTheDocument();
+    expect(
+      screen.getByText("This step isn't working right now. The problem is on our side, not something you did."),
+    ).toBeInTheDocument();
   });
 
-  it('falls back to a placeholder when a failed call has no error message', () => {
+  it('shows a non-admin the sentence alone: no raw error reaches the page', () => {
+    render(
+      <ToolActivity
+        calls={[
+          call({ id: 'a', name: 'queryMeetingContextTool', status: 'error', errorKind: 'contract', args: { query: 'Cyril' } }),
+          call({ id: 'b', name: 'queryMeetingContextTool', status: 'error', errorKind: 'contract', args: { query: 'Cyril stories' } }),
+        ]}
+      />,
+    );
+
+    const row = screen.getByRole('button');
+    expect(row).toHaveTextContent('Searched meeting notes — 0 of 2 succeeded');
+    fireEvent.click(row);
+    expect(
+      screen.getAllByText("This step isn't working right now. The problem is on our side, not something you did."),
+    ).toHaveLength(2);
+    expect(document.body.textContent).not.toMatch(/400|BAD_REQUEST|zodError|workspaceId/);
+  });
+
+  it('falls back to a plain sentence when a failed call carries nothing at all', () => {
     render(
       <ToolActivity
         calls={[call({ name: 'getUserWorkspacesTool', status: 'error' })]}
@@ -75,6 +98,6 @@ describe('ToolActivity', () => {
     );
 
     fireEvent.click(screen.getByRole('button'));
-    expect(screen.getByText('No error details available.')).toBeInTheDocument();
+    expect(screen.getByText("This step didn't work.")).toBeInTheDocument();
   });
 });

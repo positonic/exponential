@@ -44,6 +44,12 @@ export function meetingRangeEnd(endDate: string): Date {
  *   when the row was created: imports land hours or days after the meeting.
  *   Sessions with no `meetingDate` fall back to `createdAt`.
  *
+ * - `transcriptionId` targets one Meeting ("the meeting on screen"). Access
+ *   still applies. A workspace filter then also admits a Meeting with no
+ *   workspace: the chat on `/recording/<id>` has no workspace in its URL and
+ *   sends the person's default one, which must not hide a Personal meeting
+ *   they are looking at. A Meeting in a DIFFERENT workspace stays excluded.
+ *
  * Workspace/project access checks stay with the caller; this only scopes.
  */
 export function buildMeetingTranscriptionsWhere(
@@ -53,11 +59,18 @@ export function buildMeetingTranscriptionsWhere(
     projectId?: string;
     startDate?: string;
     endDate?: string;
+    transcriptionId?: string;
   },
 ): Prisma.TranscriptionSessionWhereInput {
   const and: Prisma.TranscriptionSessionWhereInput[] = [buildTranscriptionAccessWhere(userId)];
 
-  if (filters.workspaceId) and.push({ workspaceId: filters.workspaceId });
+  if (filters.transcriptionId) and.push({ id: filters.transcriptionId });
+
+  if (filters.workspaceId && filters.transcriptionId) {
+    and.push({ OR: [{ workspaceId: filters.workspaceId }, { workspaceId: null }] });
+  } else if (filters.workspaceId) {
+    and.push({ workspaceId: filters.workspaceId });
+  }
   if (filters.projectId) and.push({ projectId: filters.projectId });
 
   if (filters.startDate || filters.endDate) {

@@ -662,6 +662,12 @@ export const transcriptionRouter = createTRPCRouter({
         featureLinks: isWorkspaceMember ? session.featureLinks : [],
         canLinkFeatures,
         canEdit,
+        /**
+         * Whether the viewer belongs to the Meeting's workspace. A Participant
+         * from outside can open the Meeting but not chat in that workspace's
+         * scope, so the page only hands the chat a workspace it will accept.
+         */
+        isWorkspaceMember,
         /** Only the owner may move a workspace meeting to Personal. */
         isOwner: session.userId === ctx.session.user.id,
         hasTranscript: Boolean(transcription),

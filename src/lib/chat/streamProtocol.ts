@@ -18,6 +18,7 @@
 // Pure regex helper, no server dependencies — imported rather than reimplemented
 // so client-shown error text is masked by exactly the rule the server logs use.
 import { maskTokenLike } from '~/server/utils/redactToolArgs';
+import { asToolErrorKind, classifyToolError, type ToolErrorKind } from './toolErrors';
 
 // One agent tool invocation, accumulated from __exp_tool__ frames.
 export interface ToolCall {
@@ -25,6 +26,12 @@ export interface ToolCall {
   name: string;
   args?: Record<string, unknown>;
   status: 'running' | 'success' | 'error';
+  /** What the failure means; drives the plain sentence the person sees. */
+  errorKind?: ToolErrorKind;
+  /**
+   * The raw (masked) error text. The server sends it to admins only, so for
+   * everyone else a failed call carries `errorKind` alone.
+   */
   errorMsg?: string;
 }
 
@@ -52,7 +59,7 @@ const KEEPALIVE_RE = /​/g;
 type ToolFramePayload =
   | { phase: 'call'; id: string; name: string; args?: Record<string, unknown> }
   | { phase: 'result'; id: string; name: string }
-  | { phase: 'error'; id: string; name: string; msg?: string };
+  | { phase: 'error'; id: string; name: string; kind?: string; msg?: string };
 
 export function parseChatStreamBuffer(buffer: string): ParsedChatStream {
   let displayText = buffer;
@@ -101,6 +108,8 @@ export function parseChatStreamBuffer(buffer: string): ParsedChatStream {
           name: payload.name,
           args: existing?.args,
           status: 'error',
+          // A frame from before `kind` existed still classifies from its text.
+          errorKind: asToolErrorKind(payload.kind) ?? classifyToolError(payload.msg),
           errorMsg: payload.msg,
         });
       }

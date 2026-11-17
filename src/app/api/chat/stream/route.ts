@@ -35,6 +35,7 @@ import {
 } from "~/server/services/ai/providerError";
 import { composePromptVersion } from "~/server/services/promptVersion";
 import { reportHandledErrorServer } from "~/server/utils/reportHandledErrorServer";
+import { classifyToolError, isReportableToolError, summarizeToolError } from "~/lib/chat/toolErrors";
 import {
   PER_REQUEST_COST_ALERT_USD,
   priceTokenBreakdown,
@@ -635,6 +636,31 @@ export async function POST(req: Request) {
     const loggedToolCallIndexById = new Map<string, number>();
     let lastStepFinishReason: string | undefined;
     let hadToolError = false;
+    // Tools already reported as broken this turn. A retried call fails the
+    // same way; one report per tool per turn, and the ingest fingerprint
+    // collapses turns onto one ticket.
+    const reportedToolFaults = new Set<string>();
+    // A tool that the app rejects, or that fails its own output schema, fails
+    // on EVERY call for EVERY user while the agent narrates around it. The
+    // daily digest lists those, but nothing asked anyone to fix them: one ran
+    // red for six months. File the Bug on first sight instead.
+    const reportToolFault = (toolName: string, unmaskedError: string) => {
+      // Masked here, at the sink, not left to each caller: this text is
+      // persisted on a ticket, and error text routinely echoes inputs.
+      const rawError = maskTokenLike(unmaskedError);
+      const kind = classifyToolError(rawError);
+      if (!isReportableToolError(kind) || reportedToolFaults.has(toolName)) return;
+      reportedToolFaults.add(toolName);
+      reportHandledErrorServer(new Error(summarizeToolError(toolName, rawError)), {
+        area: "agent-tool",
+        context: {
+          tool: toolName,
+          toolErrorKind: kind,
+          platform,
+          rawError: rawError.slice(0, 1500),
+        },
+      });
+    };
     let hadAgentError = false;
     // The masked top-level agent error, captured for the durable interaction
     // record (the user only ever sees the generic line). Tool errors flow via
@@ -851,6 +877,11 @@ export async function POST(req: Request) {
                     );
                   }
                   hadToolError = true;
+                  // An output that fails the tool's own schema is a contract
+                  // fault by definition: the tool and the app disagree.
+                  if (isMastraToolFailure) {
+                    reportToolFault(name, `ZodError: output failed its schema: ${maskTokenLike(errorCode ?? '')}`);
+                  }
                 }
                 toolFrame({ phase: 'result', id, name });
               } else if (chunk.type === "tool-error") {
@@ -868,7 +899,18 @@ export async function POST(req: Request) {
                   logged.isError = true;
                   logged.errorCode = msg.slice(0, 200);
                 }
-                toolFrame({ phase: 'error', id, name, msg });
+                reportToolFault(name, msg);
+                // Everyone gets the kind (the client turns it into one plain
+                // sentence). The raw text is a tRPC envelope or a zod issue
+                // list: useful to an admin debugging, noise or worse to
+                // anyone else, so only admins receive it.
+                toolFrame({
+                  phase: 'error',
+                  id,
+                  name,
+                  kind: classifyToolError(msg),
+                  ...(session.user.isAdmin ? { msg } : {}),
+                });
               } else if (chunk.type === "error") {
                 // The raw error (often a Zod "Type validation failed" blob, and
                 // capable of echoing credentials) must never reach the user.

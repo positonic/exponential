@@ -108,6 +108,7 @@ const CHAT_ERROR_AREAS = new Set([
   "chat-stream",
   "chat-stream-server",
   "agent-stream",
+  "agent-tool",
   "zoe-canvas-stream",
 ]);
 

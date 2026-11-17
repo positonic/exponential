@@ -47,6 +47,7 @@ import {
 } from '~/lib/localWiki';
 import { preprocessAgentMarkdown, linkifyBareUrls } from '~/lib/chat/agentMarkdown';
 import { failureCopy } from '~/lib/chat/failureCopy';
+import { resolveChatWorkspaceId } from '~/lib/chat/chatWorkspace';
 import { applyToolRefreshInvalidations } from './agent/toolRefreshInvalidation';
 import { LocalWikiFirstRun } from './LocalWikiFirstRun';
 import { PositionsImportPill, IMPORT_POSITIONS_PROMPT } from './PositionsImportPill';
@@ -216,7 +217,8 @@ function formatPageContextData(context: PageContext): string {
   - Actions created from this transcript: ${str(d.actionsCount, '0')}
   - Has transcription text: ${d.hasTranscription ? 'Yes' : 'No'}
   - Meeting date: ${d.meetingDate ? new Date(str(d.meetingDate)).toLocaleDateString() : 'Unknown'}
-  - Workspace: ${str(d.workspaceName)}`;
+  - Workspace: ${str(d.workspaceName)}
+  - The summary above is a condensed overview. For what was actually said in this meeting, call \`get-meeting-transcriptions\` with transcriptionId "${str(d.transcriptionId)}" (returns this meeting's full transcript), or \`query-meeting-context\` with the same transcriptionId to search inside it. Do NOT ask the user to paste the transcript.`;
     }
     default:
       return Object.entries(context.data)
@@ -462,7 +464,15 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
   // Get messages, conversationId, and page context from context to persist across navigation
   const { messages, setMessages, conversationId, setConversationId, pageContext, isOpen, pendingPrompt, pendingContext, consumePendingPrompt } = useAgentModal();
   const { workspaceId: urlWorkspaceId } = useWorkspace();
-  const workspaceId = workspaceIdProp ?? urlWorkspaceId;
+  // A page that names its own workspace wins over the provider's value: on a
+  // route with no workspace slug (/recording/<id>) the provider falls back to
+  // the person's default workspace, which may not be the one on screen. The
+  // drawer resolves the same way before passing its prop (see chatWorkspace.ts).
+  const workspaceId = resolveChatWorkspaceId({
+    explicit: workspaceIdProp,
+    pageContext,
+    provider: urlWorkspaceId,
+  });
   const utils = api.useUtils();
 
   // Fetch the user's custom assistant (if configured)
@@ -584,8 +594,9 @@ export default function ManyChat({ initialMessages, githubSettings, buttons, pro
                   ${projectId ? `- Current project ID: ${projectId}` : ''}
                   
                   🛠️ TOOL USAGE PROTOCOLS:
-                  - ALWAYS report tool failures to user (never fail silently)
-                  - Use format: "⚠️ Tool Error: [action] failed - [reason]. Working with available context instead."
+                  - The interface already shows the user which steps failed. If a tool fails and another tool or the context still lets you answer in full, just answer; do not announce the failure or narrate the retry.
+                  - If a failure limits your answer, say so in one plain sentence: what you could not check, and what the answer is based on instead. Never guess at the technical cause and never paste error text.
+                  - A truncated transcript is a partial read. Never conclude that something was not said from one; fetch the full transcript by transcriptionId first, or say that you only read part of it.
                   - Context shows current/recent data only - use tools for historical/complete data
                   - Available tools: createAction, updateAction, retrieveActions, createGitHubIssue, get_project_context, get-meeting-transcriptions, query-meeting-context, get-meeting-insights, firefliesCheckExisting, firefliesTestApiKey, firefliesCreateIntegration, firefliesGenerateWebhookToken, firefliesGetWebhookUrl
                   - For project goals: use get_project_context tool with the project ID

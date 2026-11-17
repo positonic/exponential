@@ -49,6 +49,20 @@ describe("buildMeetingTranscriptionsWhere", () => {
     });
   });
 
+  it("targets one Meeting by id, still behind the access rule", () => {
+    const where = buildMeetingTranscriptionsWhere(USER, { transcriptionId: "m-1" });
+    expect(where.AND).toEqual([buildTranscriptionAccessWhere(USER), { id: "m-1" }]);
+  });
+
+  it("with an id, a workspace filter also admits a Meeting that has no workspace, never another workspace's", () => {
+    const where = buildMeetingTranscriptionsWhere(USER, { transcriptionId: "m-1", workspaceId: "ws-1" });
+    expect(where.AND).toEqual([
+      buildTranscriptionAccessWhere(USER),
+      { id: "m-1" },
+      { OR: [{ workspaceId: "ws-1" }, { workspaceId: null }] },
+    ]);
+  });
+
   it("leaves the date out entirely when no range is given", () => {
     expect(JSON.stringify(buildMeetingTranscriptionsWhere(USER, {}))).not.toContain("meetingDate");
   });

@@ -69,7 +69,7 @@ not a log hunt.
 
 These tickets are labelled `client-error` + `bug`. A failure in a turn with
 the assistant (areas `chat-stream`, `chat-stream-server`, `agent-stream`,
-`zoe-canvas-stream`) is also labelled `chat-error`, so assistant failures can
+`agent-tool`, `zoe-canvas-stream`) is also labelled `chat-error`, so assistant failures can
 be listed on their own. The areas live in `clientErrorLabels`
 (`src/server/services/clientErrors/clientErrorBug.ts`); a new assistant surface
 adds its area there. Labels are set when the ticket is created, so a
@@ -80,6 +80,15 @@ recurrence that dedups onto an older ticket does not relabel it.
   re-announces as **"Still happening"** at most hourly while it recurs
   (`renotifyAfterMs`; the clock is `links.lastNotifiedAt` on the ticket).
   Everything else stays creation-only.
+- **Broken agent tools.** A tool call the app rejects (a 400 on the request
+  shape, a 405, a 5xx) or whose output fails the tool's own schema fails on
+  every call for everyone, while the reply still looks fine. The chat route
+  files it on first sight as `agent-tool: <tool>: <procedure> rejected the
+  request (<issue> at <field>)`, once per tool per turn; the title carries no
+  ids, so every recurrence lands on the same ticket. Ordinary outcomes
+  (not found, no access, rate limit, timeout) are not filed. The rules are in
+  `src/lib/chat/toolErrors.ts`, which also gives the chat the plain sentence
+  shown for a failed step; the raw error text is streamed to admins only.
 - **Daily agent-health digest.** `/api/cron/agent-health-digest` (07:00 UTC)
   reads the last 24h of `AiInteractionHistory` and posts failed turns and the
   most frequent failing tools to the Matrix room. It catches what tickets

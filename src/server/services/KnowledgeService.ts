@@ -108,6 +108,22 @@ export interface KnowledgeSearchOptions {
    * which reads its owner's Resources and nobody else's (ADR-0079).
    */
   resourceSharedWithViewer?: boolean;
+  /**
+   * Keep only chunks of this one source (a Meeting id, a Page id, ...). In the
+   * query itself, not filtered afterwards: a post-filter over the top `limit`
+   * rows returns nothing whenever other sources rank higher, which is exactly
+   * the "search this meeting" case. Access conditions still apply.
+   */
+  sourceId?: string;
+  /**
+   * Source types the `userId` narrowing does NOT apply to, because their own
+   * viewer check already decides who may see them. A Meeting imported by an
+   * agent or a teammate carries that importer's `userId` on its chunks, so
+   * "my chunks" alone hides Meetings the caller can open; pass
+   * `["transcription"]` together with `transcriptionViewerId` to search the
+   * Meetings the caller can view instead. Ignored without `userId`.
+   */
+  userIdExemptSourceTypes?: ("transcription" | "resource" | "document" | "page")[];
   limit?: number;
   similarityThreshold?: number;
 }
@@ -626,6 +642,9 @@ export class KnowledgeService {
    *      user owns; omitted, they are dropped (fail closed)
    *   - `resourceSharedWithViewer` — also keep Resources shared with that
    *      user through a Project they are in (ADR-0082); for people, not agents
+   *   - `sourceId` — keep only one source's chunks (filtered in SQL)
+   *   - `userIdExemptSourceTypes` — source types `userId` does not narrow,
+   *      because their viewer check governs them
    */
   async search(
     query: string,
@@ -641,6 +660,8 @@ export class KnowledgeService {
       transcriptionViewerId,
       resourceViewerId,
       resourceSharedWithViewer,
+      sourceId,
+      userIdExemptSourceTypes,
       limit = 10,
     } = options;
 
@@ -667,8 +688,15 @@ export class KnowledgeService {
       : Prisma.empty;
 
     // Optional further-narrowing by user (e.g., "search just my chunks").
-    const userCondition = userId
-      ? Prisma.sql`AND kc."userId" = ${userId}`
+    // Exempt source types are governed by their own viewer condition below.
+    const userCondition = !userId
+      ? Prisma.empty
+      : userIdExemptSourceTypes && userIdExemptSourceTypes.length > 0
+        ? Prisma.sql`AND (kc."userId" = ${userId} OR kc."sourceType" = ANY(${userIdExemptSourceTypes}::text[]))`
+        : Prisma.sql`AND kc."userId" = ${userId}`;
+
+    const sourceIdCondition = sourceId
+      ? Prisma.sql`AND kc."sourceId" = ${sourceId}`
       : Prisma.empty;
 
     // Participant filter: include only transcript chunks whose parent
@@ -805,6 +833,7 @@ export class KnowledgeService {
         ${userCondition}
         ${projectCondition}
         ${sourceTypeCondition}
+        ${sourceIdCondition}
         ${participantCondition}
         ${pageAccessCondition}
         ${transcriptionAccessCondition}

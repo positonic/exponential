@@ -165,6 +165,9 @@ export const knowledgeChunkRouter = createTRPCRouter({
         // its own user owns (ADR-0079).
         resourceViewerId: userId,
         resourceSharedWithViewer: (await resolvePrincipal(ctx)).kind !== "agent",
+        // In the query, so one source's chunks aren't crowded out of the
+        // top `limit` by better-ranked chunks from other sources.
+        sourceId: input.sourceId,
         limit: input.limit,
       });
 
