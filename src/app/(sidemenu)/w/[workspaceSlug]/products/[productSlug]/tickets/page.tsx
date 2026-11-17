@@ -764,7 +764,7 @@ export default function TicketsBacklogPage() {
 
   // The Completed header's count. While the rows are wanted, count them
   // (search and facets apply to them); otherwise the server's count is exact,
-  // because any client-side filter would have made them wanted. Rows cached
+  // because no client-side filter is applied. Rows cached
   // from an earlier visit don't count: a disabled query isn't refetched when
   // a mutation invalidates it, so they can be stale.
   const completedTotal = needCompleted && completedLoaded
@@ -774,6 +774,11 @@ export default function TicketsBacklogPage() {
       : (completedCount ?? 0);
   // The section is open (or the board is showing) but its rows are in flight.
   const completedRowsPending = needCompleted && !completedLoaded;
+  // A search or facet is waiting on the first Completed rows: the server's
+  // count is the unfiltered total, so the header shows no number until the
+  // rows land and can be filtered.
+  const completedBadge: number | null =
+    completedRowsPending && clientFilterActive ? null : completedTotal;
 
   // Group active tickets (pure grouping core lives in ./ticketGrouping)
   const groups = useMemo(
@@ -1038,7 +1043,7 @@ export default function TicketsBacklogPage() {
     );
   };
 
-  const renderListGroupRow = (key: string, label: string, ids: string[], count = ids.length) => (
+  const renderListGroupRow = (key: string, label: string, ids: string[], count: number | null = ids.length) => (
     <div
       key={`group-${key}`}
       className={`${table.listGroupRow} group/row`}
@@ -1047,7 +1052,7 @@ export default function TicketsBacklogPage() {
       <div className={table.groupLabel}>
         {renderGroupChevron(ids, key)}
         {label}
-        <Badge size="xs" variant="light">{count}</Badge>
+        <Badge size="xs" variant="light">{count ?? "…"}</Badge>
       </div>
     </div>
   );
@@ -1184,13 +1189,13 @@ export default function TicketsBacklogPage() {
   };
 
   // Group-header row (Group by buckets and the Completed section).
-  const renderGroupRow = (key: string, label: string, ids: string[], count = ids.length) => (
+  const renderGroupRow = (key: string, label: string, ids: string[], count: number | null = ids.length) => (
     <tr key={`group-${key}`} className={`${table.groupRow} group/row`} onClick={() => toggleCollapsed(key)}>
       <td colSpan={colCount}>
         <div className={table.groupLabel}>
           {renderGroupChevron(ids, key)}
           {label}
-          <Badge size="xs" variant="light">{count}</Badge>
+          <Badge size="xs" variant="light">{count ?? "…"}</Badge>
         </div>
       </td>
     </tr>
@@ -1413,7 +1418,7 @@ export default function TicketsBacklogPage() {
             ))}
             {completedTotal > 0 && (
               <>
-                {renderListGroupRow("__completed", "Completed", completedTickets.map((t) => t.id), completedTotal)}
+                {renderListGroupRow("__completed", "Completed", completedTickets.map((t) => t.id), completedBadge)}
                 {!collapsed.has("__completed") &&
                   (completedRowsPending ? (
                     <div className="px-8 py-2" aria-busy="true">
@@ -1466,7 +1471,7 @@ export default function TicketsBacklogPage() {
               {/* Completed section */}
               {completedTotal > 0 && (
                 <>
-                  {renderGroupRow("__completed", "Completed", completedTickets.map((t) => t.id), completedTotal)}
+                  {renderGroupRow("__completed", "Completed", completedTickets.map((t) => t.id), completedBadge)}
                   {!collapsed.has("__completed") &&
                     (completedRowsPending ? (
                       <tr aria-busy="true">
