@@ -48,6 +48,7 @@
     "test:e2e": "playwright test",
     "test:perf": "playwright test --config playwright.perf.config.ts",
     "dev:session": "tsx scripts/dev-session.ts",
+    "dev:agent-token": "tsx scripts/dev-agent-token.ts",
     "dev:seed-fixture": "tsx scripts/seed-dev-fixture.ts",
     "dev:seed-perf": "tsx scripts/seed-perf-fixture.ts",
     "docs:check": "tsx scripts/check-docs.ts",

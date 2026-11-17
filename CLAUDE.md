@@ -129,6 +129,7 @@ Uses **Vitest** with a multi-project config (unit + integration). Tests run auto
 - `npm run check` — Lint + typecheck (always run before committing)
 - `npm run test:e2e` — Playwright visual/E2E suite: boots `next dev` on :3100, seeds the disposable `dev-fixture` workspace, mints a session (no OAuth), runs `e2e/*.spec.ts`. For ad-hoc authenticated browsing use `npm run dev:seed-fixture` + `npm run dev:session`. **See `/dev-docs/AGENT_VISUAL_TESTING.md`** — this is how to visually verify UI changes without a login wall.
 - `npm run test:perf` — page-load perf harness (`e2e/perf/`, production build only, one worker): hard load + client nav timings, tRPC waterfalls/payloads, DB query counts per page. Run `next build` first; see the perf section of `/dev-docs/AGENT_VISUAL_TESTING.md`.
+- `npm run dev:agent-token` — prints an agent token for the fixture user, for the Mastra repo's live smoke test (`npm run smoke:live` there: one real, billed agent turn on the capped `ANTHROPIC_API_KEY_DEV`). See "Running a real agent chat locally" in `/dev-docs/AGENT_VISUAL_TESTING.md`.
 
 **Unit tests** (`*.test.ts`) — pure function tests, no DB needed:
 - Access control permissions (`src/server/services/access/__tests__/`)

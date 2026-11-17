@@ -115,6 +115,53 @@ npx tsx e2e/perf/report.ts e2e/.results/perf/<run-id>       # ranked table
 The 2026-09-16 baseline and root-cause analysis are in
 `dev-docs/perf/page-load-baseline-2026-09-16.md`.
 
+## Running a real agent chat locally
+
+Everything above verifies the app. None of it calls a model: the agents live in
+the Mastra repo (`../mastra`), and a change to a prompt, a tool or a model
+setting there is only proven by a real model call. The Mastra repo has a
+one-command live smoke test for that: one real turn of the Assistant agent,
+with one real tool call, printing the reply, the tool calls and the cost.
+
+```bash
+# In the Mastra checkout. No app needed: a built-in stub answers the tool call.
+npm run smoke:live -- --stub-app
+```
+
+To run the real path, the agent's tools calling **this** app, start the app and
+hand the script an agent token for the fixture user:
+
+```bash
+# In this checkout
+npm run dev:seed-fixture        # once
+npm run dev                     # the app on :3000
+
+# In the Mastra checkout
+SMOKE_AUTH_TOKEN=$(cd ../exponential-app && npm run -s dev:agent-token) npm run smoke:live
+```
+
+`npm run dev:agent-token` prints an `agent-context` JWT, the same token the chat
+route gives Mastra, for the fixture user (`--email` for any existing local user,
+`--json` for the user id and expiry). It has the same safety rails as
+`dev:session`, never creates a user, lasts 30 minutes, and is inert against any
+server that does not share the local `AUTH_SECRET`. The smoke script refuses an
+app that is not on `localhost`. A fixture seeded with `dev:seed-perf` has
+hundreds of overdue actions, so the tool result is large and the run costs more
+than the stub run; the plain fixture is enough.
+
+**The key.** The smoke test spends `ANTHROPIC_API_KEY_DEV` and nothing else: a
+separate Anthropic key in its own workspace with a monthly spend limit
+(50 USD), kept in the Mastra checkout's `.env` and, for CI, as a secret read
+only by the Mastra repo's `eval.yml` workflow. The script refuses to run on the
+production key (`ANTHROPIC_API_KEY`) or in production. Details, the full list of
+refusals, and what the smoke test does and does not cover are in the Mastra
+repo's `README.md`, "Running a real agent turn".
+
+**In a PR.** For a change the smoke test covers, run it and paste the report
+(reply, tool calls, cost) into the PR instead of writing "not run against a
+live model". For a Mastra branch, `gh workflow run eval.yml --ref <branch>` in
+the Mastra repo does the same in CI and puts the report in the run summary.
+
 ## Cleanup
 
 Everything hangs off the fixture workspace; to remove it, delete the
