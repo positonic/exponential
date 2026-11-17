@@ -63,12 +63,13 @@ export function useActiveTimer() {
     lastEntryId.current = id;
   }, [entry?.id, isLoading, utils]);
 
+  // No direct summary refresh here: the getActive refetch below brings back
+  // no running entry, and the identity effect above refreshes them once.
   const stopMutation = api.timeEntry.stop.useMutation({
     onSuccess: async () => {
       await Promise.all([
         utils.timeEntry.getActive.invalidate(),
         utils.timeEntry.listRecent.invalidate(),
-        invalidateTimeSummaries(utils),
       ]);
     },
   });

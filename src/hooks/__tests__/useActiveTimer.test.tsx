@@ -182,17 +182,21 @@ describe("useActiveTimer keeps logged-time totals fresh", () => {
     expect(mockSummaryInvalidate).toHaveBeenCalledTimes(4);
   });
 
-  it("a successful Stop here refreshes them", async () => {
+  it("a Stop here refreshes them exactly once: via the running entry going away, not twice", async () => {
     let onSuccess: (() => Promise<void> | void) | undefined;
     useStopMock.mockImplementation((opts: { onSuccess?: () => Promise<void> | void }) => {
       onSuccess = opts.onSuccess;
       return { mutate: mockStopMutate, isPending: false };
     });
     mockGetActive.mockReturnValue({ data: running, isLoading: false });
-    renderHook(() => useActiveTimer());
+    const { rerender } = renderHook(() => useActiveTimer());
     await act(async () => {
       await onSuccess?.();
     });
+    // onSuccess only refetches getActive; the summaries wait for its result.
+    expect(mockSummaryInvalidate).not.toHaveBeenCalled();
+    mockGetActive.mockReturnValue({ data: null, isLoading: false });
+    rerender();
     expect(mockSummaryInvalidate).toHaveBeenCalledTimes(4);
   });
 });
