@@ -26,6 +26,7 @@ export function ListPageFilterPopover<K extends string>({
   activeCount,
   onToggle,
   onClear,
+  onOpen,
   'aria-label': ariaLabel,
 }: {
   facets: ReadonlyArray<ListPageFilterFacet<K>>;
@@ -34,10 +35,12 @@ export function ListPageFilterPopover<K extends string>({
   activeCount: number;
   onToggle: (key: K, value: string) => void;
   onClear: () => void;
+  /** Called each time the popover opens, e.g. to load rows its options come from. */
+  onOpen?: () => void;
   'aria-label': string;
 }) {
   return (
-    <Popover position="bottom-end" withinPortal shadow="md">
+    <Popover position="bottom-end" withinPortal shadow="md" onOpen={onOpen}>
       <Popover.Target>
         <ListPageButton active={activeCount > 0} count={activeCount} aria-label={ariaLabel}>
           <IconFilter size={13} stroke={1.75} />

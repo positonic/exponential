@@ -37,6 +37,7 @@ import {
   withBlockedFlag,
 } from "~/app/_components/product/useTicketSummaryCache";
 import { sortOpenFirst } from "~/app/_components/product/dependencyOrdering";
+import { invalidateTicketLists } from "~/app/_components/product/invalidateTicketLists";
 import { httpUrlOrNull } from "~/lib/safeUrl";
 
 interface LinkedTicket {
@@ -185,7 +186,7 @@ function useDependencyMutations(ticketId: string, productId: string): Dependency
     await Promise.all([
       utils.product.ticket.getById.invalidate({ id: ticketId }),
       utils.product.ticket.getById.invalidate({ id: sideOf(vars).otherId }),
-      utils.product.ticket.listSummaries.invalidate({ productId }),
+      invalidateTicketLists(utils, { productId }),
     ]);
   };
 

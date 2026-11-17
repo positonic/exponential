@@ -17,6 +17,7 @@ import { IconAlertTriangle, IconPencil, IconTrash } from "@tabler/icons-react";
 import Link from "next/link";
 import { api, type RouterOutputs } from "~/trpc/react";
 import { EditDraftFeatureModal } from "./EditDraftFeatureModal";
+import { invalidateTicketLists } from "~/app/_components/product/invalidateTicketLists";
 
 type DraftFeature =
   RouterOutputs["transcription"]["getDraftFeaturesByTranscription"][number];
@@ -91,7 +92,7 @@ export function DraftFeaturesReviewCard({
         transcriptionId,
       }),
       utils.product.feature.list.invalidate(),
-      utils.product.ticket.listSummaries.invalidate(),
+      invalidateTicketLists(utils),
     ]);
   }, [utils, transcriptionId]);
 

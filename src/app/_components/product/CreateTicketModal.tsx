@@ -36,6 +36,7 @@ import { STATUS_OPTIONS, type TicketStatus } from "~/lib/ticket-statuses";
 import { useWorkspace } from "~/providers/WorkspaceProvider";
 import { PersonPicker } from "~/app/_components/shared/PersonPicker";
 import "@mantine/tiptap/styles.css";
+import { invalidateTicketLists } from "~/app/_components/product/invalidateTicketLists";
 
 // ---------------------------------------------------------------------------
 // Option data
@@ -161,7 +162,7 @@ export function CreateTicketModal({
 
   const createTicket = api.product.ticket.create.useMutation({
     onSuccess: async (ticket) => {
-      await utils.product.ticket.listSummaries.invalidate({ productId });
+      await invalidateTicketLists(utils, { productId });
       resetForm();
       onClose();
       router.push(`${basePath}/${ticket.id}`);

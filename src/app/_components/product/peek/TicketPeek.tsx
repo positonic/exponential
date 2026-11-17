@@ -35,6 +35,7 @@ import { TicketDependenciesSection, BlockedIndicator } from "~/app/_components/p
 import { LabelsCombobox } from "~/app/_components/product/LabelsCombobox";
 import { useTicketPropertyMutations } from "~/app/_components/product/useTicketPropertyMutations";
 import { CollapsibleSection } from "~/app/_components/product/CollapsibleSection";
+import { invalidateTicketLists } from "~/app/_components/product/invalidateTicketLists";
 import { ActivityTimeline } from "~/app/_components/shared/ActivityTimeline";
 import { ActivityFilterMenu, useActivityFilter } from "~/app/_components/shared/ActivityFilterMenu";
 import { useTicketActivity } from "~/hooks/useTicketActivity";
@@ -457,7 +458,7 @@ export function TicketPeek({ ticketId, basePath }: { ticketId: string; basePath:
             void Promise.all([
               utils.product.ticket.getById.invalidate({ id: ticketId }),
               utils.product.ticket.listEvents.invalidate({ id: ticketId }),
-              utils.product.ticket.listSummaries.invalidate({ productId: ticket.product.id }),
+              invalidateTicketLists(utils, { productId: ticket.product.id }),
             ])
           }
         />
