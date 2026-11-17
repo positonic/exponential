@@ -67,6 +67,15 @@ describe('isReportableToolError', () => {
   });
 });
 
+describe('classifyToolError with an unmapped 4xx', () => {
+  it('does not read the rest of the body: a 412 with a stack trace is not a fault to file', () => {
+    const raw =
+      'Request failed: 412 Precondition Failed - {"error":{"json":{"message":"Semantic search: this install has no OpenAI key.","data":{"code":"PRECONDITION_FAILED","httpStatus":412,"stack":"AiNotConfiguredError\\n at zodError (internal_server_error.js) fetch failed"}}}}';
+    expect(classifyToolError(raw)).toBe('unknown');
+    expect(isReportableToolError(classifyToolError(raw))).toBe(false);
+  });
+});
+
 describe('summarizeToolError', () => {
   it('names the tool, the procedure and the field from a nested, cut-off error', () => {
     expect(summarizeToolError('queryMeetingContextTool', WORKSPACE_ID_400)).toBe(
@@ -87,6 +96,19 @@ describe('summarizeToolError', () => {
     );
     expect(summarizeToolError('getAllProjectsTool', 'Request failed: 500 Internal Server Error')).toBe(
       'getAllProjectsTool: the app failed while handling the request',
+    );
+  });
+
+  it('says the answer is at fault, not the request, when the output failed the tool\'s schema', () => {
+    // What the chat route and the tool canary both report for this case.
+    const raw = 'ZodError: output failed its schema: Tool output validation failed for get-project-goals. The tool returned invalid output:';
+    expect(classifyToolError(raw)).toBe('contract');
+    expect(summarizeToolError('getProjectGoalsTool', raw)).toBe(
+      "getProjectGoalsTool: the app answered, but the answer fails the tool's output schema",
+    );
+    // More detail after the marker (the canary sends the failing fields) does not change the title.
+    expect(summarizeToolError('getProjectGoalsTool', `${raw}\n- goals.0.lifeDomain: Expected object, received null`)).toBe(
+      summarizeToolError('getProjectGoalsTool', raw),
     );
   });
 

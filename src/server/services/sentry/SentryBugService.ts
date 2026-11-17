@@ -24,6 +24,16 @@ import { notifyMatrixOfSentryBug } from "./sentryMatrix";
 
 // The Exponential product is the default bug destination (overridable via env).
 const DEFAULT_BUG_PRODUCT_ID = "cmp2ztu9y0003jv04kk2l8sm0";
+
+/**
+ * The product auto-filed bugs land in when the caller names none: the env
+ * override, else the Exponential product. Exported for code that has to find
+ * those tickets again (the tool canary's recovery sweep).
+ */
+export function resolveBugProductId(): string {
+  return process.env.SENTRY_BUG_PRODUCT_ID ?? DEFAULT_BUG_PRODUCT_ID;
+}
+
 const DEFAULT_BOT_EMAIL = "errol@bots.exponential.im";
 const DEFAULT_BOT_NAME = "Errol";
 
@@ -61,8 +71,7 @@ export async function resolveBugAssigneeId(
   const assigneeId = process.env.SENTRY_BUG_ASSIGNEE_ID?.trim();
   if (!assigneeId) return null;
 
-  const platformProductId =
-    process.env.SENTRY_BUG_PRODUCT_ID ?? DEFAULT_BUG_PRODUCT_ID;
+  const platformProductId = resolveBugProductId();
   if (product.id !== platformProductId) return null;
 
   const membership = await getWorkspaceMembership(
@@ -249,10 +258,7 @@ export async function ingestSentryBug(
   // workspace-scoped Sentry integration) wins; otherwise fall back to the
   // global env default, then the hardcoded Exponential product. This keeps the
   // legacy global `/api/webhooks/sentry` route working unchanged.
-  const productId =
-    options?.productId ??
-    process.env.SENTRY_BUG_PRODUCT_ID ??
-    DEFAULT_BUG_PRODUCT_ID;
+  const productId = options?.productId ?? resolveBugProductId();
   const product = await db.product.findUnique({
     where: { id: productId },
     select: {

@@ -23,6 +23,10 @@
       "schedule": "0 7 * * *"
     },
     {
+      "path": "/api/cron/tool-canary",
+      "schedule": "30 6 * * *"
+    },
+    {
       "path": "/api/cron/auto-summarize-meetings",
       "schedule": "0 * * * *"
     },

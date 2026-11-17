@@ -89,11 +89,67 @@ recurrence that dedups onto an older ticket does not relabel it.
   (not found, no access, rate limit, timeout) are not filed. The rules are in
   `src/lib/chat/toolErrors.ts`, which also gives the chat the plain sentence
   shown for a failed step; the raw error text is streamed to admins only.
+- **Tool canary.** `/api/cron/tool-canary` (06:30 UTC, daily) finds a broken
+  tool before a person's chat does. See "Tool canary" below.
 - **Daily agent-health digest.** `/api/cron/agent-health-digest` (07:00 UTC)
   reads the last 24h of `AiInteractionHistory` and posts failed turns and the
   most frequent failing tools to the Matrix room. It catches what tickets
   miss: a tool that errors on every call while the agent narrates around it.
   A clean day posts nothing.
+
+### Tool canary
+
+A contract test proves the shape of a tool's request. The tool canary proves
+the tool works against a running app. Once a day the cron asks the assistant
+service (`POST /api/ops/tool-canary` on Mastra) to call every agent tool that
+reads from the app, with a fixed input, against a **non-production** app. No
+model is involved. The assistant service refuses to run it against production
+(`docs/tool-canary.md` in the Mastra repo has the rules and the list of tools).
+
+The run returns every tool as `ok`, `failed` or `skipped` with a reason. This
+app turns that into tickets and ops-room posts
+(`src/server/services/toolCanary/`):
+
+| What the run found | What happens |
+|---|---|
+| A tool the app rejected, that failed server-side, or whose answer fails its own output schema | Filed as `agent-tool`, with the same title the chat route uses for that fault, so a fault seen by both lands on one ticket. The ops room is told when the ticket is created. |
+| The same tool still failing on a later run | Nothing: no new ticket, no post, no write. |
+| That tool answering again | One post, "Tool canary, working again", and the ticket is marked recovered. A later failure posts once more, "failing again". |
+| Tools that failed for a reason that is not theirs (not found, forbidden, timeout, a 412 "not configured") | One `tool-canary` ticket for all of them. These are the fixture's or the canary's to fix. |
+| The target app not answering, or refusing the canary's credential | One `tool-canary` ticket. No tool is blamed and none is declared recovered. |
+| The assistant service not answering, or the canary not configured there | One `tool-canary` ticket, and the cron answers 502. |
+
+"Was failing" is kept on the ticket, in `links.toolCanary = { key, state }`,
+so it survives between runs without a schema change. It is written only when
+the state changes.
+
+**Check the checker.** The cron is in `vercel.json`, so `automaticVercelMonitors`
+gives it a Sentry cron monitor: a canary that stops running, or answers 5xx, is
+reported by Sentry. A run that finds broken tools is a 200; the canary worked.
+
+**Limits.** Write tools are never called. A tool is called with one input.
+Four read tools need a connected mailbox or Google Calendar and are skipped,
+with that reason in the run's response. Three search tools make the target app
+embed a three-word query, which is the only model use in a run.
+
+**Turning it on.** It is off until both sides are configured:
+
+| Where | Variable | Value |
+|---|---|---|
+| Vercel production | `TOOL_CANARY_SECRET` | A new random secret. `MASTRA_API_URL` and `CRON_SECRET` are already set. |
+| Railway `mastra` | `TOOL_CANARY_SECRET` | The same secret. |
+| Railway `mastra` | `TOOL_CANARY_APP_URL` | Origin of the non-production app. |
+| Railway `mastra` | `TOOL_CANARY_AUTH_TOKEN` | An API token or agent key for a member of the fixture workspace on that app. |
+| Railway `mastra` | `TOOL_CANARY_WORKSPACE_ID` | Id of the fixture workspace on that app. |
+
+With only the app's half set, the first run files "the tool canary could not
+run (the assistant service answered 503)". Bug filing itself needs
+`CLIENT_ERROR_BUGS`, as for every handled error.
+
+To run it by hand: `curl -H "Authorization: Bearer $CRON_SECRET"
+https://<app>/api/cron/tool-canary`. The response lists the counts, what is
+failing, what was announced, what recovered, and every skipped tool with its
+reason.
 
 ### GlitchTip senders
 

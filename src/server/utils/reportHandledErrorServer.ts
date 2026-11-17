@@ -1,7 +1,7 @@
 import * as Sentry from "@sentry/nextjs";
 
 import { db } from "~/server/db";
-import { ingestSentryBug } from "~/server/services/sentry/SentryBugService";
+import { ingestSentryBug, type IngestResult } from "~/server/services/sentry/SentryBugService";
 import { runAfterResponse } from "~/server/utils/runAfterResponse";
 import {
   buildClientErrorBody,
@@ -40,6 +40,29 @@ function messageOf(error: unknown): string {
     }
   }
   return "";
+}
+
+/**
+ * File (or dedup onto) the Bug Ticket for a handled failure, and wait for it.
+ *
+ * The half of {@link reportHandledErrorServer} that writes the ticket, for
+ * callers that need the result: a job that records state on the ticket it
+ * filed (the tool canary) cannot use a fire-and-forget report. Same
+ * `CLIENT_ERROR_BUGS` gate, same fingerprint, same labels, so a failure
+ * reported both ways lands on one ticket. Returns null when filing is off.
+ * Unlike the reporter this can throw: the caller is a job that should know.
+ */
+export async function fileHandledErrorBug(
+  report: ClientErrorReport,
+  options?: { heading?: string; renotifyAfterMs?: number },
+): Promise<IngestResult | null> {
+  if (!process.env.CLIENT_ERROR_BUGS) return null;
+  return ingestSentryBug(db, buildClientErrorBug(report), {
+    body: buildClientErrorBody(report),
+    labels: clientErrorLabels(report.area),
+    heading: options?.heading ?? "New app error",
+    ...(options?.renotifyAfterMs !== undefined ? { renotifyAfterMs: options.renotifyAfterMs } : {}),
+  });
 }
 
 export function reportHandledErrorServer(
@@ -88,12 +111,7 @@ export function reportHandledErrorServer(
   // instance and the ticket silently lost. Callers stay synchronous. Dedup on
   // the error fingerprint happens inside ingestSentryBug.
   runAfterResponse(() =>
-    ingestSentryBug(db, buildClientErrorBug(report), {
-      body: buildClientErrorBody(report),
-      labels: clientErrorLabels(area),
-      heading: "New app error",
-      ...(renotifyAfterMs !== undefined ? { renotifyAfterMs } : {}),
-    }).catch((ingestError: unknown) => {
+    fileHandledErrorBug(report, { renotifyAfterMs }).catch((ingestError: unknown) => {
       console.error(`[reportHandledErrorServer] could not file a bug (${area}):`, ingestError);
     }),
   );

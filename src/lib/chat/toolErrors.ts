@@ -64,8 +64,13 @@ export function classifyToolError(message: string | undefined | null): ToolError
 
   const status = /request failed:\s*(\d{3})\b/.exec(text) ?? /httpstatus\W{1,4}(\d{3})\b/.exec(text);
   if (status?.[1]) {
-    const fromStatus = kindFromStatus(Number(status[1]));
+    const code = Number(status[1]);
+    const fromStatus = kindFromStatus(code);
     if (fromStatus) return fromStatus;
+    // Any other 4xx (a 412 "connect your calendar first", a 409) is the app
+    // answering on purpose. Stop here: the phrases below would otherwise match
+    // words in the rest of the body, such as a dev server's stack trace.
+    if (code >= 400 && code <= 499) return 'unknown';
   }
 
   if (/not_found|not found/.test(text)) return 'not-found';
@@ -116,6 +121,9 @@ const ISSUE_PATH_RE = new RegExp(
   'g',
 );
 
+/** The marker both reporters (chat route, tool canary) put on an output-schema failure. */
+const OUTPUT_SCHEMA_RE = /output failed its schema/i;
+
 /**
  * A short, stable line naming the fault: which tool, which app procedure,
  * which field. Stable matters more than complete: the Bug ticket's dedup
@@ -128,6 +136,12 @@ export function summarizeToolError(toolName: string, message: string | undefined
   const raw = message ?? '';
   const kind = classifyToolError(raw);
   const procedure = PROCEDURE_RE.exec(raw)?.[1];
+
+  // The app answered; the answer is what is wrong. Said in those words so the
+  // person fixing it looks at the tool's output schema, not at its request.
+  if (OUTPUT_SCHEMA_RE.test(raw)) {
+    return `${toolName}: ${procedure ?? 'the app'} answered, but the answer fails the tool's output schema`;
+  }
 
   if (kind === 'contract') {
     const fields = new Set<string>();
