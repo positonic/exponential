@@ -991,12 +991,27 @@ describe("ticket router — search (mocked)", () => {
   });
 });
 
+/** Interactive transactions run against the mock itself (as in writeRole.test.ts). */
+function runTransactionsOnMock(dbMock: DeepMockProxy<PrismaClient>) {
+  dbMock.$transaction.mockImplementation((async (arg: unknown) =>
+    typeof arg === "function"
+      ? (arg as (tx: PrismaClient) => unknown)(dbMock)
+      : Promise.all(arg as Promise<unknown>[])) as never);
+}
+
 /**
  * ADR-0002: a dependency may cross Products but never Workspaces, and the
  * caller must be able to edit in both tickets' workspaces.
  */
 describe("ticket router — addDependency workspace boundary (mocked)", () => {
   let dbMock: DeepMockProxy<PrismaClient>;
+
+  /** Each Product's workspace, as the locked re-read inside the transaction sees it. */
+  const productWorkspace: Record<string, string> = {
+    "prod-1": "ws-1",
+    "prod-plugin": "ws-1",
+    "prod-x": "ws-other",
+  };
 
   /** Ticket rows as `addDependency` selects them. */
   const tickets: Record<string, { id: string; productId: string; product: { workspaceId: string } }> = {
@@ -1008,30 +1023,39 @@ describe("ticket router — addDependency workspace boundary (mocked)", () => {
 
   /** Membership per workspace: the caller belongs only to `workspaceIds`. */
   function stubMemberOf(workspaceIds: string[]) {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    dbMock.workspaceUser.findUnique.mockImplementation((args: any) => {
-      const ws = args?.where?.userId_workspaceId?.workspaceId as string | undefined;
+    dbMock.workspaceUser.findUnique.mockImplementation(((args: {
+      where: { userId_workspaceId?: { workspaceId: string } };
+    }) => {
+      const ws = args.where.userId_workspaceId?.workspaceId;
       return Promise.resolve(
         ws && workspaceIds.includes(ws) ? { role: "member", workspaceId: ws } : null,
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      ) as any;
-    });
+      );
+    }) as never);
     dbMock.teamUser.findFirst.mockResolvedValue(null);
+  }
+
+  /** The locked `SELECT "workspaceId" FROM "Product"` re-read, per product id bound into it. */
+  function stubLockedProducts(workspaces: Record<string, string>) {
+    dbMock.$queryRaw.mockImplementation(((_sql: TemplateStringsArray, ...values: unknown[]) => {
+      const ids = values.flatMap((v) =>
+        v && typeof v === "object" && "values" in v ? (v as { values: unknown[] }).values : [v],
+      );
+      return Promise.resolve(
+        ids.filter((id): id is string => typeof id === "string" && id in workspaces)
+          .map((id) => ({ workspaceId: workspaces[id] })),
+      );
+    }) as never);
   }
 
   beforeEach(() => {
     dbMock = getDbMock();
     mockReset(dbMock);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    dbMock.ticket.findUnique.mockImplementation((args: any) =>
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      Promise.resolve(tickets[args?.where?.id as string] ?? null) as any,
-    );
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    dbMock.$transaction.mockImplementation((fn: any) => fn(dbMock));
+    dbMock.ticket.findUnique.mockImplementation(((args: { where: { id: string } }) =>
+      Promise.resolve(tickets[args.where.id] ?? null)) as never);
+    runTransactionsOnMock(dbMock);
+    stubLockedProducts(productWorkspace);
     dbMock.ticketDependency.findMany.mockResolvedValue([]);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    dbMock.ticketDependency.upsert.mockResolvedValue({ id: "dep-1" } as any);
+    dbMock.ticketDependency.upsert.mockResolvedValue({ id: "dep-1" } as never);
     stubMemberOf(["ws-1", "ws-other"]);
   });
 
@@ -1079,6 +1103,20 @@ describe("ticket router — addDependency workspace boundary (mocked)", () => {
     expect(dbMock.ticketDependency.upsert).not.toHaveBeenCalled();
   });
 
+  it("refuses when a product moved to another workspace while the link was being added", async () => {
+    // The tickets were read in one workspace; by the time the transaction
+    // locks the Products, the plugin product has moved.
+    stubLockedProducts({ ...productWorkspace, "prod-plugin": "ws-2" });
+    const caller = createMockCaller({ userId: callerId, db: dbMock });
+    await expect(
+      caller.product.ticket.addDependency({ ticketId: "t-plugin", dependsOnId: "t-a" }),
+    ).rejects.toMatchObject({
+      code: "BAD_REQUEST",
+      message: "Dependencies must be within the same workspace.",
+    });
+    expect(dbMock.ticketDependency.upsert).not.toHaveBeenCalled();
+  });
+
   it("refuses when the caller cannot edit the blocker's workspace", async () => {
     stubMemberOf(["ws-1"]);
     const caller = createMockCaller({ userId: callerId, db: dbMock });
@@ -1105,8 +1143,7 @@ describe("ticket router — search scope (mocked)", () => {
     dbMock = getDbMock();
     mockReset(dbMock);
     dbMock.product.findUnique.mockResolvedValue(
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      { id: productId, workspaceId, slug: "exponential", name: "Exponential" } as any,
+      { id: productId, workspaceId, slug: "exponential", name: "Exponential" } as never,
     );
     stubMembership(dbMock, true);
     dbMock.ticket.findMany.mockResolvedValue([]);
@@ -1163,5 +1200,45 @@ describe("ticket router — search scope (mocked)", () => {
       caller.product.ticket.search({ productId, scope: "workspace" }),
     ).rejects.toMatchObject({ code: "FORBIDDEN" });
     expect(dbMock.ticket.findMany).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * ADR-0002: moving a Product to another workspace must not leave a
+ * dependency edge crossing workspaces, so edges to Products left behind go.
+ */
+describe("product.moveToWorkspace drops cross-workspace dependencies (mocked)", () => {
+  let dbMock: DeepMockProxy<PrismaClient>;
+
+  beforeEach(() => {
+    dbMock = getDbMock();
+    mockReset(dbMock);
+    dbMock.product.findUnique.mockResolvedValue(
+      { id: productId, workspaceId, slug: "plugin", name: "Plugin" } as never,
+    );
+    stubMembership(dbMock, true);
+    dbMock.workspace.findUnique.mockResolvedValue({ slug: "other" } as never);
+    dbMock.product.findMany.mockResolvedValue([]);
+    runTransactionsOnMock(dbMock);
+    dbMock.ticket.findMany.mockResolvedValue([]);
+    dbMock.ticketDependency.deleteMany.mockResolvedValue({ count: 2 });
+  });
+
+  it("deletes edges between the moved product and any other product, and reports the count", async () => {
+    const caller = createMockCaller({ userId: callerId, db: dbMock });
+    const res = await caller.product.product.moveToWorkspace({
+      id: productId,
+      targetWorkspaceId: "ws-2",
+    });
+
+    expect(dbMock.ticketDependency.deleteMany).toHaveBeenCalledWith({
+      where: {
+        OR: [
+          { ticket: { productId }, dependsOn: { productId: { not: productId } } },
+          { dependsOn: { productId }, ticket: { productId: { not: productId } } },
+        ],
+      },
+    });
+    expect(res.droppedDependencies).toBe(2);
   });
 });

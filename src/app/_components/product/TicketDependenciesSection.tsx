@@ -27,6 +27,11 @@ import {
 import { api } from "~/trpc/react";
 import { generateLinearId } from "~/lib/fun-ids";
 import {
+  isForeignTicket,
+  linkedTicketHref,
+  type LinkedTicketProduct,
+} from "~/app/_components/product/linkedTicketHref";
+import {
   COMPLETED_TICKET_STATUSES,
   STATUS_COLORS,
   STATUS_LABELS,
@@ -50,6 +55,8 @@ interface LinkedTicket {
   /** Optional: the search endpoint and older callers don't carry it. */
   prUrl?: string | null;
   assignee: { id: string; name: string | null; image: string | null } | null;
+  /** The linked ticket's own Product: it may be a sibling one (ADR-0002). */
+  product?: LinkedTicketProduct | null;
 }
 
 export type DependencyGroup = "dependsOn" | "requiredFor";
@@ -271,9 +278,10 @@ export function TicketDependenciesSection({
     ...requiredFor.map((t) => t.id),
   ]);
 
-  const getDisplayId = (t: { number: number; shortId: string | null }) => {
+  const getDisplayId: GetDisplayId = (t) => {
     if (funTicketIds && t.shortId) return t.shortId;
-    if (productName && t.number > 0) return generateLinearId(productName, t.number);
+    // A ticket from a sibling Product is numbered in that Product.
+    if (productName && t.number > 0) return generateLinearId(t.product?.name ?? productName, t.number);
     return null;
   };
 
@@ -318,7 +326,11 @@ export function TicketDependenciesSection({
   );
 }
 
-type GetDisplayId = (t: { number: number; shortId: string | null }) => string | null;
+type GetDisplayId = (t: {
+  number: number;
+  shortId: string | null;
+  product?: LinkedTicketProduct | null;
+}) => string | null;
 
 function DependencySection({
   icon,
@@ -381,6 +393,7 @@ function DependencySection({
                   key={t.id}
                   ticket={t}
                   basePath={basePath}
+                  productId={productId}
                   direction={direction}
                   wide={wide}
                   withDivider={i < ordered.length - 1}
@@ -396,6 +409,7 @@ function DependencySection({
                   key={t.id}
                   ticket={t}
                   basePath={basePath}
+                  productId={productId}
                   direction={direction}
                   wide={wide}
                   getDisplayId={getDisplayId}
@@ -438,6 +452,7 @@ function DependencySection({
 function DependencyRow({
   ticket,
   basePath,
+  productId,
   direction,
   wide,
   withDivider = false,
@@ -446,6 +461,7 @@ function DependencyRow({
 }: {
   ticket: LinkedTicket;
   basePath: string;
+  productId: string;
   direction: Direction;
   wide: boolean;
   withDivider?: boolean;
@@ -458,6 +474,7 @@ function DependencyRow({
   // The router now only accepts http(s) here, but rows older than that
   // guard (and anything written straight to the DB) still go through it.
   const prHref = httpUrlOrNull(ticket.prUrl);
+  const foreignProduct = isForeignTicket(productId, ticket) ? ticket.product : null;
 
   return (
     <div
@@ -495,11 +512,17 @@ function DependencyRow({
       <Text
         size="xs"
         component={Link}
-        href={`${basePath}/${ticket.id}`}
+        href={linkedTicketHref(basePath, productId, ticket)}
         className="min-w-0 truncate text-text-primary hover:text-brand-primary transition-colors"
       >
         {ticket.title}
       </Text>
+      {/* A blocker from a sibling Product (ADR-0002) says where it lives. */}
+      {foreignProduct && (
+        <Text size="xs" className="text-text-muted shrink-0">
+          {foreignProduct.name}
+        </Text>
+      )}
       {wide && (
         <Text size="xs" className="text-text-muted shrink-0">
           {statusLabel}

@@ -713,6 +713,7 @@ export const productRouter = createTRPCRouter({
         suffix += 1;
       }
 
+      let droppedDependencies = 0;
       await ctx.db.$transaction(async (tx) => {
         await tx.product.update({
           where: { id: product.id },
@@ -733,6 +734,20 @@ export const productRouter = createTRPCRouter({
           productId: product.id,
           workspaceId: input.targetWorkspaceId,
         });
+        // ADR-0002: a dependency may link sibling Products but never two
+        // Workspaces. An edge between this Product and one staying behind
+        // would cross that boundary after the move — and `getById` would
+        // show the linked ticket to members of either workspace — so it
+        // goes, like the meeting links above.
+        const { count } = await tx.ticketDependency.deleteMany({
+          where: {
+            OR: [
+              { ticket: { productId: product.id }, dependsOn: { productId: { not: product.id } } },
+              { dependsOn: { productId: product.id }, ticket: { productId: { not: product.id } } },
+            ],
+          },
+        });
+        droppedDependencies = count;
 
         // Bring along epics used exclusively by this product.
         const epicLinks = await tx.ticket.findMany({
@@ -776,7 +791,7 @@ export const productRouter = createTRPCRouter({
         }
       });
 
-      return { slug, workspaceSlug: targetWorkspace.slug };
+      return { slug, workspaceSlug: targetWorkspace.slug, droppedDependencies };
     }),
 
   // ── Dependency graph ──

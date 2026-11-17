@@ -532,6 +532,14 @@ export default function ProductSettingsPage() {
           workspaceId: targetWorkspaceId,
         });
       }
+      // Dependencies on Products left behind cannot cross workspaces (ADR-0002).
+      if (result.droppedDependencies > 0) {
+        notifications.show({
+          title: "Cross-product dependencies removed",
+          message: `${result.droppedDependencies} ticket ${result.droppedDependencies === 1 ? "dependency" : "dependencies"} on products in the old workspace ${result.droppedDependencies === 1 ? "was" : "were"} removed.`,
+          color: "yellow",
+        });
+      }
       router.push(`/w/${result.workspaceSlug}/products/${result.slug}`);
     },
     onError: (err) => setMoveError(err.message),
