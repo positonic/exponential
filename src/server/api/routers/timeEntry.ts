@@ -14,6 +14,8 @@ import {
   searchTimerTargets,
 } from "~/server/services/timeEntry/timerTargets";
 import {
+  buildCycleAccessWhere,
+  buildFeatureAccessWhere,
   buildTicketAccessWhere,
   buildTicketWriteWhere,
   canViewAction,
@@ -502,6 +504,49 @@ export const timeEntryRouter = createTRPCRouter({
       }
       const service = new TimeEntryService(ctx.db);
       return service.projectReport({ projectId: input.projectId });
+    }),
+
+  /**
+   * Everyone's logged time on a Ticket, in total and per person. Tickets
+   * have no members of their own, so workspace membership via the ticket's
+   * product is the membership path (guests denied, as for reading tickets).
+   */
+  ticketSummary: apiKeyMiddleware
+    .input(z.object({ ticketId: z.string() }))
+    .query(async ({ ctx, input }) => {
+      const ticket = await ctx.db.ticket.findFirst({
+        where: { AND: [{ id: input.ticketId }, buildTicketAccessWhere(ctx.userId)] },
+        select: { id: true },
+      });
+      if (!ticket) throw new TRPCError({ code: "NOT_FOUND", message: "Ticket not found" });
+      return new TimeEntryService(ctx.db).ticketReport({ ticketId: ticket.id });
+    }),
+
+  /** Everyone's logged time on a Feature's tickets. Same access as tickets. */
+  featureSummary: apiKeyMiddleware
+    .input(z.object({ featureId: z.string() }))
+    .query(async ({ ctx, input }) => {
+      const feature = await ctx.db.feature.findFirst({
+        where: { AND: [{ id: input.featureId }, buildFeatureAccessWhere(ctx.userId)] },
+        select: { id: true },
+      });
+      if (!feature) throw new TRPCError({ code: "NOT_FOUND", message: "Feature not found" });
+      return new TimeEntryService(ctx.db).featureReport({ featureId: feature.id });
+    }),
+
+  /**
+   * Everyone's time logged inside a Cycle's window on its product's tickets
+   * (see `TimeEntryService.cycleReport` for why it is by date, not cycleId).
+   */
+  cycleSummary: apiKeyMiddleware
+    .input(z.object({ cycleId: z.string() }))
+    .query(async ({ ctx, input }) => {
+      const cycle = await ctx.db.list.findFirst({
+        where: { AND: [{ id: input.cycleId }, buildCycleAccessWhere(ctx.userId)] },
+        select: { productId: true, workspaceId: true, startDate: true, endDate: true },
+      });
+      if (!cycle) throw new TRPCError({ code: "NOT_FOUND", message: "Cycle not found" });
+      return new TimeEntryService(ctx.db).cycleReport(cycle);
     }),
 
   /**

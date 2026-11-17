@@ -92,7 +92,12 @@ export {
   buildProjectEditWhere,
   buildWorkspaceProjectAccessWhere,
 } from "./resolvers/projectResolver";
-export { buildTicketAccessWhere, buildTicketWriteWhere } from "./resolvers/ticketResolver";
+export {
+  buildCycleAccessWhere,
+  buildFeatureAccessWhere,
+  buildTicketAccessWhere,
+  buildTicketWriteWhere,
+} from "./resolvers/ticketResolver";
 export {
   buildSharedResourceWhere,
   listSharedResourceProjectIds,

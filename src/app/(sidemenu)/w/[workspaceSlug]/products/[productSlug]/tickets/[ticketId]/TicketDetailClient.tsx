@@ -53,6 +53,7 @@ import {
   PropertyRow,
   SearchableSelect,
 } from "~/app/_components/PropertiesSidebar";
+import { TicketTimeRow } from "~/app/_components/TimeLoggedSummary";
 import { generateLinearId, parseTicketUrlId } from "~/lib/fun-ids";
 import { PriorityIcon } from "~/app/_components/product/PriorityIcon";
 import { NotionSyncBadge } from "~/app/_components/product/NotionSyncBadge";
@@ -651,6 +652,9 @@ export function TicketDetailClient() {
             styles={{ input: { height: 24, minHeight: 24 } }}
           />
         </PropertyRow>
+
+        {/* Time logged on this ticket's Actions, by anyone */}
+        <TicketTimeRow ticketId={ticketId} />
 
         <PropertyDivider />
 

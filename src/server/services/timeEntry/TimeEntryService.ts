@@ -1005,8 +1005,50 @@ export class TimeEntryService {
    * the arithmetic lives in `projectTimeReport.ts`.
    */
   async projectReport(input: { projectId: string }): Promise<ProjectTimeReport> {
+    return this.reportFor({ action: { projectId: input.projectId } });
+  }
+
+  /** Everyone's time on a Ticket: the entries on its Actions. */
+  async ticketReport(input: { ticketId: string }): Promise<ProjectTimeReport> {
+    return this.reportFor({ action: { ticketId: input.ticketId } });
+  }
+
+  /** Everyone's time on a Feature: the entries on its Tickets' Actions. */
+  async featureReport(input: { featureId: string }): Promise<ProjectTimeReport> {
+    return this.reportFor({ action: { ticket: { is: { featureId: input.featureId } } } });
+  }
+
+  /**
+   * Everyone's time IN a Cycle: entries that started inside its window,
+   * `[startDate, endDate)` as in `currentCycle.ts`, on tickets of the cycle's
+   * product (any product in the workspace for a legacy workspace-shared
+   * cycle). Deliberately not grouped by `ticket.cycleId`: a ticket that
+   * rolls over moves its cycleId, and would drag earlier hours with it. A
+   * cycle without both dates has no window, so it reports nothing.
+   */
+  async cycleReport(input: {
+    productId: string | null;
+    workspaceId: string;
+    startDate: Date | null;
+    endDate: Date | null;
+  }): Promise<ProjectTimeReport> {
+    if (!input.startDate || !input.endDate) return computeProjectTimeReport([]);
+    return this.reportFor({
+      startedAt: { gte: input.startDate, lt: input.endDate },
+      action: {
+        ticket: {
+          is: input.productId
+            ? { productId: input.productId }
+            : { product: { workspaceId: input.workspaceId } },
+        },
+      },
+    });
+  }
+
+  /** Every entry matching `where`, summed (see `computeProjectTimeReport`). */
+  private async reportFor(where: Prisma.TimeEntryWhereInput): Promise<ProjectTimeReport> {
     const rows = await this.db.timeEntry.findMany({
-      where: { action: { projectId: input.projectId } },
+      where,
       select: {
         userId: true,
         startedAt: true,

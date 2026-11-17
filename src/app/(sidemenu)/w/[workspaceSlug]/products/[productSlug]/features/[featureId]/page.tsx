@@ -44,6 +44,7 @@ import {
   PropertyRow,
   SearchableSelect,
 } from "~/app/_components/PropertiesSidebar";
+import { FeatureTimeRow } from "~/app/_components/TimeLoggedSummary";
 import { PriorityIcon } from "~/app/_components/product/PriorityIcon";
 import { LabelsCombobox } from "~/app/_components/product/LabelsCombobox";
 import { MarkdownRenderer } from "~/app/_components/shared/MarkdownRenderer";
@@ -550,6 +551,9 @@ export default function FeatureDetailPage() {
             {feature.scopes.length}
           </Text>
         </PropertyRow>
+
+        {/* Time logged on this feature's tickets, by anyone */}
+        <FeatureTimeRow featureId={feature.id} />
 
         <PropertyRow icon={<IconTag size={14} />} label="Labels">
           <LabelsCombobox

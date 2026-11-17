@@ -961,3 +961,90 @@ describe("timeEntry.start on a Ticket (the plugin's \"What's this for?\" picker)
     expect(data).not.toHaveProperty("note");
   });
 });
+
+describe("timeEntry ticket / feature / cycle summaries (crisp.dove)", () => {
+  let db: DeepMockProxy<PrismaClient>;
+  const ALICE = { id: "u-alice", name: "Alice", image: null };
+
+  beforeEach(() => {
+    db = getDbMock();
+    mockReset(db);
+    db.timeEntry.findMany.mockResolvedValue([
+      {
+        userId: ALICE.id,
+        startedAt: new Date("2026-11-10T09:00:00Z"),
+        endedAt: new Date("2026-11-10T10:30:00Z"),
+        source: "plugin",
+        status: "CONFIRMED",
+        user: ALICE,
+      },
+    ] as never);
+  });
+
+  const whereOfFindMany = () =>
+    (db.timeEntry.findMany.mock.calls[0]![0] as { where: Record<string, unknown> }).where;
+
+  it("ticketSummary sums the entries on the ticket's Actions", async () => {
+    db.ticket.findFirst.mockResolvedValue({ id: "t1" } as never);
+
+    const report = await humanCaller(db).timeEntry.ticketSummary({ ticketId: "t1" });
+
+    expect(report).toMatchObject({ confirmedMinutes: 90, people: [expect.objectContaining({ name: "Alice" })] });
+    expect(whereOfFindMany()).toEqual({ action: { ticketId: "t1" } });
+    // Read access: workspace membership via the ticket's product.
+    expect(JSON.stringify(db.ticket.findFirst.mock.calls[0]![0]!.where)).toContain('"workspace":{"is"');
+  });
+
+  it("featureSummary sums over the feature's tickets", async () => {
+    db.feature.findFirst.mockResolvedValue({ id: "f1" } as never);
+
+    await humanCaller(db).timeEntry.featureSummary({ featureId: "f1" });
+
+    expect(whereOfFindMany()).toEqual({ action: { ticket: { is: { featureId: "f1" } } } });
+  });
+
+  it("cycleSummary counts time that started inside the window on the cycle's product, not by ticket.cycleId", async () => {
+    const start = new Date("2026-11-09T00:00:00Z");
+    const end = new Date("2026-11-23T00:00:00Z");
+    db.list.findFirst.mockResolvedValue({ productId: "prod-1", workspaceId: WS_ID, startDate: start, endDate: end } as never);
+
+    await humanCaller(db).timeEntry.cycleSummary({ cycleId: "c1" });
+
+    expect(whereOfFindMany()).toEqual({
+      startedAt: { gte: start, lt: end },
+      action: { ticket: { is: { productId: "prod-1" } } },
+    });
+    expect(JSON.stringify(whereOfFindMany())).not.toContain("cycleId");
+    expect(JSON.stringify(db.list.findFirst.mock.calls[0]![0]!.where)).toContain('"listType":"SPRINT"');
+  });
+
+  it("a legacy workspace-shared cycle spans every product in the workspace", async () => {
+    const start = new Date("2026-11-09T00:00:00Z");
+    const end = new Date("2026-11-23T00:00:00Z");
+    db.list.findFirst.mockResolvedValue({ productId: null, workspaceId: WS_ID, startDate: start, endDate: end } as never);
+
+    await humanCaller(db).timeEntry.cycleSummary({ cycleId: "c1" });
+
+    expect(whereOfFindMany()).toMatchObject({ action: { ticket: { is: { product: { workspaceId: WS_ID } } } } });
+  });
+
+  it("a cycle without dates has no window: an empty report, no query", async () => {
+    db.list.findFirst.mockResolvedValue({ productId: "prod-1", workspaceId: WS_ID, startDate: null, endDate: null } as never);
+
+    const report = await humanCaller(db).timeEntry.cycleSummary({ cycleId: "c1" });
+
+    expect(report).toMatchObject({ confirmedMinutes: 0, people: [] });
+    expect(db.timeEntry.findMany).not.toHaveBeenCalled();
+  });
+
+  it("anything out of reach is NOT_FOUND and reads no time", async () => {
+    db.ticket.findFirst.mockResolvedValue(null);
+    db.feature.findFirst.mockResolvedValue(null);
+    db.list.findFirst.mockResolvedValue(null);
+
+    await expect(humanCaller(db).timeEntry.ticketSummary({ ticketId: "t1" })).rejects.toMatchObject({ code: "NOT_FOUND" });
+    await expect(humanCaller(db).timeEntry.featureSummary({ featureId: "f1" })).rejects.toMatchObject({ code: "NOT_FOUND" });
+    await expect(humanCaller(db).timeEntry.cycleSummary({ cycleId: "c1" })).rejects.toMatchObject({ code: "NOT_FOUND" });
+    expect(db.timeEntry.findMany).not.toHaveBeenCalled();
+  });
+});
