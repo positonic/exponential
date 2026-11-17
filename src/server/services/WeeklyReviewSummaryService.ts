@@ -1,5 +1,6 @@
 import { db } from "~/server/db";
 import { startOfWeek, endOfWeek, format, addDays } from "date-fns";
+import { notInPausedProjectWhere } from "~/server/services/actions/myActionsWhere";
 
 export interface WeeklyReviewSummary {
   title: string;
@@ -171,7 +172,9 @@ export class WeeklyReviewSummaryService {
   }
 
   /**
-   * Get upcoming priorities for next week
+   * Get upcoming priorities for next week. A paused (On hold, Completed,
+   * Cancelled) project's actions are not next week's focus, so they are left
+   * out. The highlights above stay as they are: they are history.
    */
   private async getUpcomingPriorities(userId: string): Promise<WeeklyHighlight[]> {
     const nextWeekStart = addDays(new Date(), 7);
@@ -181,6 +184,7 @@ export class WeeklyReviewSummaryService {
     const upcomingActions = await db.action.findMany({
       where: {
         createdById: userId,
+        AND: [notInPausedProjectWhere()],
         status: {
           not: 'COMPLETED'
         },

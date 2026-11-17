@@ -1,4 +1,5 @@
 import type { PrismaClient } from "@prisma/client";
+import { notInPausedProjectWhere } from "~/server/services/actions/myActionsWhere";
 import { emitNotification } from "./emitNotification";
 import { dueDateDedupeKey } from "./content";
 import { NOTIFICATION_CATEGORIES } from "./constants";
@@ -64,6 +65,11 @@ export async function generateDueDateReminders(
     where: {
       dueDate: { gt: now, lte: horizon },
       status: { notIn: TERMINAL_STATUSES },
+      // A paused (On hold, Completed, Cancelled) project's actions are off
+      // the owner's plate, so their due dates don't remind anyone. Crossings
+      // missed while paused are not back-filled when the project resumes:
+      // the lookback window below has long passed.
+      AND: [notInPausedProjectWhere()],
       // A reminder fires when dueDate - offset is in (now - LOOKBACK, now].
       OR: [...offsetsInUse].map((offset) => ({
         dueDate: {

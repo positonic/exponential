@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
 import type { Ceremony, CeremonyOccurrence, PrismaClient } from "@prisma/client";
-import { mockDeep } from "vitest-mock-extended";
+import { mockDeep, type DeepMockProxy } from "vitest-mock-extended";
 import { blockersSection } from "../sections/blockers";
 import { carriedOverSection } from "../sections/carried_over";
 import { getSectionModule } from "../sections";
 import type { SectionContext } from "../types";
+import { notInPausedProjectWhere } from "~/server/services/actions/myActionsWhere";
+import { matchesWhere } from "~/test/prismaWhere";
 
 const now = new Date("2026-09-10T08:00:00Z");
 function ctx(db: PrismaClient, overrides: Partial<SectionContext> = {}): SectionContext {
@@ -82,7 +84,10 @@ describe("blockers section", () => {
     await blockersSection.run(ctx(db), { key: "blk", type: "blockers", title: "Blockers" });
     const where = db.action.findMany.mock.calls[0]![0]!.where!;
     expect(where.projectId).toBeUndefined();
-    expect(where.AND).toEqual([{ OR: [{ assignees: { some: { userId: { in: ["u-1", "u-2"] } } } }] }]);
+    expect(where.AND).toEqual([
+      { OR: [{ assignees: { some: { userId: { in: ["u-1", "u-2"] } } } }] },
+      notInPausedProjectWhere(),
+    ]);
   });
 
   it("inside a project, also counts actions participants created and actions nobody owns", async () => {
@@ -99,6 +104,59 @@ describe("blockers section", () => {
         ],
       },
     ]);
+  });
+
+  // The mocked findMany evaluates the section's real `where` against
+  // in-memory rows, so these assert which actions the agenda lists.
+  describe("paused projects (On hold, Completed, Cancelled)", () => {
+    const PAUSED = ["ON_HOLD", "COMPLETED", "CANCELLED"];
+    const overdue = new Date("2026-09-08T00:00:00Z");
+
+    /** An ACTIVE overdue action in ws-1 assigned to u-1, in a project with `projectStatus` (or none). */
+    function row(id: string, projectStatus: string | null, projectId = projectStatus ? `p-${id}` : null) {
+      return {
+        id,
+        name: id,
+        status: "ACTIVE",
+        workspaceId: "ws-1",
+        dueDate: overdue,
+        createdAt: overdue,
+        createdById: "u-1",
+        depsOut: [],
+        projectId,
+        project: projectStatus ? { status: projectStatus, goals: [] } : null,
+        assignees: [{ userId: "u-1", user: { id: "u-1", name: "Andi" } }],
+      };
+    }
+
+    function serve(db: DeepMockProxy<PrismaClient>, rows: ReturnType<typeof row>[]) {
+      db.action.findMany.mockImplementation(((args: { where?: Record<string, unknown> }) =>
+        Promise.resolve(rows.filter((r) => matchesWhere(r, args.where ?? {})))) as never);
+    }
+
+    it("with no project linked, leaves a paused project's actions off the participants' blockers", async () => {
+      const db = mockDeep<PrismaClient>();
+      serve(db, [row("loose", null), row("live", "ACTIVE"), ...PAUSED.map((s) => row(s.toLowerCase(), s))]);
+
+      const items = await blockersSection.run(ctx(db), { key: "blk", type: "blockers", title: "Blockers" });
+
+      expect(items.map((i) => i.refId).sort()).toEqual(["live", "loose"]);
+    });
+
+    it("with a project linked, still lists that project's blockers while it is paused", async () => {
+      const db = mockDeep<PrismaClient>();
+      serve(db, [
+        ...PAUSED.map((s) => row(`held-${s.toLowerCase()}`, s, "prj-held")),
+        row("elsewhere", "ON_HOLD", "prj-other"),
+      ]);
+
+      const items = await blockersSection.run(
+        ctx(db, { projectIds: ["prj-held"] }),
+        { key: "blk", type: "blockers", title: "Blockers" },
+      );
+
+      expect(items.map((i) => i.refId).sort()).toEqual(["held-cancelled", "held-completed", "held-on_hold"]);
+    });
   });
 });
 

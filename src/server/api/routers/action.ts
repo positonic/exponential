@@ -921,6 +921,10 @@ export const actionRouter = createTRPCRouter({
     .query(async ({ ctx, input }) => {
       const userId = ctx.session.user.id;
 
+      // My actions due in the range: the home overview's Tomorrow / This week
+      // / This month, and `actions range` / `list_by_date_range` in the CLI
+      // and MCP. Every caller reads the person's plate (no project is named),
+      // so a paused project's actions are left out, as on /today.
       return ctx.db.action.findMany({
         where: {
           OR: [
@@ -929,6 +933,7 @@ export const actionRouter = createTRPCRouter({
             // Assigned to me via ActionAssignee
             { assignees: { some: { userId: userId } } },
           ],
+          AND: [notInPausedProjectWhere()],
           dueDate: {
             gte: input.startDate,
             lt: input.endDate,

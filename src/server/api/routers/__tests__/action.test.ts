@@ -3205,6 +3205,34 @@ describe("action router (mocked)", () => {
       expect(result.loose.map((a) => a.id).sort()).toEqual(["active-overdue", "loose-overdue"]);
     });
 
+    describe("getByDateRange (home Tomorrow / This week / This month, CLI `actions range`)", () => {
+      const inDays = (n: number) => new Date(now.getFullYear(), now.getMonth(), now.getDate() + n, 9);
+      const thisWeek = { startDate: inDays(1), endDate: inDays(8) };
+
+      beforeEach(() => {
+        rows.push(
+          plateRow("loose-due-soon", null, { dueDate: inDays(3) }),
+          plateRow("active-due-soon", "ACTIVE", { dueDate: inDays(3) }),
+          ...["ON_HOLD", "COMPLETED", "CANCELLED"].map((status) =>
+            plateRow(`${status}-due-soon`, status, { dueDate: inDays(3) }),
+          ),
+        );
+      });
+
+      it("leaves a paused project's actions out of the range", async () => {
+        const result = await caller().action.getByDateRange(thisWeek);
+
+        expect(result.map((a) => a.id).sort()).toEqual(["active-due-soon", "loose-due-soon"]);
+      });
+
+      it("scoped to a workspace, still drops paused projects", async () => {
+        const result = await caller().action.getByDateRange({ ...thisWeek, workspaceId: "ws-1" });
+
+        // Workspace scoping goes through the project, so project-less actions drop out too.
+        expect(result.map((a) => a.id)).toEqual(["active-due-soon"]);
+      });
+    });
+
     it("a project set back to Active puts its actions back on the plate", async () => {
       rows = rows.map((r) =>
         r.id.startsWith("ON_HOLD")

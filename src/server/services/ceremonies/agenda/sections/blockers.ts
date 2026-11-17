@@ -6,7 +6,15 @@
  * project only actions assigned to a participant count: a workspace-wide
  * ceremony must never present someone's personal, unowned to-dos as the
  * team's blockers.
+ *
+ * Paused projects (On hold, Completed, Cancelled): with a project linked the
+ * section is about that project's health, like its own page, so it lists
+ * everything even when the project is paused. Without one it reads what is on
+ * each participant's plate, so a paused project's actions are left out, as on
+ * /today and in the standup summary's blockers step.
  */
+import type { Prisma } from "@prisma/client";
+import { notInPausedProjectWhere } from "~/server/services/actions/myActionsWhere";
 import type { AgendaItem, SectionModule } from "../types";
 
 const dateFmt: Intl.DateTimeFormatOptions = { day: "numeric", month: "short" };
@@ -33,13 +41,18 @@ export const blockersSection: SectionModule = {
         ? [assignedToParticipant, { createdById: { in: ctx.participantUserIds } }, { assignees: { none: {} } }]
         : [assignedToParticipant]
       : null;
+    const and: Prisma.ActionWhereInput[] = [
+      ...(participantOr ? [{ OR: participantOr }] : []),
+      // No project linked: a plate view, so paused projects drop out.
+      ...(ctx.projectIds.length ? [] : [notInPausedProjectWhere()]),
+    ];
     const actions = await ctx.db.action.findMany({
       where: {
         status: "ACTIVE",
         workspaceId: ctx.workspaceId,
         ...(ctx.projectIds.length ? { projectId: { in: ctx.projectIds } } : {}),
         OR: [{ dueDate: { lt: ctx.now } }, { depsOut: { some: { dependsOn: { status: "ACTIVE" } } } }],
-        ...(participantOr ? { AND: [{ OR: participantOr }] } : {}),
+        ...(and.length ? { AND: and } : {}),
       },
       select: {
         id: true,
