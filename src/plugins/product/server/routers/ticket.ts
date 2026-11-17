@@ -47,7 +47,7 @@ import {
 } from "~/lib/ticket-statuses";
 import { TEXT_LIMITS, boundedText } from "~/lib/text-limits";
 import { uploadToBlob } from "~/lib/blob";
-import { parseTicketUrlId } from "~/lib/fun-ids";
+import { ticketRefWhere } from "../services/ticketRef";
 import { searchTicketsIdFirst } from "../services/ticketTextSearch";
 import { emitAfterResponse } from "~/server/services/notifications/emit/emitAfterResponse";
 
@@ -344,21 +344,6 @@ function shapeTicketDetail(ticket: TicketDetailRow) {
 
   const { depsOut: _depsOut, depsIn: _depsIn, ...rest } = ticket;
   return { ...rest, dependsOn, requiredFor, openBlockerCount, isBlocked };
-}
-
-/**
- * Where-clause for a ticket URL segment within one product: the sequential
- * number (`29`) or Linear-style id (`PLAT-29`), else a CUID or fun shortId.
- * Shared by resolveId and getByRef so the accepted URL forms can't drift.
- */
-function ticketRefWhere(
-  productId: string,
-  identifier: string,
-): Prisma.TicketWhereInput {
-  const number = parseTicketUrlId(identifier);
-  return number !== null
-    ? { productId, number }
-    : { productId, OR: [{ id: identifier }, { shortId: identifier }] };
 }
 
 function listTicketEvents(db: PrismaClient, workspaceId: string, ticketId: string) {

@@ -10,6 +10,12 @@ import {
 } from "~/server/api/middleware/apiKeyAuth";
 import { TimeEntryService } from "~/server/services/timeEntry/TimeEntryService";
 import {
+  resolveTimerTarget,
+  searchTimerTargets,
+} from "~/server/services/timeEntry/timerTargets";
+import {
+  buildTicketAccessWhere,
+  buildTicketWriteWhere,
   canViewAction,
   getActionAccess,
   getProjectAccess,
@@ -120,21 +126,51 @@ export const timeEntryRouter = createTRPCRouter({
 
   start: apiKeyMiddleware
     .input(
-      z.object({
-        actionId: z.string().optional(),
-        typedTitle: z.string().optional(),
-        projectId: z.string().nullish(),
-        workspaceId: z.string().nullish(),
-      }),
+      z
+        .object({
+          actionId: z.string().optional(),
+          /** Log against a Ticket (the plugin's "What's this for?" picker). */
+          ticketId: z.string().optional(),
+          typedTitle: z.string().optional(),
+          projectId: z.string().nullish(),
+          workspaceId: z.string().nullish(),
+        })
+        .refine((v) => !v.ticketId || (!v.actionId && !v.projectId), {
+          message: "ticketId cannot be combined with actionId or projectId",
+          path: ["ticketId"],
+        }),
     )
     .mutation(async ({ ctx, input }) => {
       // Access enforcement at the router layer (the service is access-agnostic
-      // for testability). Two cases:
+      // for testability). Three cases:
       //   1. Attaching to an existing action  → check viewAction on that id.
-      //   2. Creating a new action            → check workspace + project
+      //   2. Logging against a ticket         → it mints an Action on the
+      //      Ticket, so a workspace WRITE role via the ticket's product:
+      //      NOT_FOUND when the ticket is out of sight, FORBIDDEN for a viewer.
+      //   3. Creating a new action            → check workspace + project
       //      access on caller-provided IDs so a guessed id can't be used to
       //      mint actions in a workspace/project the user can't reach.
-      if (input.actionId) {
+      if (input.ticketId) {
+        const [visible, writable] = await Promise.all([
+          ctx.db.ticket.findFirst({
+            where: { AND: [{ id: input.ticketId }, buildTicketAccessWhere(ctx.userId)] },
+            select: { id: true },
+          }),
+          ctx.db.ticket.findFirst({
+            where: { AND: [{ id: input.ticketId }, buildTicketWriteWhere(ctx.userId)] },
+            select: { id: true },
+          }),
+        ]);
+        if (!visible) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Ticket not found" });
+        }
+        if (!writable) {
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message: "You need owner, admin, or member access to this workspace to log time on its tickets.",
+          });
+        }
+      } else if (input.actionId) {
         const access = await getActionAccess(
           ctx.db,
           ctx.userId,
@@ -185,11 +221,43 @@ export const timeEntryRouter = createTRPCRouter({
       return service.start({
         userId: ctx.userId,
         actionId: input.actionId,
+        ticketId: input.ticketId,
         typedTitle: input.typedTitle,
         projectId: input.projectId ?? null,
         workspaceId: input.workspaceId ?? null,
       });
     }),
+
+  /**
+   * The plugin timer's "What's this for?" picker: Tickets and Projects the
+   * caller can log time against in one workspace, grouped. An empty query
+   * returns suggestions (in-flight current-cycle tickets first). See
+   * `timerTargets.ts` for ordering and access.
+   */
+  searchTargets: apiKeyMiddleware
+    .input(
+      z.object({
+        workspaceId: z.string(),
+        query: z.string().max(200).optional(),
+        limit: z.number().int().min(1).max(25).optional(),
+      }),
+    )
+    .query(async ({ ctx, input }) =>
+      searchTimerTargets(ctx.db, ctx.userId, {
+        workspaceId: input.workspaceId,
+        query: input.query,
+        limit: input.limit,
+      }),
+    ),
+
+  /**
+   * The Ticket or Project the plugin's active tab shows, to prefill the
+   * picker: an Exponential ticket or project page, or a GitHub PR linked to
+   * a ticket. Null when there is none or the caller can't see it.
+   */
+  resolveTarget: apiKeyMiddleware
+    .input(z.object({ url: z.string().max(2048) }))
+    .query(async ({ ctx, input }) => resolveTimerTarget(ctx.db, ctx.userId, input.url)),
 
   /**
    * Idempotent create keyed on `(owner, sourceRef)`: re-running the Daily

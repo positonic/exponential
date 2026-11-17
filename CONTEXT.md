@@ -320,7 +320,7 @@ A stretch of one person's time spent on an **Action**, with a start and an end. 
 _Avoid_: Timesheet row, log, timer (that is the live way of making one).
 
 **Timer**:
-The live way to make a **Time entry**: start now, stop later, one running per person. Starting a new one silently stops the old one.
+The live way to make a **Time entry**: start now, stop later, one running per person. Starting a new one silently stops the old one. Its target is **one pick, a Ticket or a Project**. Feature, Epic and Product come from the Ticket, the **Cycle** is whichever one the entry's start falls in, and Goals are shown, never chosen (decision 2026-11-17). Time on a Ticket goes on the person's one timer Action for it, reused on every start.
 _Avoid_: Stopwatch, clock.
 
 **Manual time**:

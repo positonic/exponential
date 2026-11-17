@@ -7,6 +7,8 @@
  *
  * Public API (v1):
  *   - start({ userId, typedTitle?, workspaceId? }) → creates Action + TimeEntry
+ *   - start({ userId, ticketId, typedTitle? })     → reuses the person's timer
+ *                                                    Action on that Ticket
  *   - stop({ userId, entryId? })                   → stamps endedAt, resyncs Action.timeSpentMins
  *   - getActive({ userId })                        → currently running TimeEntry, if any
  *
@@ -55,7 +57,17 @@ interface StartInput {
    * (e.g. via `action.searchByTitle`).
    */
   actionId?: string;
-  /** Used only when actionId is omitted. */
+  /**
+   * Log against a Ticket: the entry goes on the person's timer Action for
+   * that Ticket, created on first use and reused after (one per person per
+   * Ticket, so repeated Play adds no rows to the Ticket's actions). The
+   * workspace is the ticket's product's; `projectId`/`workspaceId` are ignored.
+   */
+  ticketId?: string;
+  /**
+   * Used only when actionId is omitted. In ticket mode it becomes the
+   * entry's note (the Action is named after the Ticket).
+   */
   typedTitle?: string;
   /** Used only when actionId is omitted (otherwise inherited from the action). */
   projectId?: string | null;
@@ -142,7 +154,9 @@ export class TimeEntryService {
    * Two modes:
    *  - `actionId` provided → attach a TimeEntry to that existing Action (inherits
    *     its projectId/workspaceId). Throws NOT_FOUND if it doesn't exist.
-   *  - `actionId` omitted → create a new Action with the typed title (or
+   *  - `ticketId` provided → attach to the person's timer Action on that
+   *    Ticket (see `findOrCreateTicketAction`); the typed title is the note.
+   *  - otherwise → create a new Action with the typed title (or
    *    "Untitled") and the explicit projectId/workspaceId, then attach.
    *
    * Access enforcement is performed at the router layer where the user identity
@@ -168,6 +182,10 @@ export class TimeEntryService {
         }
         actionId = existing.id;
         workspaceId = existing.workspaceId;
+      } else if (input.ticketId) {
+        const ticketAction = await this.findOrCreateTicketAction(tx, input.userId, input.ticketId);
+        actionId = ticketAction.id;
+        workspaceId = ticketAction.workspaceId;
       } else {
         const title = (input.typedTitle ?? "").trim() || "Untitled";
         const created = await tx.action.create({
@@ -193,6 +211,7 @@ export class TimeEntryService {
           workspaceId,
           source: "plugin",
           startedAt: new Date(),
+          ...(input.ticketId ? { note: input.typedTitle?.trim() || null } : {}),
         },
         include: {
           action: {
@@ -215,6 +234,50 @@ export class TimeEntryService {
     if (autoStopped) await this.recordTracked(autoStopped);
 
     return created;
+  }
+
+  /**
+   * The person's timer Action on a Ticket: the newest ACTIVE one the plugin
+   * created for them there, else a new one named after the Ticket. Actions
+   * made any other way (by hand, by an agent) are never reused, so the timer
+   * can't pile time onto someone's real task. NOT_FOUND for a missing Ticket;
+   * access is the router's job.
+   *
+   * A transaction-scoped advisory lock on (person, ticket) serialises the
+   * find-then-create, so a double-clicked Play or two open popups can't each
+   * create an Action and strand one.
+   */
+  private async findOrCreateTicketAction(
+    tx: Db,
+    userId: string,
+    ticketId: string,
+  ): Promise<{ id: string; workspaceId: string | null }> {
+    const ticket = await tx.ticket.findUnique({
+      where: { id: ticketId },
+      select: { id: true, title: true, product: { select: { workspaceId: true } } },
+    });
+    if (!ticket) {
+      throw new TRPCError({ code: "NOT_FOUND", message: "Ticket not found" });
+    }
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`timer-ticket-action:${userId}:${ticketId}`}))`;
+    const existing = await tx.action.findFirst({
+      where: { ticketId, createdById: userId, source: "plugin", status: "ACTIVE" },
+      orderBy: { createdAt: "desc" },
+      select: { id: true, workspaceId: true },
+    });
+    if (existing) return existing;
+    return tx.action.create({
+      data: {
+        name: ticket.title,
+        createdById: userId,
+        ticketId,
+        workspaceId: ticket.product.workspaceId,
+        status: "ACTIVE",
+        priority: "Quick",
+        source: "plugin",
+      },
+      select: { id: true, workspaceId: true },
+    });
   }
 
   /**

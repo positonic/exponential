@@ -29,6 +29,7 @@ const WORKSPACE_WRITE_ROLES = ["owner", "admin", "member"] as const;
 import {
   canEditWorkspaceContent,
   getWorkspaceMembership,
+  isWorkspaceGuest,
 } from "./workspaceResolver";
 
 export async function getProjectAccess(
@@ -240,6 +241,23 @@ export function buildProjectAccessWhere(
   return {
     OR: [creator!, { isPublic: true }, ...memberships],
   };
+}
+
+/**
+ * Prisma WHERE clause for the projects a user can access inside ONE workspace.
+ * A workspace guest (project-only access) sees just the projects they are a
+ * member of; everyone else gets {@link buildProjectAccessWhere}. Mirrors the
+ * scoping of the project picker in global search.
+ */
+export async function buildWorkspaceProjectAccessWhere(
+  db: PrismaClient,
+  userId: string,
+  workspaceId: string,
+): Promise<Prisma.ProjectWhereInput> {
+  const scope = (await isWorkspaceGuest(db, userId, workspaceId))
+    ? { projectMembers: { some: { userId } } }
+    : buildProjectAccessWhere(userId);
+  return { AND: [{ workspaceId }, scope] };
 }
 
 /**

@@ -90,7 +90,9 @@ export {
   buildProjectAccessWhere,
   buildProjectInsiderWhere,
   buildProjectEditWhere,
+  buildWorkspaceProjectAccessWhere,
 } from "./resolvers/projectResolver";
+export { buildTicketAccessWhere, buildTicketWriteWhere } from "./resolvers/ticketResolver";
 export {
   buildSharedResourceWhere,
   listSharedResourceProjectIds,
