@@ -990,3 +990,178 @@ describe("ticket router — search (mocked)", () => {
     });
   });
 });
+
+/**
+ * ADR-0002: a dependency may cross Products but never Workspaces, and the
+ * caller must be able to edit in both tickets' workspaces.
+ */
+describe("ticket router — addDependency workspace boundary (mocked)", () => {
+  let dbMock: DeepMockProxy<PrismaClient>;
+
+  /** Ticket rows as `addDependency` selects them. */
+  const tickets: Record<string, { id: string; productId: string; product: { workspaceId: string } }> = {
+    "t-a": { id: "t-a", productId: "prod-1", product: { workspaceId: "ws-1" } },
+    "t-b": { id: "t-b", productId: "prod-1", product: { workspaceId: "ws-1" } },
+    "t-plugin": { id: "t-plugin", productId: "prod-plugin", product: { workspaceId: "ws-1" } },
+    "t-foreign": { id: "t-foreign", productId: "prod-x", product: { workspaceId: "ws-other" } },
+  };
+
+  /** Membership per workspace: the caller belongs only to `workspaceIds`. */
+  function stubMemberOf(workspaceIds: string[]) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    dbMock.workspaceUser.findUnique.mockImplementation((args: any) => {
+      const ws = args?.where?.userId_workspaceId?.workspaceId as string | undefined;
+      return Promise.resolve(
+        ws && workspaceIds.includes(ws) ? { role: "member", workspaceId: ws } : null,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      ) as any;
+    });
+    dbMock.teamUser.findFirst.mockResolvedValue(null);
+  }
+
+  beforeEach(() => {
+    dbMock = getDbMock();
+    mockReset(dbMock);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    dbMock.ticket.findUnique.mockImplementation((args: any) =>
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      Promise.resolve(tickets[args?.where?.id as string] ?? null) as any,
+    );
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    dbMock.$transaction.mockImplementation((fn: any) => fn(dbMock));
+    dbMock.ticketDependency.findMany.mockResolvedValue([]);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    dbMock.ticketDependency.upsert.mockResolvedValue({ id: "dep-1" } as any);
+    stubMemberOf(["ws-1", "ws-other"]);
+  });
+
+  it("still links two tickets in the same product", async () => {
+    const caller = createMockCaller({ userId: callerId, db: dbMock });
+    await caller.product.ticket.addDependency({ ticketId: "t-a", dependsOnId: "t-b" });
+
+    expect(dbMock.ticketDependency.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        create: { ticketId: "t-a", dependsOnId: "t-b", createdById: callerId },
+      }),
+    );
+  });
+
+  it("links tickets in different products of the same workspace", async () => {
+    const caller = createMockCaller({ userId: callerId, db: dbMock });
+    await caller.product.ticket.addDependency({ ticketId: "t-plugin", dependsOnId: "t-a" });
+
+    expect(dbMock.ticketDependency.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        create: { ticketId: "t-plugin", dependsOnId: "t-a", createdById: callerId },
+      }),
+    );
+  });
+
+  it("checks the caller's access in both tickets' workspaces", async () => {
+    const caller = createMockCaller({ userId: callerId, db: dbMock });
+    await caller.product.ticket.addDependency({ ticketId: "t-plugin", dependsOnId: "t-a" });
+
+    const probed = dbMock.workspaceUser.findUnique.mock.calls.map(
+      ([args]) => args.where.userId_workspaceId?.workspaceId,
+    );
+    expect(probed).toEqual(["ws-1", "ws-1"]);
+  });
+
+  it("refuses a dependency across workspaces, even for a member of both", async () => {
+    const caller = createMockCaller({ userId: callerId, db: dbMock });
+    await expect(
+      caller.product.ticket.addDependency({ ticketId: "t-a", dependsOnId: "t-foreign" }),
+    ).rejects.toMatchObject({
+      code: "BAD_REQUEST",
+      message: "Dependencies must be within the same workspace.",
+    });
+    expect(dbMock.$transaction).not.toHaveBeenCalled();
+    expect(dbMock.ticketDependency.upsert).not.toHaveBeenCalled();
+  });
+
+  it("refuses when the caller cannot edit the blocker's workspace", async () => {
+    stubMemberOf(["ws-1"]);
+    const caller = createMockCaller({ userId: callerId, db: dbMock });
+    await expect(
+      caller.product.ticket.addDependency({ ticketId: "t-a", dependsOnId: "t-foreign" }),
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
+    expect(dbMock.ticketDependency.upsert).not.toHaveBeenCalled();
+  });
+
+  it("refuses a caller outside the depending ticket's workspace", async () => {
+    stubMemberOf([]);
+    const caller = createMockCaller({ userId: callerId, db: dbMock });
+    await expect(
+      caller.product.ticket.addDependency({ ticketId: "t-plugin", dependsOnId: "t-a" }),
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
+    expect(dbMock.ticketDependency.upsert).not.toHaveBeenCalled();
+  });
+});
+
+describe("ticket router — search scope (mocked)", () => {
+  let dbMock: DeepMockProxy<PrismaClient>;
+
+  beforeEach(() => {
+    dbMock = getDbMock();
+    mockReset(dbMock);
+    dbMock.product.findUnique.mockResolvedValue(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      { id: productId, workspaceId, slug: "exponential", name: "Exponential" } as any,
+    );
+    stubMembership(dbMock, true);
+    dbMock.ticket.findMany.mockResolvedValue([]);
+  });
+
+  it("searches only the given product by default", async () => {
+    const caller = createMockCaller({ userId: callerId, db: dbMock });
+    await caller.product.ticket.search({ productId, excludeTicketId: "t-self" });
+
+    expect(findManyWhere(dbMock)).toEqual({
+      AND: [{ productId, id: { not: "t-self" } }, {}],
+    });
+  });
+
+  it("searches every product in the workspace when asked", async () => {
+    const caller = createMockCaller({ userId: callerId, db: dbMock });
+    await caller.product.ticket.search({ productId, scope: "workspace", excludeTicketId: "t-self" });
+
+    expect(findManyWhere(dbMock)).toEqual({
+      AND: [{ product: { workspaceId }, id: { not: "t-self" } }, {}],
+    });
+  });
+
+  it("returns each result's product, so a picker can label foreign tickets", async () => {
+    const caller = createMockCaller({ userId: callerId, db: dbMock });
+    await caller.product.ticket.search({ productId, scope: "workspace" });
+
+    expect(dbMock.ticket.findMany.mock.calls[0]?.[0]?.select).toMatchObject({
+      product: { select: { id: true, name: true, slug: true } },
+    });
+  });
+
+  it("matches a Linear-style id against each ticket's own product", async () => {
+    const plugin = {
+      id: "plugin-7",
+      shortId: null,
+      number: 7,
+      title: "Timer in the extension",
+      product: { id: "prod-plugin", name: "Plugin", slug: "plugin" },
+    };
+    dbMock.ticket.findMany.mockResolvedValueOnce([plugin] as never).mockResolvedValueOnce([] as never);
+
+    const caller = createMockCaller({ userId: callerId, db: dbMock });
+    const res = await caller.product.ticket.search({ productId, scope: "workspace", query: "P-7" });
+    expect(res.map((t) => t.id)).toEqual(["plugin-7"]);
+  });
+
+  it("refuses a caller outside the workspace without querying tickets", async () => {
+    stubMembership(dbMock, false);
+    dbMock.teamUser.findFirst.mockResolvedValue(null);
+
+    const caller = createMockCaller({ userId: callerId, db: dbMock });
+    await expect(
+      caller.product.ticket.search({ productId, scope: "workspace" }),
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
+    expect(dbMock.ticket.findMany).not.toHaveBeenCalled();
+  });
+});

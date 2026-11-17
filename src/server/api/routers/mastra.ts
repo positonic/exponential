@@ -5127,10 +5127,11 @@ export const mastraRouter = createTRPCRouter({
     }),
 
   // Create dependency edges between tickets in one product, by ticket number
-  // ("#12 depends on #7"). Enforces the same rules as the plugin's
-  // ticket.addDependency — same product, no self-deps, no cycles (shared
-  // wouldCreateCycle) — and reports per-edge outcomes so an agent can relay
-  // exactly what was linked and what was rejected.
+  // ("#12 depends on #7"). Numbers are per-product, so this tool only links
+  // within one product; cross-product edges (ADR-0002) go through the plugin's
+  // ticket.addDependency by id. Shares its rules otherwise — no self-deps, no
+  // cycles (shared wouldCreateCycle) — and reports per-edge outcomes so an
+  // agent can relay exactly what was linked and what was rejected.
   addTicketDependencies: protectedProcedure
     .input(
       z.object({

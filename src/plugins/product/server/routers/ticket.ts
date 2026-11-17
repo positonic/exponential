@@ -142,6 +142,12 @@ const DEP_TICKET_SELECT = {
   assignee: { select: { id: true, name: true, image: true } },
 } as const;
 
+/** `ticket.search` rows: a dependency row plus the Product it lives in. */
+const SEARCH_TICKET_SELECT = {
+  ...DEP_TICKET_SELECT,
+  product: { select: { id: true, name: true, slug: true } },
+} as const;
+
 /** Filters shared by `list` and `listSummaries`. */
 const ticketListInput = z.object({
   productId: z.string(),
@@ -1339,6 +1345,11 @@ export const ticketRouter = createTRPCRouter({
         query: z.string().max(200).optional(),
         excludeTicketId: z.string().optional(),
         limit: z.number().int().min(1).max(50).optional(),
+        // ADR-0002: "product" (default) searches `productId` only; "workspace"
+        // searches every Product in `productId`'s workspace, for picking a
+        // cross-Product blocker. Each result carries its `product` so the
+        // picker can label where a foreign ticket lives.
+        scope: z.enum(["product", "workspace"]).optional(),
       }),
     )
     .query(async ({ ctx, input }) => {
@@ -1347,7 +1358,9 @@ export const ticketRouter = createTRPCRouter({
       const limit = input.limit ?? 20;
 
       const scope: Prisma.TicketWhereInput = {
-        productId: input.productId,
+        ...(input.scope === "workspace"
+          ? { product: { workspaceId: product.workspaceId } }
+          : { productId: input.productId }),
         ...(input.excludeTicketId ? { id: { not: input.excludeTicketId } } : {}),
       };
       const find = (match: Prisma.TicketWhereInput, take: number, skip = 0) =>
@@ -1356,13 +1369,19 @@ export const ticketRouter = createTRPCRouter({
           orderBy: [{ updatedAt: "desc" }],
           take,
           ...(skip > 0 ? { skip } : {}),
-          select: DEP_TICKET_SELECT,
+          select: SEARCH_TICKET_SELECT,
         });
 
       if (!q) return find({}, limit);
       // Title, shortId (partial, any word order) or number; a query naming a
       // ticket exactly (`snappy.thunder`, `42`, `#42`, `EXP-42`) puts it first.
-      return searchTicketsIdFirst({ query: q, limit, find, productName: () => product.name });
+      // Workspace-wide, `EXP-42` must match against each ticket's own Product.
+      return searchTicketsIdFirst({
+        query: q,
+        limit,
+        find,
+        productName: (t) => t.product?.name ?? product.name,
+      });
     }),
 
   addDependency: protectedProcedure
@@ -1380,31 +1399,41 @@ export const ticketRouter = createTRPCRouter({
         });
       }
 
+      const depTicketSelect = {
+        id: true,
+        productId: true,
+        product: { select: { workspaceId: true } },
+      } as const;
       const [ticket, dependsOn] = await Promise.all([
-        ctx.db.ticket.findUnique({
-          where: { id: input.ticketId },
-          select: { id: true, productId: true, product: { select: { workspaceId: true } } },
-        }),
-        ctx.db.ticket.findUnique({
-          where: { id: input.dependsOnId },
-          select: { id: true, productId: true },
-        }),
+        ctx.db.ticket.findUnique({ where: { id: input.ticketId }, select: depTicketSelect }),
+        ctx.db.ticket.findUnique({ where: { id: input.dependsOnId }, select: depTicketSelect }),
       ]);
       if (!ticket || !dependsOn) {
         throw new TRPCError({ code: "NOT_FOUND", message: "Ticket not found" });
       }
-      if (ticket.productId !== dependsOn.productId) {
-        throw new TRPCError({
-          code: "BAD_REQUEST",
-          message: "Dependencies must be within the same product.",
-        });
-      }
+      // ADR-0002: Workspace, not Product, is the boundary — a ticket may wait
+      // on a ticket in a sibling Product. The caller must be able to edit in
+      // *both* tickets' workspaces. Today that is always one workspace (the
+      // check below refuses anything else), but asserting each one keeps a
+      // future relaxation of that rule from silently widening access.
       await assertWorkspaceAccess(
         ctx.db,
         ctx.session.user.id,
         ticket.product.workspaceId,
         "edit",
       );
+      await assertWorkspaceAccess(
+        ctx.db,
+        ctx.session.user.id,
+        dependsOn.product.workspaceId,
+        "edit",
+      );
+      if (ticket.product.workspaceId !== dependsOn.product.workspaceId) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Dependencies must be within the same workspace.",
+        });
+      }
 
       return ctx.db.$transaction(async (tx) => {
         // Cycle check: would adding ticketId -> dependsOnId let dependsOnId reach ticketId?
