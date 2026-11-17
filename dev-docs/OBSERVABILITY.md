@@ -121,11 +121,16 @@ app turns that into tickets and ops-room posts
 
 "Was failing" is kept on the ticket, in `links.toolCanary = { key, state }`,
 so it survives between runs without a schema change. It is written only when
-the state changes.
+the state changes. If a "working again" or "failing again" post does not go out
+(the ops room is down), the ticket is flagged `unannounced` and the next run
+sends it. Two tickets carrying the same key are both marked recovered, with
+one post.
 
 **Check the checker.** The cron is in `vercel.json`, so `automaticVercelMonitors`
 gives it a Sentry cron monitor: a canary that stops running, or answers 5xx, is
 reported by Sentry. A run that finds broken tools is a 200; the canary worked.
+The cron answers 502 when the canary could not run, and when it found faults
+it could not file (`fileErrors` in the response names them).
 
 **Limits.** Write tools are never called. A tool is called with one input.
 Four read tools need a connected mailbox or Google Calendar and are skipped,

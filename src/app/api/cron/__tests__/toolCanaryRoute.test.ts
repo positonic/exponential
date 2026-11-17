@@ -31,7 +31,7 @@ describe("/api/cron/tool-canary", () => {
     vi.spyOn(console, "error").mockImplementation(() => undefined);
     vi.spyOn(console, "log").mockImplementation(() => undefined);
     process.env.CRON_SECRET = "test-secret";
-    checkMock.mockResolvedValue({ ran: true, failing: [], announced: [], recovered: [] });
+    checkMock.mockResolvedValue({ ran: true, failing: [], announced: [], recovered: [], fileErrors: [] });
     authHeader("Bearer test-secret");
   });
 
@@ -55,7 +55,7 @@ describe("/api/cron/tool-canary", () => {
   });
 
   it("answers 200 with the run's summary, broken tools included: the canary worked", async () => {
-    const result = { ran: true, failing: ["tool:a"], announced: ["tool:a"], recovered: [] };
+    const result = { ran: true, failing: ["tool:a"], announced: ["tool:a"], recovered: [], fileErrors: [] };
     checkMock.mockResolvedValue(result);
     const response = await GET(request);
     expect(response.status).toBe(200);
@@ -63,12 +63,17 @@ describe("/api/cron/tool-canary", () => {
   });
 
   it("answers 200 when the canary is not configured, so an unused canary is not an outage", async () => {
-    checkMock.mockResolvedValue({ ran: false, skipped: "not-configured", failing: [], announced: [], recovered: [] });
+    checkMock.mockResolvedValue({ ran: false, skipped: "not-configured", failing: [], announced: [], recovered: [], fileErrors: [] });
     expect((await GET(request)).status).toBe(200);
   });
 
   it("answers 502 when the canary could not run, so its cron monitor turns red", async () => {
-    checkMock.mockResolvedValue({ ran: true, runnerFailed: "the assistant service did not answer", failing: ["runner"], announced: [], recovered: [] });
+    checkMock.mockResolvedValue({ ran: true, runnerFailed: "the assistant service did not answer", failing: ["runner"], announced: [], recovered: [], fileErrors: [] });
+    expect((await GET(request)).status).toBe(502);
+  });
+
+  it("answers 502 when faults were found and could not be filed, so they are not silently dropped", async () => {
+    checkMock.mockResolvedValue({ ran: true, failing: ["tool:a"], announced: [], recovered: [], fileErrors: ["tool:a"] });
     expect((await GET(request)).status).toBe(502);
   });
 

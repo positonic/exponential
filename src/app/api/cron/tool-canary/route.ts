@@ -41,9 +41,14 @@ export async function GET(_request: NextRequest) {
     if (result.skipped === "not-configured") {
       console.log("[Cron] tool-canary: not configured (MASTRA_API_URL and TOOL_CANARY_SECRET); skipping");
     }
-    // Broken tools are a 200: the canary worked and filed them. Only a canary
-    // that could not run at all is a failed cron, so its monitor turns red.
-    return NextResponse.json(result, { status: result.runnerFailed ? 502 : 200 });
+    // Broken tools are a 200: the canary worked and filed them. A canary that
+    // could not run, or that found faults and could not file them, is a
+    // failed cron, so its monitor turns red instead of the fault going unseen.
+    if (result.fileErrors.length > 0) {
+      console.error("[Cron] tool-canary: found faults it could not file:", result.fileErrors);
+    }
+    const failed = Boolean(result.runnerFailed) || result.fileErrors.length > 0;
+    return NextResponse.json(result, { status: failed ? 502 : 200 });
   } catch (error) {
     console.error("[Cron] tool-canary failed:", error);
     return NextResponse.json(

@@ -44,6 +44,10 @@ interface CanaryTicketState {
   key: string;
   state: "failing" | "recovered";
   since: string;
+  /** What the ops room calls this subject, kept so a missed post can be retried. */
+  label?: string;
+  /** The ops-room post for this state did not go out. The next run retries it. */
+  unannounced?: true;
 }
 
 export interface ToolCanaryCheckResult {
@@ -61,6 +65,11 @@ export interface ToolCanaryCheckResult {
   announced: string[];
   /** Subject keys announced as working again in this run. */
   recovered: string[];
+  /**
+   * Subject keys whose ticket could not be filed. Not empty means the canary
+   * found faults nobody was told about, so the cron answers 5xx.
+   */
+  fileErrors: string[];
   /** Tools skipped, with the reason, so the run's response lists every tool. */
   skippedTools?: Array<{ name: string; reason: string }>;
 }
@@ -113,9 +122,15 @@ function canaryStateOf(links: Prisma.JsonValue | null): CanaryTicketState | unde
   if (!links || typeof links !== "object" || Array.isArray(links)) return undefined;
   const value = links.toolCanary;
   if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
-  const { key, state, since } = value;
+  const { key, state, since, label, unannounced } = value;
   if (typeof key !== "string" || (state !== "failing" && state !== "recovered")) return undefined;
-  return { key, state, since: typeof since === "string" ? since : "" };
+  return {
+    key,
+    state,
+    since: typeof since === "string" ? since : "",
+    ...(typeof label === "string" ? { label } : {}),
+    ...(unannounced === true ? { unannounced: true as const } : {}),
+  };
 }
 
 const TICKET_SELECT = {
@@ -147,12 +162,40 @@ async function claimState(db: PrismaClient, ticket: CanaryTicket, next: CanaryTi
   return claim.count > 0;
 }
 
-async function announce(lead: string, emoji: string, subject: CanarySubject, ticket: CanaryTicket): Promise<void> {
+const LEADS = {
+  failingAgain: { lead: "Tool canary, failing again", emoji: "🔴" },
+  recovered: { lead: "Tool canary, working again", emoji: "✅" },
+} as const;
+
+/** Post one line to the ops room. False when it did not go out (send failed, or Matrix is not configured). */
+async function announce(kind: keyof typeof LEADS, label: string, ticket: CanaryTicket): Promise<boolean> {
+  const { lead, emoji } = LEADS[kind];
   const url = ticketUrl(ticket);
-  await postMatrixOpsMessage({
-    body: `${emoji} ${lead}: ${subject.label}\n${url}`,
-    formattedBody: `${emoji} <strong>${escapeHtml(lead)}:</strong> ${escapeHtml(subject.label)}<br/><a href="${url}">Open ticket</a>`,
+  return postMatrixOpsMessage({
+    body: `${emoji} ${lead}: ${label}\n${url}`,
+    formattedBody: `${emoji} <strong>${escapeHtml(lead)}:</strong> ${escapeHtml(label)}<br/><a href="${url}">Open ticket</a>`,
   });
+}
+
+/**
+ * Announce a state the ticket has just been claimed into. The claim comes
+ * first so two overlapping runs cannot both post; if the post then does not
+ * go out, the ticket is flagged `unannounced` so a later run retries it
+ * instead of the news being lost with the state already recorded.
+ */
+async function announceClaimed(
+  db: PrismaClient,
+  kind: keyof typeof LEADS,
+  ticket: CanaryTicket,
+  state: CanaryTicketState,
+): Promise<boolean> {
+  if (await announce(kind, state.label ?? state.key, ticket)) return true;
+  const links = ticket.links && typeof ticket.links === "object" && !Array.isArray(ticket.links) ? ticket.links : {};
+  await db.ticket.updateMany({
+    where: { id: ticket.id },
+    data: { links: { ...links, toolCanary: { ...state, unannounced: true } } },
+  });
+  return false;
 }
 
 function masked(report: ClientErrorReport): ClientErrorReport {
@@ -167,15 +210,18 @@ function masked(report: ClientErrorReport): ClientErrorReport {
 
 /**
  * File what is failing and announce what recovered. Returns the keys that
- * were announced either way.
+ * were announced either way, and the keys that could not be filed.
  */
 export async function applyCanarySubjects(
   db: PrismaClient,
   subjects: readonly CanarySubject[],
   now: Date = new Date(),
-): Promise<{ announced: string[]; recovered: string[] }> {
+): Promise<{ announced: string[]; recovered: string[]; fileErrors: string[] }> {
   const announced: string[] = [];
   const recovered: string[] = [];
+  const fileErrors: string[] = [];
+  /** Tickets whose state this run already settled; the retry pass leaves them alone. */
+  const touched = new Set<string>();
 
   for (const subject of subjects) {
     if (subject.state !== "failing") continue;
@@ -189,17 +235,20 @@ export async function applyCanarySubjects(
       const ticket = await db.ticket.findUnique({ where: { id: result.ticketId }, select: TICKET_SELECT });
       if (!ticket) continue;
       const previous = canaryStateOf(ticket.links);
-      if (previous?.state === "failing" && previous.key === subject.key) continue; // Nothing new: write nothing.
+      // Nothing new: write nothing. (A post still owed for this state is retried below.)
+      if (previous?.state === "failing" && previous.key === subject.key) continue;
 
-      const claimed = await claimState(db, ticket, { key: subject.key, state: "failing", since: now.toISOString() });
+      touched.add(ticket.id);
+      const next: CanaryTicketState = { key: subject.key, state: "failing", since: now.toISOString(), label: subject.label };
+      const claimed = await claimState(db, ticket, next);
       // A ticket the canary had marked recovered is failing again: that is
       // news, where a ticket first filed from someone's chat is not.
       if (claimed && !result.created && previous?.state === "recovered") {
-        await announce("Tool canary, failing again", "🔴", subject, ticket);
-        announced.push(subject.key);
+        if (await announceClaimed(db, "failingAgain", ticket, next)) announced.push(subject.key);
       }
     } catch (error) {
       console.error(`[tool-canary] could not file ${subject.key}:`, error);
+      fileErrors.push(subject.key);
     }
   }
 
@@ -209,22 +258,51 @@ export async function applyCanarySubjects(
       where: { productId: resolveBugProductId(), links: { path: ["toolCanary", "state"], equals: "failing" } },
       select: TICKET_SELECT,
     });
+    // Two tickets can carry one key (the fault's title changed between runs,
+    // so a second ticket was filed). Both are marked; the room hears it once.
+    const posted = new Set<string>();
     for (const ticket of failingTickets) {
       const state = canaryStateOf(ticket.links);
       const subject = state ? okKeys.get(state.key) : undefined;
       if (!state || !subject) continue;
       try {
-        if (await claimState(db, ticket, { key: state.key, state: "recovered", since: now.toISOString() })) {
-          await announce("Tool canary, working again", "✅", subject, ticket);
-          recovered.push(state.key);
-        }
+        const next: CanaryTicketState = { key: state.key, state: "recovered", since: now.toISOString(), label: subject.label };
+        if (!(await claimState(db, ticket, next))) continue;
+        touched.add(ticket.id);
+        if (posted.has(state.key)) continue;
+        posted.add(state.key);
+        if (await announceClaimed(db, "recovered", ticket, next)) recovered.push(state.key);
       } catch (error) {
         console.error(`[tool-canary] could not mark ${state.key} recovered:`, error);
       }
     }
   }
 
-  return { announced, recovered };
+  // Posts an earlier run owed and could not send (the ops room was down).
+  // Skipped for anything this run just settled: that state is newer.
+  try {
+    const owed = await db.ticket.findMany({
+      where: { productId: resolveBugProductId(), links: { path: ["toolCanary", "unannounced"], equals: true } },
+      select: TICKET_SELECT,
+    });
+    for (const ticket of owed) {
+      const state = canaryStateOf(ticket.links);
+      if (!state?.unannounced || touched.has(ticket.id)) continue;
+      const kind = state.state === "recovered" ? "recovered" : "failingAgain";
+      if (!(await announce(kind, state.label ?? state.key, ticket))) continue;
+      await claimState(db, ticket, {
+        key: state.key,
+        state: state.state,
+        since: state.since,
+        ...(state.label ? { label: state.label } : {}),
+      });
+      (kind === "recovered" ? recovered : announced).push(state.key);
+    }
+  } catch (error) {
+    console.error("[tool-canary] could not retry owed announcements:", error);
+  }
+
+  return { announced, recovered, fileErrors };
 }
 
 /**
@@ -239,10 +317,14 @@ export async function runToolCanaryCheck(
   const baseUrl = env.MASTRA_API_URL?.trim();
   const secret = env.TOOL_CANARY_SECRET?.trim();
   // Off until someone turns it on: an unconfigured canary is not an outage.
-  if (!baseUrl || !secret) return { ran: false, skipped: "not-configured", failing: [], announced: [], recovered: [] };
+  if (!baseUrl || !secret) {
+    return { ran: false, skipped: "not-configured", failing: [], announced: [], recovered: [], fileErrors: [] };
+  }
 
   const outcome = await askMastra(baseUrl, secret, deps.fetch ?? fetch);
-  if (outcome.kind === "busy") return { ran: false, skipped: "busy", failing: [], announced: [], recovered: [] };
+  if (outcome.kind === "busy") {
+    return { ran: false, skipped: "busy", failing: [], announced: [], recovered: [], fileErrors: [] };
+  }
 
   const runnerLabel = "the tool canary itself";
   const subjects: CanarySubject[] =
@@ -261,11 +343,11 @@ export async function runToolCanaryCheck(
         ]
       : [{ key: RUNNER_SUBJECT, label: runnerLabel, state: "ok" }, ...canarySubjects(outcome.report)];
 
-  const { announced, recovered } = await applyCanarySubjects(db, subjects, deps.now);
+  const { announced, recovered, fileErrors } = await applyCanarySubjects(db, subjects, deps.now);
   const failing = subjects.filter((subject) => subject.state === "failing").map((subject) => subject.key);
 
   if (outcome.kind === "failed") {
-    return { ran: true, runnerFailed: outcome.why, failing, announced, recovered };
+    return { ran: true, runnerFailed: outcome.why, failing, announced, recovered, fileErrors };
   }
   const { report } = outcome;
   return {
@@ -276,6 +358,7 @@ export async function runToolCanaryCheck(
     failing,
     announced,
     recovered,
+    fileErrors,
     skippedTools: report.tools
       .filter((tool) => tool.status === "skipped")
       .map((tool) => ({ name: tool.name, reason: tool.reason ?? "no reason given" })),

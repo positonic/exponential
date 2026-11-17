@@ -63,13 +63,18 @@ describe("applyCanarySubjects", () => {
       data: {
         links: {
           sentryIssueId: "client:agent-tool:abc",
-          toolCanary: { key: "tool:queryMeetingContextTool", state: "failing", since: NOW.toISOString() },
+          toolCanary: {
+            key: "tool:queryMeetingContextTool",
+            state: "failing",
+            since: NOW.toISOString(),
+            label: "queryMeetingContextTool",
+          },
         },
       },
     });
     // The creation post is the ingest's; a second one from here would double it.
     expect(postMatrixOpsMessage).not.toHaveBeenCalled();
-    expect(result).toEqual({ announced: ["tool:queryMeetingContextTool"], recovered: [] });
+    expect(result).toEqual({ announced: ["tool:queryMeetingContextTool"], recovered: [], fileErrors: [] });
   });
 
   it("a second failing run adds nothing: no post and no write", async () => {
@@ -82,7 +87,7 @@ describe("applyCanarySubjects", () => {
 
     expect(db.ticket.updateMany).not.toHaveBeenCalled();
     expect(postMatrixOpsMessage).not.toHaveBeenCalled();
-    expect(result).toEqual({ announced: [], recovered: [] });
+    expect(result).toEqual({ announced: [], recovered: [], fileErrors: [] });
   });
 
   it("marks a ticket first filed from someone's chat as failing without a second announcement", async () => {
@@ -97,7 +102,7 @@ describe("applyCanarySubjects", () => {
   });
 
   it("posts once when a failing tool answers again, and marks the ticket recovered", async () => {
-    db.ticket.findMany.mockResolvedValue([
+    db.ticket.findMany.mockResolvedValueOnce([
       ticket({ toolCanary: { key: "tool:queryMeetingContextTool", state: "failing", since: "2026-11-16T06:30:00.000Z" } }),
       // Still failing in this run (no ok subject for it): left alone.
       { ...ticket({ toolCanary: { key: "tool:otherTool", state: "failing", since: "x" } }), id: "ticket-2" },
@@ -114,18 +119,27 @@ describe("applyCanarySubjects", () => {
     expect(db.ticket.updateMany).toHaveBeenCalledWith(
       expect.objectContaining({
         where: { id: "ticket-1", updatedAt: new Date("2026-11-16T00:00:00.000Z") },
-        data: { links: { toolCanary: { key: "tool:queryMeetingContextTool", state: "recovered", since: NOW.toISOString() } } },
+        data: {
+          links: {
+            toolCanary: {
+              key: "tool:queryMeetingContextTool",
+              state: "recovered",
+              since: NOW.toISOString(),
+              label: "queryMeetingContextTool",
+            },
+          },
+        },
       }),
     );
     expect(postMatrixOpsMessage).toHaveBeenCalledTimes(1);
     expect(postMatrixOpsMessage.mock.calls[0]![0].body).toBe(
       "✅ Tool canary, working again: queryMeetingContextTool\nhttps://app.example.test/w/exponential/products/exponential/tickets/970",
     );
-    expect(result).toEqual({ announced: [], recovered: ["tool:queryMeetingContextTool"] });
+    expect(result).toEqual({ announced: [], recovered: ["tool:queryMeetingContextTool"], fileErrors: [] });
   });
 
   it("stays quiet about recovery when another run already claimed it", async () => {
-    db.ticket.findMany.mockResolvedValue([
+    db.ticket.findMany.mockResolvedValueOnce([
       ticket({ toolCanary: { key: "tool:queryMeetingContextTool", state: "failing", since: "x" } }),
     ] as never);
     db.ticket.updateMany.mockResolvedValue({ count: 0 });
@@ -153,8 +167,14 @@ describe("applyCanarySubjects", () => {
     fileHandledErrorBug.mockResolvedValue(null);
     const result = await applyCanarySubjects(db, [failingTool], NOW);
     expect(db.ticket.findUnique).not.toHaveBeenCalled();
-    expect(db.ticket.findMany).not.toHaveBeenCalled();
-    expect(result).toEqual({ announced: [], recovered: [] });
+    // Only the look for owed posts, never the recovery sweep.
+    expect(db.ticket.findMany).toHaveBeenCalledTimes(1);
+    expect(db.ticket.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { productId: "prod-bugs", links: { path: ["toolCanary", "unannounced"], equals: true } },
+      }),
+    );
+    expect(result).toEqual({ announced: [], recovered: [], fileErrors: [] });
   });
 
   it("keeps filing the rest when one subject fails to file", async () => {
@@ -165,6 +185,83 @@ describe("applyCanarySubjects", () => {
     const result = await applyCanarySubjects(db, [failingTool, second], NOW);
 
     expect(result.announced).toEqual(["tool:other"]);
+    // The fault that could not be filed is named, so the cron can fail loudly.
+    expect(result.fileErrors).toEqual(["tool:queryMeetingContextTool"]);
+  });
+
+  it("posts 'working again' once when two tickets carry the same key, and marks both", async () => {
+    db.ticket.findMany.mockResolvedValueOnce([
+      ticket({ toolCanary: { key: "tool:queryMeetingContextTool", state: "failing", since: "x" } }),
+      { ...ticket({ toolCanary: { key: "tool:queryMeetingContextTool", state: "failing", since: "y" } }), id: "ticket-2", number: 971 },
+    ] as never);
+
+    const result = await applyCanarySubjects(db, [okTool], NOW);
+
+    expect(db.ticket.updateMany).toHaveBeenCalledTimes(2);
+    expect(postMatrixOpsMessage).toHaveBeenCalledTimes(1);
+    expect(result.recovered).toEqual(["tool:queryMeetingContextTool"]);
+  });
+
+  it("flags a post that did not go out, and a later run sends it once and clears the flag", async () => {
+    // Run 1: the tool recovers while the ops room is down.
+    postMatrixOpsMessage.mockResolvedValue(false);
+    db.ticket.findMany.mockResolvedValueOnce([
+      ticket({ toolCanary: { key: "tool:queryMeetingContextTool", state: "failing", since: "x" } }),
+    ] as never);
+
+    const first = await applyCanarySubjects(db, [okTool], NOW);
+
+    expect(first.recovered).toEqual([]);
+    const flagged = {
+      key: "tool:queryMeetingContextTool",
+      state: "recovered",
+      since: NOW.toISOString(),
+      label: "queryMeetingContextTool",
+      unannounced: true,
+    };
+    expect(db.ticket.updateMany).toHaveBeenLastCalledWith({
+      where: { id: "ticket-1" },
+      data: { links: { toolCanary: flagged } },
+    });
+
+    // Run 2: nothing changed for the tool, the room is back.
+    vi.clearAllMocks();
+    postMatrixOpsMessage.mockResolvedValue(true);
+    db.ticket.updateMany.mockResolvedValue({ count: 1 });
+    db.ticket.findMany.mockResolvedValueOnce([]).mockResolvedValueOnce([ticket({ toolCanary: flagged })] as never);
+
+    const second = await applyCanarySubjects(db, [okTool], NOW);
+
+    expect(postMatrixOpsMessage).toHaveBeenCalledTimes(1);
+    expect(postMatrixOpsMessage.mock.calls[0]![0].body).toContain("working again: queryMeetingContextTool");
+    expect(second.recovered).toEqual(["tool:queryMeetingContextTool"]);
+    expect(db.ticket.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: {
+          links: {
+            toolCanary: {
+              key: "tool:queryMeetingContextTool",
+              state: "recovered",
+              since: NOW.toISOString(),
+              label: "queryMeetingContextTool",
+            },
+          },
+        },
+      }),
+    );
+  });
+
+  it("leaves an owed post owed while the ops room is still down: no write, no claim of success", async () => {
+    postMatrixOpsMessage.mockResolvedValue(false);
+    fileHandledErrorBug.mockResolvedValue(null);
+    db.ticket.findMany.mockResolvedValueOnce([
+      ticket({ toolCanary: { key: "tool:x", state: "failing", since: "x", label: "x", unannounced: true } }),
+    ] as never);
+
+    const result = await applyCanarySubjects(db, [failingTool], NOW);
+
+    expect(db.ticket.updateMany).not.toHaveBeenCalled();
+    expect(result).toEqual({ announced: [], recovered: [], fileErrors: [] });
   });
 
   it("masks token-like text before it reaches a ticket", async () => {
@@ -241,8 +338,10 @@ describe("runToolCanaryCheck", () => {
       area: "tool-canary",
       message: `the tool canary could not run (${why})`,
     });
-    // No report, so no tool can be declared working again.
-    expect(db.ticket.findMany).not.toHaveBeenCalled();
+    // No report, so no tool can be declared working again: the recovery sweep never runs.
+    expect(db.ticket.findMany).not.toHaveBeenCalledWith(
+      expect.objectContaining({ where: expect.objectContaining({ links: { path: ["toolCanary", "state"], equals: "failing" } }) }),
+    );
   });
 
   it("treats a run already in flight as nothing to do", async () => {
