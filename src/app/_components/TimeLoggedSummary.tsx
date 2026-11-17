@@ -6,6 +6,7 @@ import { api } from "~/trpc/react";
 import { formatMinutes } from "~/app/_components/metrics/format";
 import { PropertyRow } from "~/app/_components/PropertiesSidebar";
 import type { ProjectTimeReport } from "~/server/services/timeEntry/projectTimeReport";
+import { useActiveTimerContext } from "~/hooks/useActiveTimer";
 
 /**
  * Logged time where nobody picks it: on a Ticket, rolled up to its Feature,
@@ -16,6 +17,14 @@ import type { ProjectTimeReport } from "~/server/services/timeEntry/projectTimeR
  * it per person; proposed (unconfirmed worklog) and agent-run time are named
  * beside it, never added in.
  */
+
+/** While a timer runs the totals grow; refresh them once a minute. */
+const RUNNING_REFRESH_MS = 60_000;
+
+function useSummaryRefresh() {
+  const isRunning = useActiveTimerContext()?.isRunning ?? false;
+  return { refetchInterval: isRunning ? RUNNING_REFRESH_MS : (false as const) };
+}
 
 function hasAnyTime(report: ProjectTimeReport): boolean {
   return report.people.length > 0 || report.agentRunMinutes > 0;
@@ -125,7 +134,7 @@ function RowValue({ report, isLoading }: { report: ProjectTimeReport | undefined
 
 /** "Time" row for the ticket sidebar. Hidden when the caller can't read it. */
 export function TicketTimeRow({ ticketId }: { ticketId: string }) {
-  const { data, isLoading, error } = api.timeEntry.ticketSummary.useQuery({ ticketId });
+  const { data, isLoading, error } = api.timeEntry.ticketSummary.useQuery({ ticketId }, useSummaryRefresh());
   if (error) return null;
   return (
     <PropertyRow icon={<IconClockHour4 size={14} />} label="Time">
@@ -136,7 +145,7 @@ export function TicketTimeRow({ ticketId }: { ticketId: string }) {
 
 /** "Time" row for the feature sidebar: the sum over its tickets. */
 export function FeatureTimeRow({ featureId }: { featureId: string }) {
-  const { data, isLoading, error } = api.timeEntry.featureSummary.useQuery({ featureId });
+  const { data, isLoading, error } = api.timeEntry.featureSummary.useQuery({ featureId }, useSummaryRefresh());
   if (error) return null;
   return (
     <PropertyRow icon={<IconClockHour4 size={14} />} label="Time">
@@ -147,10 +156,11 @@ export function FeatureTimeRow({ featureId }: { featureId: string }) {
 
 /**
  * "Time logged" stat for the cycle summary: time that started inside the
- * cycle's dates on its product's tickets.
+ * cycle's dates on its product's tickets, or on any ticket in the workspace
+ * for a legacy workspace-shared cycle (`productId: null`).
  */
-export function CycleTimeStat({ cycleId }: { cycleId: string }) {
-  const { data, isLoading, error } = api.timeEntry.cycleSummary.useQuery({ cycleId });
+export function CycleTimeStat({ cycleId, workspaceShared }: { cycleId: string; workspaceShared: boolean }) {
+  const { data, isLoading, error } = api.timeEntry.cycleSummary.useQuery({ cycleId }, useSummaryRefresh());
   if (error) return null;
   return (
     <div>
@@ -165,7 +175,11 @@ export function CycleTimeStat({ cycleId }: { cycleId: string }) {
         <TimeTotal
           report={data}
           variant="stat"
-          note="Time that started between the cycle's dates, on any of this product's tickets."
+          note={
+            workspaceShared
+              ? "Time that started between the cycle's dates, on any ticket in this workspace."
+              : "Time that started between the cycle's dates, on any of this product's tickets."
+          }
         />
       ) : (
         <Title order={4} className="text-text-primary">

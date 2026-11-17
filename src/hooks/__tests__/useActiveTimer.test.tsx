@@ -15,11 +15,12 @@ vi.hoisted(() => {
   process.env.AUTH_DISCORD_SECRET ??= "test";
 });
 
-const { mockGetActive, mockStopMutate, mockInvalidate, useStopMock } =
+const { mockGetActive, mockStopMutate, mockInvalidate, mockSummaryInvalidate, useStopMock } =
   vi.hoisted(() => ({
     mockGetActive: vi.fn(),
     mockStopMutate: vi.fn(),
     mockInvalidate: vi.fn(() => Promise.resolve()),
+    mockSummaryInvalidate: vi.fn(() => Promise.resolve()),
     useStopMock: vi.fn(),
   }));
 
@@ -29,6 +30,10 @@ vi.mock("~/trpc/react", () => ({
       timeEntry: {
         getActive: { invalidate: mockInvalidate },
         listRecent: { invalidate: mockInvalidate },
+        ticketSummary: { invalidate: mockSummaryInvalidate },
+        featureSummary: { invalidate: mockSummaryInvalidate },
+        cycleSummary: { invalidate: mockSummaryInvalidate },
+        projectSummary: { invalidate: mockSummaryInvalidate },
       },
     }),
     timeEntry: {
@@ -53,6 +58,7 @@ beforeEach(() => {
   mockGetActive.mockReset();
   mockStopMutate.mockReset();
   mockInvalidate.mockReset();
+  mockSummaryInvalidate.mockReset();
   useStopMock.mockReset();
   // Default stop mutation shape
   useStopMock.mockImplementation(() => ({
@@ -148,5 +154,45 @@ describe("formatElapsedClock", () => {
 
   it("clamps negative input to 00:00", () => {
     expect(formatElapsedClock(-1)).toBe("00:00");
+  });
+});
+
+describe("useActiveTimer keeps logged-time totals fresh", () => {
+  const running = { id: "entry-1", startedAt: new Date(), action: { id: "a", name: "x" } };
+
+  it("the first load refreshes nothing", () => {
+    mockGetActive.mockReturnValue({ data: running, isLoading: false });
+    renderHook(() => useActiveTimer());
+    expect(mockSummaryInvalidate).not.toHaveBeenCalled();
+  });
+
+  it("a timer stopping elsewhere (running entry gone) refreshes the ticket, feature, cycle and project totals", () => {
+    mockGetActive.mockReturnValue({ data: running, isLoading: false });
+    const { rerender } = renderHook(() => useActiveTimer());
+    mockGetActive.mockReturnValue({ data: null, isLoading: false });
+    rerender();
+    expect(mockSummaryInvalidate).toHaveBeenCalledTimes(4);
+  });
+
+  it("a new timer starting refreshes them too", () => {
+    mockGetActive.mockReturnValue({ data: null, isLoading: false });
+    const { rerender } = renderHook(() => useActiveTimer());
+    mockGetActive.mockReturnValue({ data: running, isLoading: false });
+    rerender();
+    expect(mockSummaryInvalidate).toHaveBeenCalledTimes(4);
+  });
+
+  it("a successful Stop here refreshes them", async () => {
+    let onSuccess: (() => Promise<void> | void) | undefined;
+    useStopMock.mockImplementation((opts: { onSuccess?: () => Promise<void> | void }) => {
+      onSuccess = opts.onSuccess;
+      return { mutate: mockStopMutate, isPending: false };
+    });
+    mockGetActive.mockReturnValue({ data: running, isLoading: false });
+    renderHook(() => useActiveTimer());
+    await act(async () => {
+      await onSuccess?.();
+    });
+    expect(mockSummaryInvalidate).toHaveBeenCalledTimes(4);
   });
 });

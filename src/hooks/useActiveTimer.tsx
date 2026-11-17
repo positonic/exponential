@@ -5,6 +5,7 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useRef,
   useState,
   type ReactNode,
 } from "react";
@@ -48,11 +49,26 @@ export function useActiveTimer() {
     ? Math.max(0, now - new Date(entry.startedAt).getTime())
     : 0;
 
+  // Logged-time totals (ticket, feature, cycle, project) count the running
+  // entry, so a timer starting or stopping anywhere (here, the plugin,
+  // another device) makes them stale. Refresh them whenever the running
+  // entry changes identity, once the first load has settled.
+  const lastEntryId = useRef<string | null | undefined>(undefined);
+  useEffect(() => {
+    if (isLoading) return;
+    const id = entry?.id ?? null;
+    if (lastEntryId.current !== undefined && lastEntryId.current !== id) {
+      void invalidateTimeSummaries(utils);
+    }
+    lastEntryId.current = id;
+  }, [entry?.id, isLoading, utils]);
+
   const stopMutation = api.timeEntry.stop.useMutation({
     onSuccess: async () => {
       await Promise.all([
         utils.timeEntry.getActive.invalidate(),
         utils.timeEntry.listRecent.invalidate(),
+        invalidateTimeSummaries(utils),
       ]);
     },
   });
@@ -70,6 +86,16 @@ export function useActiveTimer() {
     stop,
     isStopping: stopMutation.isPending,
   };
+}
+
+/** Every logged-time total that a start or stop can change. */
+function invalidateTimeSummaries(utils: ReturnType<typeof api.useUtils>) {
+  return Promise.all([
+    utils.timeEntry.ticketSummary.invalidate(),
+    utils.timeEntry.featureSummary.invalidate(),
+    utils.timeEntry.cycleSummary.invalidate(),
+    utils.timeEntry.projectSummary.invalidate(),
+  ]);
 }
 
 export type ActiveTimerContextValue = ReturnType<typeof useActiveTimer>;

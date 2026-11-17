@@ -281,7 +281,7 @@ export function CycleDetailClient() {
               {donePoints} / {totalPoints}
             </Title>
           </div>
-          <CycleTimeStat cycleId={cycleId} />
+          <CycleTimeStat cycleId={cycleId} workspaceShared={cycle.productId === null} />
         </Group>
       </Card>
 
